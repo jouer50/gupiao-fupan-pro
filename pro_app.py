@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 0. 全局配置 (必须在第一行)
+# 0. 全局配置 & 强力界面隐藏
 # ==========================================
 st.set_page_config(
     page_title="A股深度复盘系统 Pro",
@@ -19,22 +19,33 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 🚫 核心修改：注入 CSS 隐藏 Streamlit 自带的“应用管理”、菜单栏和页脚
-hide_streamlit_style = """
+# 🚫 强力隐藏 Streamlit 原生菜单、页脚、头部
+hide_css = """
 <style>
-    /* 隐藏右上角汉堡菜单 (三个点) */
-    #MainMenu {visibility: hidden;}
-    /* 隐藏顶部 Header 色块 */
-    header {visibility: hidden;}
-    /* 隐藏底部 "Made with Streamlit" */
-    footer {visibility: hidden;}
-    /* 隐藏 Deploy 按钮 (如果有) */
-    .stDeployButton {display:none;}
+    /* 隐藏顶部 Header 区域 */
+    header[data-testid="stHeader"] {
+        display: none;
+    }
+    /* 隐藏右上角汉堡菜单和 Deploy 按钮 */
+    div[data-testid="stToolbar"] {
+        display: none;
+    }
+    div[data-testid="stDecoration"] {
+        display: none;
+    }
+    /* 隐藏底部 Footer */
+    footer {
+        display: none;
+    }
+    /* 调整顶部空白，让内容上移 */
+    .block-container {
+        padding-top: 1rem;
+    }
 </style>
 """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+st.markdown(hide_css, unsafe_allow_html=True)
 
-# 👑 核心修改：设置管理员用户名为 ZCX001
+# 👑 设置管理员用户名为 ZCX001
 ADMIN_USERNAME = "ZCX001"
 
 # Optional deps
@@ -49,26 +60,25 @@ except Exception:
     bs = None
 
 # ==========================================
-# 🔐 第一部分：用户系统 & 积分管理
+# 🔐 第一部分：用户数据库 & 积分逻辑
 # ==========================================
 
 USER_DB_FILE = "users.csv"
 
 def init_db():
+    # 如果文件不存在，创建
     if not os.path.exists(USER_DB_FILE):
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota"])
         df.to_csv(USER_DB_FILE, index=False)
     else:
+        # 简单的自动修复：确保列存在
         df = pd.read_csv(USER_DB_FILE)
         changed = False
-        if "watchlist" not in df.columns:
-            df["watchlist"] = ""
-            changed = True
         if "quota" not in df.columns:
             df["quota"] = 20
             changed = True
-        if "expiry_date" in df.columns:
-            df = df.drop(columns=["expiry_date"])
+        if "watchlist" not in df.columns:
+            df["watchlist"] = ""
             changed = True
         if changed:
             df.to_csv(USER_DB_FILE, index=False)
@@ -85,11 +95,12 @@ def save_user(username, password):
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
     df = load_users()
+    # 新用户默认送 20 积分
     new_user = pd.DataFrame({
         "username": [username], 
         "password_hash": [hashed], 
         "watchlist": [""],
-        "quota": [20] # 新用户送20次
+        "quota": [20] 
     })
     df = pd.concat([df, new_user], ignore_index=True)
     save_users_df(df)
@@ -108,8 +119,19 @@ def update_user_quota(target_username, new_quota):
         return True
     return False
 
+def get_current_quota(username):
+    if username == ADMIN_USERNAME:
+        return 99999 # 管理员显示逻辑用
+    df = load_users()
+    user = df[df["username"] == username]
+    if user.empty: return 0
+    return int(user.iloc[0]["quota"])
+
 def consume_quota(username):
-    if username == ADMIN_USERNAME: return True # 管理员无限
+    # 管理员不扣费
+    if username == ADMIN_USERNAME:
+        return True
+        
     df = load_users()
     idx = df[df["username"] == username].index
     if len(idx) > 0:
@@ -119,13 +141,6 @@ def consume_quota(username):
             save_users_df(df)
             return True
     return False
-
-def get_current_quota(username):
-    if username == ADMIN_USERNAME: return 99999
-    df = load_users()
-    user = df[df["username"] == username]
-    if user.empty: return 0
-    return int(user.iloc[0]["quota"])
 
 def verify_login(username, password):
     df = load_users()
@@ -138,6 +153,7 @@ def verify_login(username, password):
     except: return False, "❌ 密码校验失败"
     return True, "Login Success"
 
+# --- 自选股 ---
 def get_user_watchlist(username):
     df = load_users()
     user_row = df[df["username"] == username]
@@ -160,30 +176,33 @@ def toggle_watchlist(username, stock_code):
     save_users_df(df)
     return action
 
+# --- 验证码 ---
 def generate_captcha():
     chars = string.ascii_uppercase + string.digits
     code = ''.join(random.choice(chars) for _ in range(4))
     return code
 
 def login_page():
-    st.markdown("<h1 style='text-align: center;'>🔐 A股深度复盘系统 Pro</h1>", unsafe_allow_html=True)
+    # 登录页简单样式
+    st.markdown("<br><h1 style='text-align: center;'>🔐 A股深度复盘系统 Pro</h1>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if "captcha_code" not in st.session_state: st.session_state["captcha_code"] = generate_captcha()
-        tab1, tab2 = st.tabs(["🔑 用户登录", "📝 注册试用"])
+        
+        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
         with tab1:
-            st.caption(f"管理员仅供内部使用")
             login_user = st.text_input("用户名", key="l_user")
             login_pass = st.text_input("密码", type="password", key="l_pass")
             c1, c2 = st.columns([2, 1])
             with c1: captcha_input = st.text_input("验证码", placeholder="不区分大小写")
             with c2:
-                st.markdown(f"## `{st.session_state['captcha_code']}`")
-                if st.button("刷新", key="refresh_cap"):
+                st.markdown(f"### `{st.session_state['captcha_code']}`")
+                if st.button("🔄"):
                     st.session_state["captcha_code"] = generate_captcha(); st.rerun()
+            
             if st.button("登录", type="primary", use_container_width=True):
                 if captcha_input.upper() != st.session_state["captcha_code"]:
-                    st.error("❌ 验证码错误")
+                    st.error("验证码错误")
                     st.session_state["captcha_code"] = generate_captcha()
                 else:
                     is_valid, msg = verify_login(login_user, login_pass)
@@ -193,24 +212,24 @@ def login_page():
                     else:
                         st.session_state["logged_in"] = True
                         st.session_state["current_user"] = login_user
-                        st.success("登录成功！")
+                        st.success("登录成功")
                         time.sleep(0.5); st.rerun()
         with tab2:
-            st.caption("🎁 注册即送 20 次查询积分")
+            st.info("新用户注册送 20 积分")
             new_user = st.text_input("新用户名", key="r_user")
             new_pass = st.text_input("设置密码", type="password", key="r_pass")
             new_pass2 = st.text_input("确认密码", type="password", key="r_pass2")
-            if st.button("注册账号", use_container_width=True):
+            if st.button("注册", use_container_width=True):
                 df = load_users()
-                if new_user in df["username"].values: st.warning("⚠️ 用户名已存在")
-                elif len(new_pass) < 4: st.warning("⚠️ 密码至少4位")
-                elif new_pass != new_pass2: st.error("❌ 两次密码不一致")
+                if new_user in df["username"].values: st.warning("用户名已存在")
+                elif len(new_pass) < 4: st.warning("密码太短")
+                elif new_pass != new_pass2: st.error("两次密码不一致")
                 else:
                     save_user(new_user, new_pass)
-                    st.success("✅ 注册成功！请登录。")
+                    st.success("注册成功！请登录。")
 
 # ==========================================
-# 📈 第二部分：核心功能
+# 📈 第二部分：股票核心逻辑
 # ==========================================
 
 def _to_ts_code(symbol: str) -> str:
@@ -232,9 +251,8 @@ def get_stock_name(symbol: str, token: str = "") -> str:
     name = ""
     if token and ts is not None:
         try:
-            ts_code = _to_ts_code(symbol)
             pro = ts.pro_api(token)
-            df = pro.stock_basic(ts_code=ts_code, fields='name')
+            df = pro.stock_basic(ts_code=_to_ts_code(symbol), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
     if bs is not None:
@@ -267,26 +285,11 @@ def fetch_fundamentals(symbol: str, token: str):
             df_fin = pro.fina_indicator(ts_code=ts_code, fields='roe,q_dt')
             if not df_fin.empty: data["roe"] = f"{df_fin.iloc[0]['roe']:.2f}%"
         except: pass
-    if data["pe"] == "N/A" and bs is not None:
-        try:
-            bs_code = _to_bs_code(symbol)
-            lg = bs.login()
-            if lg.error_code == '0':
-                import datetime
-                end = datetime.date.today().strftime("%Y-%m-%d")
-                start = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
-                rs = bs.query_history_k_data_plus(bs_code, "date,peTTM,pbMRQ", start_date=start, end_date=end, frequency="d")
-                rows = rs.get_data()
-                if not rows.empty:
-                    last = rows.iloc[-1]
-                    data["pe"] = last["peTTM"]
-                    data["pb"] = last["pbMRQ"]
-            bs.logout()
-        except: pass
     return data
 
 @st.cache_data(ttl=60 * 15, show_spinner=False)
 def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") -> pd.DataFrame:
+    # 优先 Tushare
     if token and ts is not None:
         try:
             pro = ts.pro_api(token)
@@ -301,25 +304,26 @@ def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") ->
                         af = af.rename(columns={"trade_date": "date", "adj_factor": "factor"})
                         df = df.merge(af[["date", "factor"]], on="date", how="left")
                         df["factor"] = df["factor"].ffill().bfill()
-                        if adjust == "qfq": adj_col = df["factor"] / df["factor"].iloc[-1]
-                        else: adj_col = df["factor"] / df["factor"].iloc[0]
-                        for col in ["open", "high", "low", "close"]: df[col] = df[col] * adj_col
+                        if adjust == "qfq": adj = df["factor"] / df["factor"].iloc[-1]
+                        else: adj = df["factor"] / df["factor"].iloc[0]
+                        for col in ["open", "high", "low", "close"]: df[col] = df[col] * adj
                 df = df.rename(columns={"trade_date": "date", "vol": "volume", "pct_chg": "pct_change"})
                 df["date"] = pd.to_datetime(df["date"])
                 for col in ["open", "high", "low", "close", "volume", "pct_change"]:
                     if col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
                 return df.sort_values("date").reset_index(drop=True).tail(days)
         except: pass
-
+    
+    # Baostock 兜底
     if bs is None: return pd.DataFrame()
     lg = bs.login()
     if lg.error_code != "0": return pd.DataFrame()
     end = pd.Timestamp.today()
     start = end - pd.Timedelta(days=days * 3)
     code = _to_bs_code(symbol)
-    adj_flag = "2" if adjust == "qfq" else "1" if adjust == "hfq" else "3"
+    adj = "2" if adjust == "qfq" else "1" if adjust == "hfq" else "3"
     rs = bs.query_history_k_data_plus(code, "date,open,high,low,close,volume,amount,pctChg",
-        start_date=start.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"), frequency="d", adjustflag=adj_flag)
+        start_date=start.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"), frequency="d", adjustflag=adj)
     data = []
     while rs.error_code == "0" and rs.next(): data.append(rs.get_row_data())
     bs.logout()
@@ -336,47 +340,25 @@ def calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     mid, std = df["MA20"], close.rolling(20).std()
     df["Upper"], df["Lower"] = mid + 2*std, mid - 2*std
     delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rs = gain / (loss + 1e-9)
-    df["RSI"] = 100 - (100 / (1 + rs))
+    gain, loss = delta.clip(lower=0).rolling(14).mean(), (-delta.clip(upper=0)).rolling(14).mean()
+    df["RSI"] = 100 - (100 / (1 + gain / (loss + 1e-9)))
     ema12, ema26 = close.ewm(span=12).mean(), close.ewm(span=26).mean()
-    df["DIF"] = ema12 - ema26
-    df["DEA"] = df["DIF"].ewm(span=9).mean()
+    df["DIF"], df["DEA"] = ema12 - ema26, (ema12 - ema26).ewm(span=9).mean()
     df["HIST"] = df["DIF"] - df["DEA"]
-    low_n, high_n = low.rolling(9).min(), high.rolling(9).max()
-    rsv = (close - low_n) / (high_n - low_n + 1e-9) * 100
-    df["K"] = rsv.ewm(com=2).mean()
-    df["D"] = df["K"].ewm(com=2).mean()
-    df["J"] = 3 * df["K"] - 2 * df["D"]
     tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
     df["ATR14"] = tr.rolling(14).mean()
-    up_move, down_move = high.diff(), -low.diff()
-    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    up, down = high.diff(), -low.diff()
+    p_dm = np.where((up > down) & (up > 0), up, 0.0)
+    m_dm = np.where((down > up) & (down > 0), down, 0.0)
     tr14 = tr.rolling(14).sum()
-    plus_di = 100 * pd.Series(plus_dm, index=df.index).rolling(14).sum() / (tr14 + 1e-9)
-    minus_di = 100 * pd.Series(minus_dm, index=df.index).rolling(14).sum() / (tr14 + 1e-9)
-    df["ADX"] = (abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9) * 100).rolling(14).mean()
-    df["OBV"] = (np.sign(close.diff()).fillna(0) * vol).cumsum()
+    p_di, m_di = 100 * pd.Series(p_dm, index=df.index).rolling(14).sum() / (tr14+1e-9), 100 * pd.Series(m_dm, index=df.index).rolling(14).sum() / (tr14+1e-9)
+    df["ADX"] = (abs(p_di - m_di) / (p_di + m_di + 1e-9) * 100).rolling(14).mean()
     df["VOL_RATIO"] = vol / (vol.rolling(20).mean() + 1e-9)
+    # Ichimoku
     tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
     kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
     df["SPAN_A"] = ((tenkan + kijun) / 2).shift(26)
     df["SPAN_B"] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-    af, max_af, trend, ep, sar = 0.02, 0.2, 1, low.iloc[0], close.copy()
-    sar.iloc[0] = low.iloc[0]
-    for i in range(1, len(df)):
-        prev_sar = sar.iloc[i-1]
-        if trend == 1:
-            sar.iloc[i] = prev_sar + af * (ep - prev_sar)
-            if low.iloc[i] < sar.iloc[i]: trend, sar.iloc[i], ep, af = -1, ep, high.iloc[i], 0.02
-            elif high.iloc[i] > ep: ep, af = high.iloc[i], min(af + 0.02, max_af)
-        else:
-            sar.iloc[i] = prev_sar + af * (ep - prev_sar)
-            if high.iloc[i] > sar.iloc[i]: trend, sar.iloc[i], ep, af = 1, ep, low.iloc[i], 0.02
-            elif low.iloc[i] < ep: ep, af = low.iloc[i], min(af + 0.02, max_af)
-    df["SAR"] = sar
     return df
 
 def detect_fractals(df: pd.DataFrame, k: int = 2):
@@ -398,11 +380,11 @@ def build_bi_segments(df: pd.DataFrame):
     return segs
 
 def gann_lines(df: pd.DataFrame):
-    pivot_idx = df["low"].idxmin()
-    pivot_date, pivot_price = df.loc[pivot_idx, "date"], df.loc[pivot_idx, "low"]
-    days = (df["date"] - pivot_date).dt.days
-    step = df["ATR14"].iloc[-1] or pivot_price * 0.01
-    return {name: pivot_price + days * step * ratio for name, ratio in [("1x1", 1), ("1x2", 0.5), ("2x1", 2)]}
+    p_idx = df["low"].idxmin()
+    p_date, p_price = df.loc[p_idx, "date"], df.loc[p_idx, "low"]
+    days = (df["date"] - p_date).dt.days
+    step = df["ATR14"].iloc[-1] or p_price * 0.01
+    return {n: p_price + days * step * r for n, r in [("1x1", 1), ("1x2", 0.5), ("2x1", 2)]}
 
 def fib_levels(df: pd.DataFrame):
     chunk = df.tail(120)
@@ -430,7 +412,6 @@ def make_signals(df: pd.DataFrame):
     elif latest["DIF"] < latest["DEA"]: score -= 1; reasons.append("❌ MACD死叉")
     if latest["RSI"] < 30: score += 2; reasons.append("📉 RSI超卖")
     elif latest["RSI"] > 70: score -= 2; reasons.append("📈 RSI超买")
-    if latest["MFI"] < 20: score += 1; reasons.append("💧 MFI资金流出极值")
     if latest["VOL_RATIO"] >= 1.2: score += 1; reasons.append("✅ 放量")
     
     if score >= 5: action, pos, color = "🚀 强势买入", "70%+", "success"
@@ -438,8 +419,7 @@ def make_signals(df: pd.DataFrame):
     elif score >= 0: action, pos, color = "👀 观望", "20%↓", "warning"
     else: action, pos, color = "🛑 减仓/空仓", "0-10%", "error"
     
-    support = df["low"].tail(20).min()
-    resistance = df["high"].tail(20).max()
+    support, resistance = df["low"].tail(20).min(), df["high"].tail(20).max()
     buy_sig = (prev["MA5"] <= prev["MA20"] and latest["MA5"] > latest["MA20"])
     sell_sig = (prev["MA5"] >= prev["MA20"] and latest["MA5"] < latest["MA20"])
     return score, action, pos, reasons, color, buy_sig, sell_sig, support, resistance
@@ -470,191 +450,133 @@ def plot_kline(df: pd.DataFrame, title: str, show_gann: bool, show_chanlun: bool
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 🚀 主界面逻辑
+# 🚀 主程序入口
 # ==========================================
 def main_stock_system():
     if "stock_code" not in st.session_state: st.session_state["stock_code"] = "600519"
-    # 状态：数据是否已加载
     if "data_loaded" not in st.session_state: st.session_state["data_loaded"] = False
     
     with st.sidebar:
         user = st.session_state['current_user']
-        # --- 身份标识 ---
-        if user == ADMIN_USERNAME:
-            st.success(f"👑 尊贵的管理员: {user}")
-        else:
-            st.info(f"👤 普通用户: {user}")
         
+        # 1. 顶部醒目的积分显示
         quota = get_current_quota(user)
         if quota > 90000:
-            st.caption("💰 积分: 无限")
+            st.metric("👤 管理员", "ZCX001", delta="无限积分")
         else:
-            st.caption(f"💰 剩余积分: **{quota}** 次")
+            st.metric("💰 剩余积分", f"{quota} 次", help="每次刷新或查询消耗 1 积分")
             
-        if st.button("🚪 退出登录", type="primary"):
-            st.session_state["logged_in"] = False
-            st.rerun()
-            
-        # =======================================
-        # 👮‍♂️ 管理员后台入口 (仅 ZCX001 可见)
-        # =======================================
-        if st.session_state['current_user'] == ADMIN_USERNAME:
-            with st.expander("👮‍♂️ 管理员控制台", expanded=False):
-                st.caption("用户积分管理")
+        if st.button("🚪 退出登录"):
+            st.session_state["logged_in"] = False; st.rerun()
+
+        # 2. 管理员后台 (Strict Check)
+        if user == ADMIN_USERNAME:
+            with st.expander("👮‍♂️ 管理员后台", expanded=True):
                 all_users = load_users()
-                st.dataframe(all_users[["username", "quota", "watchlist"]], use_container_width=True)
+                st.dataframe(all_users[["username", "quota"]], use_container_width=True)
                 
                 user_list = all_users["username"].tolist()
                 if ADMIN_USERNAME in user_list: user_list.remove(ADMIN_USERNAME)
+                target = st.selectbox("选择用户", ["请选择"]+user_list)
                 
-                selected_user = st.selectbox("选择用户", ["请选择"] + user_list)
-                if selected_user != "请选择":
-                    col_q, col_act = st.columns(2)
-                    with col_q:
-                        curr_q = int(all_users[all_users["username"]==selected_user]["quota"].iloc[0])
-                        new_q = st.number_input("设置积分", value=curr_q, step=10)
-                    with col_act:
-                        if st.button("💾 保存积分"):
-                            update_user_quota(selected_user, new_q)
-                            st.success(f"已更新 {selected_user} 积分为 {new_q}")
-                            time.sleep(1)
-                            st.rerun()
-                        if st.button("❌ 删除用户"):
-                            delete_user(selected_user)
-                            st.rerun()
+                if target != "请选择":
+                    q = st.number_input("设置积分", value=int(all_users[all_users["username"]==target]["quota"].iloc[0]), step=10)
+                    if st.button("💾 保存"):
+                        update_user_quota(target, q); st.success("已保存"); time.sleep(1); st.rerun()
+                    if st.button("❌ 删除"):
+                        delete_user(target); st.rerun()
 
         st.divider()
-        st.markdown("### 🌟 我的自选股")
-        user_w = get_user_watchlist(st.session_state['current_user'])
-        if not user_w: st.caption("暂无自选股")
-        else:
-            w_cols = st.columns(3)
-            for i, code in enumerate(user_w):
-                if w_cols[i % 3].button(code, key=f"w_{code}"):
-                    st.session_state["stock_code"] = code
-                    st.session_state["data_loaded"] = False 
+        st.caption("我的自选股")
+        user_w = get_user_watchlist(user)
+        if user_w:
+            cols = st.columns(3)
+            for i, c in enumerate(user_w):
+                if cols[i%3].button(c, key=f"w_{c}"):
+                    st.session_state["stock_code"] = c
+                    st.session_state["data_loaded"] = False
                     st.rerun()
-        st.divider()
 
+        st.divider()
+        # 输入区
         default_token = ""
         try:
             if "TUSHARE_TOKEN" in st.secrets: default_token = st.secrets["TUSHARE_TOKEN"]
         except: pass
-        tushare_token = st.text_input("Token (获取基本面必备)", value=default_token, type="password")
+        tushare_token = st.text_input("Tushare Token", value=default_token, type="password")
         
-        stock_code = st.text_input("股票代码", key="stock_code_input", value=st.session_state["stock_code"]).strip()
-        if stock_code != st.session_state["stock_code"]:
-            st.session_state["stock_code"] = stock_code
+        code_input = st.text_input("股票代码", value=st.session_state["stock_code"]).strip()
+        if code_input != st.session_state["stock_code"]:
+            st.session_state["stock_code"] = code_input
             st.session_state["data_loaded"] = False
             st.rerun()
-
-        auto_name = get_stock_name(stock_code, tushare_token)
-        stock_name = st.text_input("名称", value=auto_name or "未知")
-        window_days = st.radio("窗口", [30, 60, 120, 180, 250], index=3, horizontal=True)
+            
+        stock_name = st.text_input("名称", value=get_stock_name(code_input, tushare_token) or "未知")
+        window_days = st.radio("窗口", [60, 120, 250], index=1, horizontal=True)
         adjust = st.selectbox("复权", ["qfq", "hfq", ""], index=0)
         
         st.divider()
-        st.markdown("### 📌 显示设置 (不消耗积分)")
+        st.caption("显示选项")
         show_gann = st.checkbox("江恩线", True)
         show_chanlun = st.checkbox("缠论分型", True)
         show_fib = st.checkbox("斐波那契", True)
-        
-    # --- 主界面 ---
-    col_title, col_fav = st.columns([8, 2])
-    with col_title: st.title(f"📈 {stock_name} ({stock_code}) 深度复盘")
-    with col_fav:
-        curr_user = st.session_state['current_user']
-        if stock_code in get_user_watchlist(curr_user):
-            if st.button("💔 移除自选", use_container_width=True):
-                toggle_watchlist(curr_user, stock_code)
-                st.rerun()
-        else:
-            if st.button("❤️ 加入自选", use_container_width=True):
-                toggle_watchlist(curr_user, stock_code)
-                st.rerun()
 
+    # 主区域逻辑
+    c_title, c_fav = st.columns([8, 2])
+    with c_title: st.title(f"📈 {stock_name} ({st.session_state['stock_code']})")
+    with c_fav:
+        if st.session_state['stock_code'] in get_user_watchlist(user):
+            if st.button("💔 移除自选"): toggle_watchlist(user, st.session_state['stock_code']); st.rerun()
+        else:
+            if st.button("❤️ 加入自选"): toggle_watchlist(user, st.session_state['stock_code']); st.rerun()
+
+    # 消耗积分逻辑
     if not st.session_state["data_loaded"]:
-        st.info("👋 欢迎回来！请点击下方按钮开始分析。")
-        if st.button("🔍 消耗 1 积分并开始分析", type="primary", use_container_width=True):
-            if consume_quota(st.session_state['current_user']):
+        st.info("点击下方按钮开始分析 (消耗 1 积分)")
+        if st.button("🔍 开始分析", type="primary"):
+            if consume_quota(user):
                 st.session_state["data_loaded"] = True
                 st.rerun()
-            else:
-                st.error("❌ 积分不足！请联系管理员充值。")
-                st.stop()
-        st.stop()
-
-    if st.button("🔄 刷新数据 (消耗 1 积分)"):
-        if consume_quota(st.session_state['current_user']):
-            st.cache_data.clear()
-            st.rerun()
-        else:
-            st.error("❌ 积分不足！")
-    
-    with st.spinner("🚀 正在计算核心指标..."):
-        df = fetch_hist(stock_code, tushare_token, 380, adjust)
-        fundamentals = fetch_fundamentals(stock_code, tushare_token)
-    
-    if df.empty:
-        st.error("❌ 数据拉取失败，请检查代码或Token")
+            else: st.error("积分不足，请联系管理员 ZCX001 充值")
         st.stop()
         
-    df = calc_indicators(df)
-    df = detect_fractals(df)
-    view_df = df.tail(window_days).copy()
-    latest = view_df.iloc[-1]
-    last_close = float(latest["close"])
+    if st.button("🔄 刷新数据 (消耗 1 积分)"):
+        if consume_quota(user):
+            st.cache_data.clear()
+            st.rerun()
+        else: st.error("积分不足")
+
+    with st.spinner("计算中..."):
+        df = fetch_hist(st.session_state['stock_code'], tushare_token, 380, adjust)
+        fund = fetch_fundamentals(st.session_state['stock_code'], tushare_token)
     
-    t_txt, t_col = main_uptrend_state(view_df)
+    if df.empty: st.error("无数据"); st.stop()
+    
+    df = calc_indicators(df); df = detect_fractals(df)
+    v_df = df.tail(window_days).copy(); latest = v_df.iloc[-1]
+    
+    t_txt, t_col = main_uptrend_state(v_df)
     if t_col=="success": st.success(f"## {t_txt}")
     elif t_col=="warning": st.warning(f"## {t_txt}")
     else: st.error(f"## {t_txt}")
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("当前价", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
-    c2.metric("RSI (强弱)", f"{latest['RSI']:.1f}")
-    c3.metric("MACD (趋势)", f"{latest['HIST']:.3f}")
-    c4.metric("ADX (力度)", f"{latest['ADX']:.1f}")
-    c5.metric("量比 (活跃)", f"{latest['VOL_RATIO']:.2f}")
-
-    with st.expander("📊 基本面概览 (F10数据)", expanded=True):
-        f1, f2, f3, f4, f5 = st.columns(5)
-        f1.metric("市盈率 (PE-TTM)", fundamentals['pe'])
-        f2.metric("市净率 (PB)", fundamentals['pb'])
-        f3.metric("总市值", fundamentals['total_mv'])
-        f4.metric("流通市值", fundamentals['float_mv'])
-        f5.metric("ROE (净资产收益率)", fundamentals['roe'])
-
-    plot_kline(view_df, f"{stock_name} 行情分析", show_gann, show_chanlun, show_fib)
-    score, action, pos, reasons, color, buy_sig, sell_sig, support, resistance = make_signals(view_df)
     
-    st.subheader("🤖 AI 决策建议")
-    if color=="success": st.success(f"**{action}** | 仓位：{pos} | 评分：{score}")
-    elif color=="warning": st.warning(f"**{action}** | 仓位：{pos} | 评分：{score}")
-    else: st.error(f"**{action}** | 仓位：{pos} | 评分：{score}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("价格", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
+    c2.metric("PE", fund['pe'])
+    c3.metric("PB", fund['pb'])
+    c4.metric("ROE", fund['roe'])
     
-    atr = latest["ATR14"]
-    stop_loss = last_close - 2 * atr if pd.notna(atr) else support
-    take_profit = last_close + 3 * atr if pd.notna(atr) else resistance
+    plot_kline(v_df, "K线分析", show_gann, show_chanlun, show_fib)
+    score, action, pos, reasons, color, b_sig, s_sig, sup, res = make_signals(v_df)
     
-    scol1, scol2, scol3 = st.columns(3)
-    scol1.metric("🛡️ 短线止损参考 (2ATR)", f"{stop_loss:.2f}")
-    scol2.metric("💰 短线止盈参考 (3ATR)", f"{take_profit:.2f}")
-    scol3.metric("🏗️ 近期支撑位", f"{support:.2f}")
+    st.subheader(f"AI 建议: {action} (评分 {score})")
+    if color=="success": st.success(f"建议仓位: {pos}")
+    elif color=="warning": st.warning(f"建议仓位: {pos}")
+    else: st.error(f"建议仓位: {pos}")
     
-    if buy_sig: st.success("🔥 触发短线金叉买点！")
-    if sell_sig: st.error("❄️ 触发短线死叉卖点！")
-    
-    if support_alert > 0 and last_close <= support_alert: st.warning(f"🟡 回踩支撑：股价 ≤ {support_alert:.2f}，可考虑分批补仓")
-    if risk_alert > 0 and last_close <= risk_alert: st.error(f"🔴 跌破风险：股价 ≤ {risk_alert:.2f}，注意控制回撤/减仓")
-    if breakout_alert > 0 and last_close >= breakout_alert: st.success(f"🟢 突破确认：股价 ≥ {breakout_alert:.2f}，趋势确认可加仓")
-    
-    with st.expander("🔍 查看详细评分逻辑"):
+    with st.expander("查看详细逻辑"):
         for r in reasons: st.write(r)
 
-# ==========================================
-# 🚀 主程序入口
-# ==========================================
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 if not st.session_state["logged_in"]: login_page()
 else: main_stock_system()

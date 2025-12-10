@@ -4,7 +4,6 @@ numpy
 plotly
 tushare
 baostock
-scipy
+bcrypt
 openpyxl
 lxml
-bcrypt

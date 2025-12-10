@@ -7,3 +7,4 @@ baostock
 scipy
 openpyxl
 lxml
+bcrypt

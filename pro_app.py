@@ -5,15 +5,15 @@ import time
 import random
 import string
 import os
-import bcrypt  # 记得 requirements.txt 必须有 bcrypt
+import bcrypt  # 必须在 requirements.txt 中添加
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 0. 全局配置 (必须在最第一行)
+# 0. 全局配置 (必须在第一行)
 # ==========================================
 st.set_page_config(
-    page_title="A股深度复盘系统 Pro (含登录)",
+    page_title="A股深度复盘系统 Pro (完整版)",
     layout="wide",
     page_icon="📈"
 )
@@ -35,7 +35,6 @@ except Exception:
 
 USER_DB_FILE = "users.csv"
 
-# 初始化用户数据库文件
 if not os.path.exists(USER_DB_FILE):
     df_init = pd.DataFrame(columns=["username", "password_hash"])
     df_init.to_csv(USER_DB_FILE, index=False)
@@ -122,7 +121,7 @@ def login_page():
                     st.success("✅ 注册成功！请去登录页面登录。")
 
 # ==========================================
-# 📈 第二部分：完整的核心功能函数 (数据、指标、绘图)
+# 📈 第二部分：核心功能 (数据/指标/绘图)
 # ==========================================
 
 def _to_ts_code(symbol: str) -> str:
@@ -163,32 +162,37 @@ def get_stock_name(symbol: str, token: str = "") -> str:
     return name
 
 @st.cache_data(ttl=60 * 15, show_spinner=False)
-def fetch_hist_tushare(symbol: str, token: str, days: int = 180, adjust: str = "qfq") -> pd.DataFrame:
-    if ts is None or not token: return pd.DataFrame()
-    pro = ts.pro_api(token)
-    end = pd.Timestamp.today().strftime("%Y%m%d")
-    start = (pd.Timestamp.today() - pd.Timedelta(days=days * 3)).strftime("%Y%m%d")
-    ts_code = _to_ts_code(symbol)
-    try:
-        df = pro.daily(ts_code=ts_code, start_date=start, end_date=end)
-        if df is None or df.empty: return pd.DataFrame()
-        if adjust in ("qfq", "hfq"):
-            af = pro.adj_factor(ts_code=ts_code, start_date=start, end_date=end)
-            if af is not None and not af.empty:
-                af = af.rename(columns={"trade_date": "date", "adj_factor": "factor"})
-                df = df.merge(af[["date", "factor"]], on="date", how="left")
-                df["factor"] = df["factor"].ffill().bfill()
-                adj_col = df["factor"] / df["factor"].iloc[-1] if adjust == "qfq" else df["factor"] / df["factor"].iloc[0]
-                for col in ["open", "high", "low", "close"]: df[col] = df[col] * adj_col
-        df = df.rename(columns={"trade_date": "date", "vol": "volume", "pct_chg": "pct_change"})
-        df["date"] = pd.to_datetime(df["date"])
-        for col in ["open", "high", "low", "close", "volume", "pct_change"]:
-             if col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
-        return df.sort_values("date").reset_index(drop=True).tail(days)
-    except: return pd.DataFrame()
+def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") -> pd.DataFrame:
+    # 1. 尝试 Tushare
+    if token and ts is not None:
+        try:
+            pro = ts.pro_api(token)
+            end = pd.Timestamp.today().strftime("%Y%m%d")
+            start = (pd.Timestamp.today() - pd.Timedelta(days=days * 3)).strftime("%Y%m%d")
+            ts_code = _to_ts_code(symbol)
+            df = pro.daily(ts_code=ts_code, start_date=start, end_date=end)
+            if df is not None and not df.empty:
+                # 复权处理
+                if adjust in ("qfq", "hfq"):
+                    af = pro.adj_factor(ts_code=ts_code, start_date=start, end_date=end)
+                    if af is not None and not af.empty:
+                        af = af.rename(columns={"trade_date": "date", "adj_factor": "factor"})
+                        df = df.merge(af[["date", "factor"]], on="date", how="left")
+                        df["factor"] = df["factor"].ffill().bfill()
+                        if adjust == "qfq":
+                            adj_col = df["factor"] / df["factor"].iloc[-1]
+                        else:
+                            adj_col = df["factor"] / df["factor"].iloc[0]
+                        for col in ["open", "high", "low", "close"]: df[col] = df[col] * adj_col
+                
+                df = df.rename(columns={"trade_date": "date", "vol": "volume", "pct_chg": "pct_change"})
+                df["date"] = pd.to_datetime(df["date"])
+                for col in ["open", "high", "low", "close", "volume", "pct_change"]:
+                    if col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
+                return df.sort_values("date").reset_index(drop=True).tail(days)
+        except: pass
 
-@st.cache_data(ttl=60 * 15, show_spinner=False)
-def fetch_hist_baostock(symbol: str, days: int = 180, adjust: str = "qfq") -> pd.DataFrame:
+    # 2. 回退 Baostock
     if bs is None: return pd.DataFrame()
     lg = bs.login()
     if lg.error_code != "0": return pd.DataFrame()
@@ -196,55 +200,54 @@ def fetch_hist_baostock(symbol: str, days: int = 180, adjust: str = "qfq") -> pd
     start = end - pd.Timedelta(days=days * 3)
     code = _to_bs_code(symbol)
     adj_flag = "2" if adjust == "qfq" else "1" if adjust == "hfq" else "3"
+    
     rs = bs.query_history_k_data_plus(code, "date,open,high,low,close,volume,amount,pctChg",
         start_date=start.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"), frequency="d", adjustflag=adj_flag)
     data = []
     while rs.error_code == "0" and rs.next(): data.append(rs.get_row_data())
     bs.logout()
     if not data: return pd.DataFrame()
+    
     df = pd.DataFrame(data, columns=rs.fields).rename(columns={"pctChg": "pct_change"})
     df["date"] = pd.to_datetime(df["date"])
     for col in ["open","high","low","close","volume","amount","pct_change"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df.sort_values("date").reset_index(drop=True).tail(days)
 
-def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") -> pd.DataFrame:
-    if token:
-        df = fetch_hist_tushare(symbol, token, days, adjust)
-        if df is not None and not df.empty: return df
-    return fetch_hist_baostock(symbol, days, adjust)
-
 def calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     close, high, low, vol = df["close"], df["high"], df["low"], df["volume"]
     for n in [5, 10, 20, 60, 120]:
         df[f"MA{n}"] = close.rolling(n).mean()
-        df[f"EMA{n}"] = close.ewm(span=n, adjust=False).mean()
+    
+    # Bollinger
     mid, std = df["MA20"], close.rolling(20).std()
     df["Upper"], df["Lower"] = mid + 2*std, mid - 2*std
     
+    # RSI
     delta = close.diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / (loss + 1e-9)
     df["RSI"] = 100 - (100 / (1 + rs))
     
-    rsi_min, rsi_max = df["RSI"].rolling(14).min(), df["RSI"].rolling(14).max()
-    df["StochRSI"] = (df["RSI"] - rsi_min) / (rsi_max - rsi_min + 1e-9)
-
-    ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
+    # MACD
+    ema12, ema26 = close.ewm(span=12).mean(), close.ewm(span=26).mean()
     df["DIF"] = ema12 - ema26
-    df["DEA"] = df["DIF"].ewm(span=9, adjust=False).mean()
+    df["DEA"] = df["DIF"].ewm(span=9).mean()
     df["HIST"] = df["DIF"] - df["DEA"]
     
+    # KDJ
     low_n, high_n = low.rolling(9).min(), high.rolling(9).max()
     rsv = (close - low_n) / (high_n - low_n + 1e-9) * 100
     df["K"] = rsv.ewm(com=2).mean()
     df["D"] = df["K"].ewm(com=2).mean()
     df["J"] = 3 * df["K"] - 2 * df["D"]
 
+    # ATR
     tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
     df["ATR14"] = tr.rolling(14).mean()
     
+    # ADX
     up_move, down_move = high.diff(), -low.diff()
     plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
@@ -252,18 +255,18 @@ def calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     plus_di = 100 * pd.Series(plus_dm, index=df.index).rolling(14).sum() / (tr14 + 1e-9)
     minus_di = 100 * pd.Series(minus_dm, index=df.index).rolling(14).sum() / (tr14 + 1e-9)
     df["ADX"] = (abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9) * 100).rolling(14).mean()
-    df["PLUS_DI"], df["MINUS_DI"] = plus_di, minus_di
     
+    # OBV, CCI, MFI, VolRatio
     df["OBV"] = (np.sign(close.diff()).fillna(0) * vol).cumsum()
-    
     tp = (high + low + close) / 3
     df["CCI"] = (tp - tp.rolling(20).mean()) / (0.015 * (tp - tp.rolling(20).mean()).abs().rolling(20).mean() + 1e-9)
-    
     raw_mf = tp * vol
     pos_mf = raw_mf.where(tp.diff() > 0, 0).rolling(14).sum()
     neg_mf = raw_mf.where(tp.diff() < 0, 0).rolling(14).sum()
     df["MFI"] = 100 - (100 / (1 + pos_mf / (neg_mf + 1e-9)))
+    df["VOL_RATIO"] = vol / (vol.rolling(20).mean() + 1e-9)
 
+    # Ichimoku & SAR
     tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
     kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
     df["SPAN_A"] = ((tenkan + kijun) / 2).shift(26)
@@ -286,7 +289,7 @@ def calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
             elif low.iloc[i] < ep:
                 ep, af = low.iloc[i], min(af + 0.02, max_af)
     df["SAR"] = sar
-    df["VOL_RATIO"] = vol / (vol.rolling(20).mean() + 1e-9)
+    
     return df
 
 def detect_fractals(df: pd.DataFrame, k: int = 2):
@@ -323,15 +326,16 @@ def fib_levels(df: pd.DataFrame):
 def main_uptrend_state(df: pd.DataFrame):
     latest = df.iloc[-1]
     top, bot = max(latest["SPAN_A"], latest["SPAN_B"]), min(latest["SPAN_A"], latest["SPAN_B"])
-    if latest["close"] > top and latest["ADX"] > 25 and df["MA20"].diff().tail(5).mean() > 0:
-        return "✅ 主升浪/强趋势", "success"
-    if latest["close"] > bot and df["MA20"].diff().tail(5).mean() > 0:
-        return "🟡 趋势孕育中", "warning"
+    ma_rise = df["MA20"].diff().tail(5).mean() > 0
+    if latest["close"] > top and latest["ADX"] > 25 and ma_rise: return "✅ 主升浪/强趋势", "success"
+    if latest["close"] > bot and ma_rise: return "🟡 趋势孕育中", "warning"
     return "❌ 震荡/下行", "error"
 
 def make_signals(df: pd.DataFrame):
     latest, prev = df.iloc[-1], df.iloc[-2]
     score, reasons = 0, []
+    
+    # 评分逻辑
     if latest["MA5"] > latest["MA20"]: score += 2; reasons.append("✅ MA5>MA20：短线多头")
     else: score -= 2; reasons.append("❌ MA5<MA20：短线弱势")
     if latest["close"] > latest["MA60"]: score += 1; reasons.append("✅ 站上MA60：中期偏强")
@@ -343,14 +347,19 @@ def make_signals(df: pd.DataFrame):
     if latest["MFI"] < 20: score += 1; reasons.append("💧 MFI资金流出极值")
     if latest["VOL_RATIO"] >= 1.2: score += 1; reasons.append("✅ 放量")
     
+    # 建议
     if score >= 5: action, pos, color = "🚀 强势买入", "70%+", "success"
     elif score >= 3: action, pos, color = "✅ 试探加仓", "30-50%", "success"
     elif score >= 0: action, pos, color = "👀 观望", "20%↓", "warning"
     else: action, pos, color = "🛑 减仓/空仓", "0-10%", "error"
     
-    return score, action, pos, reasons, color, \
-           (prev["MA5"] <= prev["MA20"] and latest["MA5"] > latest["MA20"]), \
-           (prev["MA5"] >= prev["MA20"] and latest["MA5"] < latest["MA20"])
+    # 支撑/压力计算
+    support = df["low"].tail(20).min()
+    resistance = df["high"].tail(20).max()
+    buy_sig = (prev["MA5"] <= prev["MA20"] and latest["MA5"] > latest["MA20"])
+    sell_sig = (prev["MA5"] >= prev["MA20"] and latest["MA5"] < latest["MA20"])
+    
+    return score, action, pos, reasons, color, buy_sig, sell_sig, support, resistance
 
 def plot_kline(df: pd.DataFrame, title: str, show_gann: bool, show_chanlun: bool, show_fib: bool):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.55, 0.15, 0.15, 0.15])
@@ -382,6 +391,9 @@ def plot_kline(df: pd.DataFrame, title: str, show_gann: bool, show_chanlun: bool
     fig.update_layout(title=title, xaxis_rangeslider_visible=False, height=900, margin=dict(t=60, b=30))
     st.plotly_chart(fig, use_container_width=True)
 
+# ==========================================
+# 🚀 主界面逻辑
+# ==========================================
 def main_stock_system():
     with st.sidebar:
         st.markdown(f"### 👤 {st.session_state['current_user']}")
@@ -403,10 +415,18 @@ def main_stock_system():
         
         window_days = st.radio("窗口", [30, 60, 120, 180, 250], index=3, horizontal=True)
         adjust = st.selectbox("复权", ["qfq", "hfq", ""], index=0)
+        
         st.divider()
+        st.markdown("### 📌 显示项")
         show_gann = st.checkbox("江恩线", True)
         show_chanlun = st.checkbox("缠论分型", True)
         show_fib = st.checkbox("斐波那契", True)
+        
+        st.divider()
+        st.markdown("### 🔔 关键价位提醒")
+        support_alert = st.number_input("回踩支撑价", value=0.0, step=0.1)
+        risk_alert = st.number_input("跌破风险价", value=0.0, step=0.1)
+        breakout_alert = st.number_input("突破价", value=0.0, step=0.1)
         
     st.title(f"📈 {stock_name} ({stock_code}) 深度复盘系统 Pro")
     
@@ -421,6 +441,7 @@ def main_stock_system():
     df = detect_fractals(df)
     view_df = df.tail(window_days).copy()
     latest = view_df.iloc[-1]
+    last_close = float(latest["close"])
     
     # 核心指标栏
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -439,16 +460,39 @@ def main_stock_system():
     # 画图
     plot_kline(view_df, f"{stock_name} 行情分析", show_gann, show_chanlun, show_fib)
     
-    # 信号生成
-    score, action, pos, reasons, color, buy_sig, sell_sig = make_signals(view_df)
+    # 信号生成 (恢复了 support, resistance 的返回)
+    score, action, pos, reasons, color, buy_sig, sell_sig, support, resistance = make_signals(view_df)
     
     st.subheader("🤖 AI 决策建议")
     if color=="success": st.success(f"**{action}** | 仓位：{pos} | 评分：{score}")
     elif color=="warning": st.warning(f"**{action}** | 仓位：{pos} | 评分：{score}")
     else: st.error(f"**{action}** | 仓位：{pos} | 评分：{score}")
     
+    # 恢复止盈止损计算
+    atr = latest["ATR14"]
+    stop_loss = last_close - 2 * atr if pd.notna(atr) else support
+    take_profit = last_close + 3 * atr if pd.notna(atr) else resistance
+    
+    # 恢复三列显示
+    scol1, scol2, scol3 = st.columns(3)
+    scol1.metric("🛡️ 短线止损参考 (2ATR)", f"{stop_loss:.2f}")
+    scol2.metric("💰 短线止盈参考 (3ATR)", f"{take_profit:.2f}")
+    scol3.metric("🏗️ 近期支撑位", f"{support:.2f}")
+    
+    # 恢复信号提示
     if buy_sig: st.success("🔥 触发短线金叉买点！")
     if sell_sig: st.error("❄️ 触发短线死叉卖点！")
+    
+    # 恢复支撑压力提示栏
+    st.info(f"📌 近期支撑位：**{support:.2f}** |  压力位：**{resistance:.2f}**")
+    
+    # 恢复价格预警
+    if support_alert > 0 and last_close <= support_alert:
+        st.warning(f"🟡 回踩支撑：股价 ≤ {support_alert:.2f}，可考虑分批补仓")
+    if risk_alert > 0 and last_close <= risk_alert:
+        st.error(f"🔴 跌破风险：股价 ≤ {risk_alert:.2f}，注意控制回撤/减仓")
+    if breakout_alert > 0 and last_close >= breakout_alert:
+        st.success(f"🟢 突破确认：股价 ≥ {breakout_alert:.2f}，趋势确认可加仓")
     
     with st.expander("🔍 查看详细逻辑"):
         for r in reasons: st.write(r)

@@ -5,7 +5,7 @@ import time
 import random
 import string
 import os
-import bcrypt  # 必须在 requirements.txt 中添加
+import bcrypt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 # 0. 全局配置 (必须在第一行)
 # ==========================================
 st.set_page_config(
-    page_title="A股深度复盘系统 Pro (完整版)",
+    page_title="A股深度复盘系统 Pro (全功能版)",
     layout="wide",
     page_icon="📈"
 )
@@ -30,23 +30,31 @@ except Exception:
     bs = None
 
 # ==========================================
-# 🔐 第一部分：登录/注册/验证码 核心逻辑
+# 🔐 第一部分：用户系统 (含自选股升级)
 # ==========================================
 
 USER_DB_FILE = "users.csv"
 
+# 初始化或升级数据库
 if not os.path.exists(USER_DB_FILE):
-    df_init = pd.DataFrame(columns=["username", "password_hash"])
+    df_init = pd.DataFrame(columns=["username", "password_hash", "watchlist"])
     df_init.to_csv(USER_DB_FILE, index=False)
+else:
+    # 简单的迁移逻辑：如果老文件没有 watchlist 列，加上它
+    df_check = pd.read_csv(USER_DB_FILE)
+    if "watchlist" not in df_check.columns:
+        df_check["watchlist"] = "" # 初始化为空字符串
+        df_check.to_csv(USER_DB_FILE, index=False)
 
 def load_users():
-    return pd.read_csv(USER_DB_FILE)
+    # 强制将 watchlist 读取为字符串，防止 pandas 自动识别为 float (NaN)
+    return pd.read_csv(USER_DB_FILE, dtype={"watchlist": str})
 
 def save_user(username, password):
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
     df = load_users()
-    new_user = pd.DataFrame({"username": [username], "password_hash": [hashed]})
+    new_user = pd.DataFrame({"username": [username], "password_hash": [hashed], "watchlist": [""]})
     df = pd.concat([df, new_user], ignore_index=True)
     df.to_csv(USER_DB_FILE, index=False)
 
@@ -61,6 +69,39 @@ def verify_login(username, password):
     except:
         return False
 
+# --- 自选股操作 ---
+def get_user_watchlist(username):
+    df = load_users()
+    user_row = df[df["username"] == username]
+    if user_row.empty: return []
+    w_str = str(user_row.iloc[0]["watchlist"])
+    if pd.isna(w_str) or w_str == "nan" or w_str.strip() == "":
+        return []
+    return w_str.split(",")
+
+def toggle_watchlist(username, stock_code):
+    df = load_users()
+    idx = df[df["username"] == username].index
+    if len(idx) == 0: return False
+    
+    current_w = str(df.loc[idx[0], "watchlist"])
+    if pd.isna(current_w) or current_w == "nan": current_w = ""
+    
+    codes = [c for c in current_w.split(",") if c.strip()]
+    
+    if stock_code in codes:
+        codes.remove(stock_code)
+        action = "remove"
+    else:
+        codes.append(stock_code)
+        action = "add"
+        
+    new_w = ",".join(codes)
+    df.loc[idx[0], "watchlist"] = new_w
+    df.to_csv(USER_DB_FILE, index=False)
+    return action
+
+# --- 验证码 ---
 def generate_captcha():
     chars = string.ascii_uppercase + string.digits
     code = ''.join(random.choice(chars) for _ in range(4))
@@ -141,6 +182,7 @@ def _to_bs_code(symbol: str) -> str:
 @st.cache_data(ttl=60 * 60 * 24)
 def get_stock_name(symbol: str, token: str = "") -> str:
     name = ""
+    # Tushare 优先
     if token and ts is not None:
         try:
             ts_code = _to_ts_code(symbol)
@@ -148,6 +190,7 @@ def get_stock_name(symbol: str, token: str = "") -> str:
             df = pro.stock_basic(ts_code=ts_code, fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
+    # Baostock 兜底
     if bs is not None:
         try:
             bs_code = _to_bs_code(symbol)
@@ -161,9 +204,59 @@ def get_stock_name(symbol: str, token: str = "") -> str:
         except: pass
     return name
 
+# --- 新增：获取基本面数据 ---
+@st.cache_data(ttl=60 * 60 * 12)
+def fetch_fundamentals(symbol: str, token: str):
+    """获取 PE, PB, 总市值, ROE 等数据"""
+    data = {
+        "pe": "N/A", "pb": "N/A", "total_mv": "N/A", 
+        "float_mv": "N/A", "roe": "N/A", "industry": "-"
+    }
+    
+    if token and ts is not None:
+        try:
+            pro = ts.pro_api(token)
+            ts_code = _to_ts_code(symbol)
+            # 获取每日指标
+            df = pro.daily_basic(ts_code=ts_code, fields='pe_ttm,pb,total_mv,circ_mv')
+            if not df.empty:
+                row = df.iloc[-1]
+                data["pe"] = f"{row['pe_ttm']:.2f}" if row['pe_ttm'] else "N/A"
+                data["pb"] = f"{row['pb']:.2f}" if row['pb'] else "N/A"
+                data["total_mv"] = f"{row['total_mv']/10000:.2f}亿" if row['total_mv'] else "N/A"
+                data["float_mv"] = f"{row['circ_mv']/10000:.2f}亿" if row['circ_mv'] else "N/A"
+            
+            # 获取财务指标 (ROE) - 取最新一期
+            df_fin = pro.fina_indicator(ts_code=ts_code, fields='roe,q_dt')
+            if not df_fin.empty:
+                 data["roe"] = f"{df_fin.iloc[0]['roe']:.2f}%"
+        except:
+            pass
+            
+    # 如果没Token或者Tushare挂了，尝试Baostock (只能拿简单的PE/PB)
+    if data["pe"] == "N/A" and bs is not None:
+        try:
+            bs_code = _to_bs_code(symbol)
+            lg = bs.login()
+            if lg.error_code == '0':
+                # 获取最新一天的K线数据，里面包含peTTM
+                import datetime
+                end = datetime.date.today().strftime("%Y-%m-%d")
+                start = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+                rs = bs.query_history_k_data_plus(bs_code, "date,peTTM,pbMRQ", start_date=start, end_date=end, frequency="d")
+                rows = rs.get_data()
+                if not rows.empty:
+                    last = rows.iloc[-1]
+                    data["pe"] = last["peTTM"]
+                    data["pb"] = last["pbMRQ"]
+            bs.logout()
+        except: pass
+        
+    return data
+
 @st.cache_data(ttl=60 * 15, show_spinner=False)
 def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") -> pd.DataFrame:
-    # 1. 尝试 Tushare
+    # 逻辑保持不变：Tushare优先，Baostock兜底
     if token and ts is not None:
         try:
             pro = ts.pro_api(token)
@@ -172,19 +265,15 @@ def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") ->
             ts_code = _to_ts_code(symbol)
             df = pro.daily(ts_code=ts_code, start_date=start, end_date=end)
             if df is not None and not df.empty:
-                # 复权处理
                 if adjust in ("qfq", "hfq"):
                     af = pro.adj_factor(ts_code=ts_code, start_date=start, end_date=end)
                     if af is not None and not af.empty:
                         af = af.rename(columns={"trade_date": "date", "adj_factor": "factor"})
                         df = df.merge(af[["date", "factor"]], on="date", how="left")
                         df["factor"] = df["factor"].ffill().bfill()
-                        if adjust == "qfq":
-                            adj_col = df["factor"] / df["factor"].iloc[-1]
-                        else:
-                            adj_col = df["factor"] / df["factor"].iloc[0]
+                        if adjust == "qfq": adj_col = df["factor"] / df["factor"].iloc[-1]
+                        else: adj_col = df["factor"] / df["factor"].iloc[0]
                         for col in ["open", "high", "low", "close"]: df[col] = df[col] * adj_col
-                
                 df = df.rename(columns={"trade_date": "date", "vol": "volume", "pct_chg": "pct_change"})
                 df["date"] = pd.to_datetime(df["date"])
                 for col in ["open", "high", "low", "close", "volume", "pct_change"]:
@@ -192,7 +281,6 @@ def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") ->
                 return df.sort_values("date").reset_index(drop=True).tail(days)
         except: pass
 
-    # 2. 回退 Baostock
     if bs is None: return pd.DataFrame()
     lg = bs.login()
     if lg.error_code != "0": return pd.DataFrame()
@@ -200,14 +288,12 @@ def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") ->
     start = end - pd.Timedelta(days=days * 3)
     code = _to_bs_code(symbol)
     adj_flag = "2" if adjust == "qfq" else "1" if adjust == "hfq" else "3"
-    
     rs = bs.query_history_k_data_plus(code, "date,open,high,low,close,volume,amount,pctChg",
         start_date=start.strftime("%Y-%m-%d"), end_date=end.strftime("%Y-%m-%d"), frequency="d", adjustflag=adj_flag)
     data = []
     while rs.error_code == "0" and rs.next(): data.append(rs.get_row_data())
     bs.logout()
     if not data: return pd.DataFrame()
-    
     df = pd.DataFrame(data, columns=rs.fields).rename(columns={"pctChg": "pct_change"})
     df["date"] = pd.to_datetime(df["date"])
     for col in ["open","high","low","close","volume","amount","pct_change"]:
@@ -218,36 +304,24 @@ def calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     close, high, low, vol = df["close"], df["high"], df["low"], df["volume"]
     for n in [5, 10, 20, 60, 120]:
         df[f"MA{n}"] = close.rolling(n).mean()
-    
-    # Bollinger
     mid, std = df["MA20"], close.rolling(20).std()
     df["Upper"], df["Lower"] = mid + 2*std, mid - 2*std
-    
-    # RSI
     delta = close.diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / (loss + 1e-9)
     df["RSI"] = 100 - (100 / (1 + rs))
-    
-    # MACD
     ema12, ema26 = close.ewm(span=12).mean(), close.ewm(span=26).mean()
     df["DIF"] = ema12 - ema26
     df["DEA"] = df["DIF"].ewm(span=9).mean()
     df["HIST"] = df["DIF"] - df["DEA"]
-    
-    # KDJ
     low_n, high_n = low.rolling(9).min(), high.rolling(9).max()
     rsv = (close - low_n) / (high_n - low_n + 1e-9) * 100
     df["K"] = rsv.ewm(com=2).mean()
     df["D"] = df["K"].ewm(com=2).mean()
     df["J"] = 3 * df["K"] - 2 * df["D"]
-
-    # ATR
     tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
     df["ATR14"] = tr.rolling(14).mean()
-    
-    # ADX
     up_move, down_move = high.diff(), -low.diff()
     plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
@@ -255,41 +329,26 @@ def calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     plus_di = 100 * pd.Series(plus_dm, index=df.index).rolling(14).sum() / (tr14 + 1e-9)
     minus_di = 100 * pd.Series(minus_dm, index=df.index).rolling(14).sum() / (tr14 + 1e-9)
     df["ADX"] = (abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9) * 100).rolling(14).mean()
-    
-    # OBV, CCI, MFI, VolRatio
     df["OBV"] = (np.sign(close.diff()).fillna(0) * vol).cumsum()
-    tp = (high + low + close) / 3
-    df["CCI"] = (tp - tp.rolling(20).mean()) / (0.015 * (tp - tp.rolling(20).mean()).abs().rolling(20).mean() + 1e-9)
-    raw_mf = tp * vol
-    pos_mf = raw_mf.where(tp.diff() > 0, 0).rolling(14).sum()
-    neg_mf = raw_mf.where(tp.diff() < 0, 0).rolling(14).sum()
-    df["MFI"] = 100 - (100 / (1 + pos_mf / (neg_mf + 1e-9)))
     df["VOL_RATIO"] = vol / (vol.rolling(20).mean() + 1e-9)
-
     # Ichimoku & SAR
     tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
     kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
     df["SPAN_A"] = ((tenkan + kijun) / 2).shift(26)
     df["SPAN_B"] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-
     af, max_af, trend, ep, sar = 0.02, 0.2, 1, low.iloc[0], close.copy()
     sar.iloc[0] = low.iloc[0]
     for i in range(1, len(df)):
         prev_sar = sar.iloc[i-1]
         if trend == 1:
             sar.iloc[i] = prev_sar + af * (ep - prev_sar)
-            if low.iloc[i] < sar.iloc[i]:
-                trend, sar.iloc[i], ep, af = -1, ep, high.iloc[i], 0.02
-            elif high.iloc[i] > ep:
-                ep, af = high.iloc[i], min(af + 0.02, max_af)
+            if low.iloc[i] < sar.iloc[i]: trend, sar.iloc[i], ep, af = -1, ep, high.iloc[i], 0.02
+            elif high.iloc[i] > ep: ep, af = high.iloc[i], min(af + 0.02, max_af)
         else:
             sar.iloc[i] = prev_sar + af * (ep - prev_sar)
-            if high.iloc[i] > sar.iloc[i]:
-                trend, sar.iloc[i], ep, af = 1, ep, low.iloc[i], 0.02
-            elif low.iloc[i] < ep:
-                ep, af = low.iloc[i], min(af + 0.02, max_af)
+            if high.iloc[i] > sar.iloc[i]: trend, sar.iloc[i], ep, af = 1, ep, low.iloc[i], 0.02
+            elif low.iloc[i] < ep: ep, af = low.iloc[i], min(af + 0.02, max_af)
     df["SAR"] = sar
-    
     return df
 
 def detect_fractals(df: pd.DataFrame, k: int = 2):
@@ -327,15 +386,15 @@ def main_uptrend_state(df: pd.DataFrame):
     latest = df.iloc[-1]
     top, bot = max(latest["SPAN_A"], latest["SPAN_B"]), min(latest["SPAN_A"], latest["SPAN_B"])
     ma_rise = df["MA20"].diff().tail(5).mean() > 0
-    if latest["close"] > top and latest["ADX"] > 25 and ma_rise: return "✅ 主升浪/强趋势", "success"
-    if latest["close"] > bot and ma_rise: return "🟡 趋势孕育中", "warning"
-    return "❌ 震荡/下行", "error"
+    # 增强的主升浪判断：收盘在云层之上 + ADX强趋势 + 均线向上
+    if latest["close"] > top and latest["ADX"] > 25 and ma_rise: return "🚀 强势主升浪", "success"
+    if latest["close"] > top: return "📈 上升趋势中", "success"
+    if latest["close"] > bot and ma_rise: return "🟡 震荡/趋势孕育", "warning"
+    return "❌ 下行/调整趋势", "error"
 
 def make_signals(df: pd.DataFrame):
     latest, prev = df.iloc[-1], df.iloc[-2]
     score, reasons = 0, []
-    
-    # 评分逻辑
     if latest["MA5"] > latest["MA20"]: score += 2; reasons.append("✅ MA5>MA20：短线多头")
     else: score -= 2; reasons.append("❌ MA5<MA20：短线弱势")
     if latest["close"] > latest["MA60"]: score += 1; reasons.append("✅ 站上MA60：中期偏强")
@@ -347,13 +406,11 @@ def make_signals(df: pd.DataFrame):
     if latest["MFI"] < 20: score += 1; reasons.append("💧 MFI资金流出极值")
     if latest["VOL_RATIO"] >= 1.2: score += 1; reasons.append("✅ 放量")
     
-    # 建议
     if score >= 5: action, pos, color = "🚀 强势买入", "70%+", "success"
     elif score >= 3: action, pos, color = "✅ 试探加仓", "30-50%", "success"
     elif score >= 0: action, pos, color = "👀 观望", "20%↓", "warning"
     else: action, pos, color = "🛑 减仓/空仓", "0-10%", "error"
     
-    # 支撑/压力计算
     support = df["low"].tail(20).min()
     resistance = df["high"].tail(20).max()
     buy_sig = (prev["MA5"] <= prev["MA20"] and latest["MA5"] > latest["MA20"])
@@ -367,19 +424,15 @@ def plot_kline(df: pd.DataFrame, title: str, show_gann: bool, show_chanlun: bool
     for ma in ["MA5","MA20","MA60"]: fig.add_trace(go.Scatter(x=df["date"], y=df[ma], name=ma, line=dict(width=1)), 1, 1)
     fig.add_trace(go.Scatter(x=df["date"], y=df["Upper"], name="BOLL上", line=dict(dash="dash", width=1)), 1, 1)
     fig.add_trace(go.Scatter(x=df["date"], y=df["Lower"], name="BOLL下", line=dict(dash="dash", width=1)), 1, 1)
-    
     if show_chanlun:
         tops, bots = df[df["FRACTAL_TOP"]], df[df["FRACTAL_BOT"]]
         fig.add_trace(go.Scatter(x=tops["date"], y=tops["high"], mode="markers", name="顶分型", marker_symbol="triangle-down", marker_size=8), 1, 1)
         fig.add_trace(go.Scatter(x=bots["date"], y=bots["low"], mode="markers", name="底分型", marker_symbol="triangle-up", marker_size=8), 1, 1)
         for s, e in build_bi_segments(df): fig.add_trace(go.Scatter(x=[s[0], e[0]], y=[s[1], e[1]], mode="lines", name="笔", line=dict(width=1.2, color='gray')), 1, 1)
-    
     if show_gann:
         for n, y in gann_lines(df).items(): fig.add_trace(go.Scatter(x=df["date"], y=y, name=f"江恩{n}", line=dict(dash="dot", width=1)), 1, 1)
-    
     if show_fib:
         for k, v in fib_levels(df).items(): fig.add_hline(y=v, line_dash="dash", annotation_text=f"Fib {k}", row=1, col=1)
-        
     colors = np.where(df["close"] >= df["open"], "red", "green")
     fig.add_trace(go.Bar(x=df["date"], y=df["volume"], name="量", marker_color=colors), 2, 1)
     fig.add_trace(go.Scatter(x=df["date"], y=df["DIF"], name="DIF"), 3, 1)
@@ -387,7 +440,6 @@ def plot_kline(df: pd.DataFrame, title: str, show_gann: bool, show_chanlun: bool
     fig.add_trace(go.Bar(x=df["date"], y=df["HIST"], name="MACD"), 3, 1)
     fig.add_trace(go.Scatter(x=df["date"], y=df["RSI"], name="RSI"), 4, 1)
     fig.add_trace(go.Scatter(x=df["date"], y=df["K"], name="K"), 4, 1)
-    
     fig.update_layout(title=title, xaxis_rangeslider_visible=False, height=900, margin=dict(t=60, b=30))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -395,21 +447,43 @@ def plot_kline(df: pd.DataFrame, title: str, show_gann: bool, show_chanlun: bool
 # 🚀 主界面逻辑
 # ==========================================
 def main_stock_system():
+    # Session state for current stock
+    if "stock_code" not in st.session_state: st.session_state["stock_code"] = "600519"
+    
     with st.sidebar:
         st.markdown(f"### 👤 {st.session_state['current_user']}")
         if st.button("🚪 退出登录", type="primary"):
             st.session_state["logged_in"] = False
             st.rerun()
         st.divider()
-        st.markdown("## 🎛️ 操盘控制台")
         
+        # --- 🌟 自选股模块 ---
+        st.markdown("### 🌟 我的自选股")
+        user_w = get_user_watchlist(st.session_state['current_user'])
+        if not user_w:
+            st.caption("暂无自选股，去添加一个吧！")
+        else:
+            st.caption("点击代码快速加载：")
+            w_cols = st.columns(3)
+            for i, code in enumerate(user_w):
+                if w_cols[i % 3].button(code, key=f"w_{code}"):
+                    st.session_state["stock_code"] = code
+                    st.rerun()
+        st.divider()
+        # ----------------------
+
         default_token = ""
         try:
             if "TUSHARE_TOKEN" in st.secrets: default_token = st.secrets["TUSHARE_TOKEN"]
         except: pass
-        tushare_token = st.text_input("Token", value=default_token, type="password")
+        tushare_token = st.text_input("Token (获取基本面必备)", value=default_token, type="password")
         
-        stock_code = st.text_input("代码", value="600519").strip()
+        # 输入框绑定 session_state
+        stock_code = st.text_input("股票代码", key="stock_code_input", value=st.session_state["stock_code"]).strip()
+        if stock_code != st.session_state["stock_code"]:
+            st.session_state["stock_code"] = stock_code
+            st.rerun()
+
         auto_name = get_stock_name(stock_code, tushare_token)
         stock_name = st.text_input("名称", value=auto_name or "未知")
         
@@ -417,7 +491,6 @@ def main_stock_system():
         adjust = st.selectbox("复权", ["qfq", "hfq", ""], index=0)
         
         st.divider()
-        st.markdown("### 📌 显示项")
         show_gann = st.checkbox("江恩线", True)
         show_chanlun = st.checkbox("缠论分型", True)
         show_fib = st.checkbox("斐波那契", True)
@@ -428,10 +501,25 @@ def main_stock_system():
         risk_alert = st.number_input("跌破风险价", value=0.0, step=0.1)
         breakout_alert = st.number_input("突破价", value=0.0, step=0.1)
         
-    st.title(f"📈 {stock_name} ({stock_code}) 深度复盘系统 Pro")
-    
-    with st.spinner("🚀 AI正在拉取数据并计算指标..."):
+    # --- 主界面 ---
+    col_title, col_fav = st.columns([8, 2])
+    with col_title:
+        st.title(f"📈 {stock_name} ({stock_code}) 深度复盘")
+    with col_fav:
+        # 自选股按钮逻辑
+        curr_user = st.session_state['current_user']
+        if stock_code in get_user_watchlist(curr_user):
+            if st.button("💔 移除自选", use_container_width=True):
+                toggle_watchlist(curr_user, stock_code)
+                st.rerun()
+        else:
+            if st.button("❤️ 加入自选", use_container_width=True):
+                toggle_watchlist(curr_user, stock_code)
+                st.rerun()
+
+    with st.spinner("🚀 正在拉取数据与基本面..."):
         df = fetch_hist(stock_code, tushare_token, 380, adjust)
+        fundamentals = fetch_fundamentals(stock_code, tushare_token)
     
     if df.empty:
         st.error("❌ 数据拉取失败，请检查代码或Token")
@@ -443,24 +531,44 @@ def main_stock_system():
     latest = view_df.iloc[-1]
     last_close = float(latest["close"])
     
-    # 核心指标栏
+    # ------------------------------------------------
+    # 1. 顶部：主升浪/趋势判断 (你要求的重点功能)
+    # ------------------------------------------------
+    t_txt, t_col = main_uptrend_state(view_df)
+    if t_col=="success":
+        st.success(f"## {t_txt}")
+    elif t_col=="warning":
+        st.warning(f"## {t_txt}")
+    else:
+        st.error(f"## {t_txt}")
+
+    # ------------------------------------------------
+    # 2. 核心行情数据
+    # ------------------------------------------------
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("当前价", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
-    c2.metric("RSI", f"{latest['RSI']:.1f}")
-    c3.metric("MACD柱", f"{latest['HIST']:.3f}")
-    c4.metric("ADX", f"{latest['ADX']:.1f}")
-    c5.metric("量比", f"{latest['VOL_RATIO']:.2f}")
+    c2.metric("RSI (强弱)", f"{latest['RSI']:.1f}")
+    c3.metric("MACD (趋势)", f"{latest['HIST']:.3f}")
+    c4.metric("ADX (力度)", f"{latest['ADX']:.1f}")
+    c5.metric("量比 (活跃)", f"{latest['VOL_RATIO']:.2f}")
 
-    # 趋势判断
-    t_txt, t_col = main_uptrend_state(view_df)
-    if t_col=="success": st.success(f"趋势识别：{t_txt}")
-    elif t_col=="warning": st.warning(f"趋势识别：{t_txt}")
-    else: st.error(f"趋势识别：{t_txt}")
-    
+    # ------------------------------------------------
+    # 3. 新增：基本面数据面板 (F10)
+    # ------------------------------------------------
+    with st.expander("📊 基本面概览 (F10数据)", expanded=True):
+        f1, f2, f3, f4, f5 = st.columns(5)
+        f1.metric("市盈率 (PE-TTM)", fundamentals['pe'])
+        f2.metric("市净率 (PB)", fundamentals['pb'])
+        f3.metric("总市值", fundamentals['total_mv'])
+        f4.metric("流通市值", fundamentals['float_mv'])
+        f5.metric("ROE (净资产收益率)", fundamentals['roe'])
+        if fundamentals['pe'] == "N/A":
+            st.caption("⚠️ 未获取到基本面数据，请确保填写了有效的 Tushare Token。")
+
     # 画图
     plot_kline(view_df, f"{stock_name} 行情分析", show_gann, show_chanlun, show_fib)
     
-    # 信号生成 (恢复了 support, resistance 的返回)
+    # 信号生成
     score, action, pos, reasons, color, buy_sig, sell_sig, support, resistance = make_signals(view_df)
     
     st.subheader("🤖 AI 决策建议")
@@ -468,25 +576,22 @@ def main_stock_system():
     elif color=="warning": st.warning(f"**{action}** | 仓位：{pos} | 评分：{score}")
     else: st.error(f"**{action}** | 仓位：{pos} | 评分：{score}")
     
-    # 恢复止盈止损计算
+    # 止盈止损
     atr = latest["ATR14"]
     stop_loss = last_close - 2 * atr if pd.notna(atr) else support
     take_profit = last_close + 3 * atr if pd.notna(atr) else resistance
     
-    # 恢复三列显示
     scol1, scol2, scol3 = st.columns(3)
     scol1.metric("🛡️ 短线止损参考 (2ATR)", f"{stop_loss:.2f}")
     scol2.metric("💰 短线止盈参考 (3ATR)", f"{take_profit:.2f}")
     scol3.metric("🏗️ 近期支撑位", f"{support:.2f}")
     
-    # 恢复信号提示
     if buy_sig: st.success("🔥 触发短线金叉买点！")
     if sell_sig: st.error("❄️ 触发短线死叉卖点！")
     
-    # 恢复支撑压力提示栏
     st.info(f"📌 近期支撑位：**{support:.2f}** |  压力位：**{resistance:.2f}**")
     
-    # 恢复价格预警
+    # 价格预警
     if support_alert > 0 and last_close <= support_alert:
         st.warning(f"🟡 回踩支撑：股价 ≤ {support_alert:.2f}，可考虑分批补仓")
     if risk_alert > 0 and last_close <= risk_alert:
@@ -494,7 +599,7 @@ def main_stock_system():
     if breakout_alert > 0 and last_close >= breakout_alert:
         st.success(f"🟢 突破确认：股价 ≥ {breakout_alert:.2f}，趋势确认可加仓")
     
-    with st.expander("🔍 查看详细逻辑"):
+    with st.expander("🔍 查看详细评分逻辑"):
         for r in reasons: st.write(r)
 
 # ==========================================

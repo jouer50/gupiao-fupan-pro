@@ -61,7 +61,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v19_final.csv"
+DB_FILE = "users_v19_1_fix.csv"
 
 # Optional deps
 try:
@@ -131,7 +131,7 @@ def register_user(u, p):
     return True, "注册成功，请联系管理员充值"
 
 # ==========================================
-# 3. 股票与指标逻辑 (增强版)
+# 3. 股票与指标逻辑 (变量名修复)
 # ==========================================
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
 def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
@@ -222,29 +222,38 @@ def calc_full_indicators(df):
     if df.empty: return df
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
-    # ✅ 修复：加入 10, 30 日均线
+    # 1. 均线
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     
-    mid = df['MA20']; std = c.rolling(20).std()
+    # 2. 布林带
+    mid = df['MA20']
+    std = c.rolling(20).std()
     df['Upper'] = mid + 2*std
     df['Lower'] = mid - 2*std
     
+    # 3. MACD
     exp1 = c.ewm(span=12, adjust=False).mean()
     exp2 = c.ewm(span=26, adjust=False).mean()
     df['DIF'] = exp1 - exp2
     df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
     df['HIST'] = 2 * (df['DIF'] - df['DEA'])
     
-    delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
-    rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
+    # 4. RSI
+    delta = c.diff()
+    up = delta.clip(lower=0)
+    down = -1*delta.clip(upper=0)
+    rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
     df['RSI'] = 100 - (100/(1+rs))
     
-    low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
-    rsv = (c - low9)/(high9 - low9 + 1e-9) * 100
+    # 5. KDJ
+    low9 = l.rolling(9).min()
+    high9 = h.rolling(9).max()
+    rsv = (c - low9) / (high9 - low9 + 1e-9) * 100
     df['K'] = rsv.ewm(com=2).mean()
     df['D'] = df['K'].ewm(com=2).mean()
     df['J'] = 3 * df['K'] - 2 * df['D']
     
+    # 6. ATR & ADX (修复：变量名一致化)
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
     
@@ -253,16 +262,25 @@ def calc_full_indicators(df):
     tr14 = tr.rolling(14).sum()
     di_p = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
     di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
-    df['ADX'] = (abs(dip-dim)/(dip+dim+1e-9)*100).rolling(14).mean()
     
-    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
+    # ✅ 核心修复：这里统一使用 di_p 和 di_m
+    df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
+    
+    # 7. Ichimoku
+    p_high = h.rolling(9).max()
+    p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
-    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
+    
+    p_high26 = h.rolling(26).max()
+    p_low26 = l.rolling(26).min()
     df['Kijun'] = (p_high26 + p_low26) / 2
+    
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
     df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
     
     df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
+    
+    # 填充非价格指标 (防止 scale 压缩)
     df[['K','D','J','DIF','DEA','HIST','RSI','ADX']] = df[['K','D','J','DIF','DEA','HIST','RSI','ADX']].fillna(50)
     
     return df
@@ -358,19 +376,19 @@ def plot_chart(df, name, gann_show, fib_show, chan_show):
         name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'
     ), 1, 1)
     
-    # 2. 均线全家桶 (MA5,10,20,30,60) - 独立中文名与配色
+    # 2. 均线全家桶 (MA5,10,20,30,60)
     ma_config = {
-        'MA5': ('MA5 (5日)', '#333333'),   # 黑灰
-        'MA10': ('MA10 (10日)', '#ffcc00'), # 黄色
-        'MA20': ('MA20 (20日)', '#cc33ff'), # 紫色
-        'MA30': ('MA30 (30日)', '#2196f3'), # 蓝色
-        'MA60': ('MA60 (60日)', '#4caf50')  # 绿色
+        'MA5': ('MA5 (5日)', '#333333'),
+        'MA10': ('MA10 (10日)', '#ffcc00'),
+        'MA20': ('MA20 (20日)', '#cc33ff'),
+        'MA30': ('MA30 (30日)', '#2196f3'),
+        'MA60': ('MA60 (60日)', '#4caf50')
     }
     for ma_col, (ma_label, ma_color) in ma_config.items():
         if ma_col in df.columns:
             fig.add_trace(go.Scatter(x=df['date'], y=df[ma_col], name=ma_label, line=dict(width=1.2, color=ma_color)), 1, 1)
             
-    # 3. 布林带 (中文名 + 半透明填充)
+    # 3. BOLL Overlay
     fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=1, dash='dash', color='rgba(33, 150, 243, 0.3)'), name='布林上轨'), 1, 1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], line=dict(width=1, dash='dash', color='rgba(33, 150, 243, 0.3)'), name='布林下轨', fill='tonexty', fillcolor='rgba(33, 150, 243, 0.05)'), 1, 1)
     
@@ -475,14 +493,16 @@ with st.sidebar:
     adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
     
     st.divider()
-    gann = st.checkbox("江恩", True); fib = st.checkbox("Fib", True); chan = st.checkbox("缠论", True)
+    gann = st.checkbox("江恩", True)
+    fib = st.checkbox("Fib", True)
+    chan = st.checkbox("缠论", True)
     
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
 
 # 核心内容区
 name = get_name(st.session_state.code, token)
-c1, c2 = st.columns([3,1])
+c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
 if st.session_state.code != st.session_state.paid_code:

@@ -51,7 +51,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v13_clean.csv" # 再次升级文件名，强制刷新环境
+DB_FILE = "users_v17_2_fix.csv" # 升级文件名确保干净
 
 # Optional deps
 try:
@@ -387,8 +387,17 @@ with st.sidebar:
             if u_list:
                 target = st.selectbox("选择用户", u_list)
                 val = st.number_input("新积分", value=0, step=10)
+                # ✅ 修复点：确保变量名一致
                 if st.button("修改"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
                 if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
+            
+            # 备份功能
+            csv = df_u.to_csv(index=False).encode('utf-8')
+            st.download_button("下载备份", csv, "backup.csv", "text/csv")
+            uf = st.file_uploader("恢复数据", type="csv")
+            if uf: 
+                try: pd.read_csv(uf).to_csv(DB_FILE, index=False); st.success("已恢复")
+                except: st.error("格式错误")
     else:
         st.info(f"👤 {user}")
         df_u = load_users()
@@ -410,14 +419,12 @@ with st.sidebar:
         st.session_state.paid_code = ""
         st.rerun()
         
+    # ✅ 修复点：变量 adjust 拼写一致
     days = st.radio("周期", [7,30,60,120,250], 2, horizontal=True)
-    adj = st.selectbox("复权", ["qfq","hfq",""], 0)
+    adjust = st.selectbox("复权", ["qfq","hfq",""], 0) 
     
     st.divider()
-    # 修复：初始化变量
-    gann = st.checkbox("江恩", True)
-    fib = st.checkbox("Fib", True)
-    chan = st.checkbox("缠论", True)
+    gann = st.checkbox("江恩", True); fib = st.checkbox("Fib", True); chan = st.checkbox("缠论", True)
     
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
@@ -439,6 +446,7 @@ if st.session_state.code != st.session_state.paid_code:
 if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
 with st.spinner("AI 正在生成深度研报..."):
+    # ✅ 修复点：调用时传入 adjust
     df = get_data(st.session_state.code, token, days, adjust)
     funda = get_fundamentals(st.session_state.code, token)
 
@@ -458,10 +466,10 @@ else:
     c5.metric("量比", f"{l['VolRatio']:.2f}")
     
     # 2. 图表
-    # 修复：传入正确变量
+    # ✅ 修复点：调用函数名统一为 plot_chart
     plot_chart(df.tail(days), f"{name} 分析图", gann, fib, chan)
     
-    # 3. 深度研报 (核心升级点)
+    # 3. 深度研报
     report_html = generate_deep_report(df, name)
     st.markdown(report_html, unsafe_allow_html=True)
     

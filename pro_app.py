@@ -60,7 +60,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v17_9_fix.csv"
+DB_FILE = "users_v18_final.csv"
 
 # Optional deps
 try:
@@ -219,37 +219,66 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
+    
+    # 定义基础变量
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
-    # 均线全家桶 (5,10,20,30,60,120,250)
+    # MA
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     
-    mid = df['MA20']; std = c.rolling(20).std()
-    df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
-    exp1 = c.ewm(span=12).mean(); e26 = c.ewm(span=26).mean()
-    df['DIF'] = e12 - e26; df['DEA'] = df['DIF'].ewm(span=9).mean(); df['HIST'] = 2*(df['DIF']-df['DEA'])
-    delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
-    rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
+    # BOLL
+    mid = df['MA20']
+    std = c.rolling(20).std()
+    df['Upper'] = mid + 2*std
+    df['Lower'] = mid - 2*std
+    
+    # MACD (✅ 修复点：变量名统一)
+    ema12 = c.ewm(span=12, adjust=False).mean()
+    ema26 = c.ewm(span=26, adjust=False).mean()
+    df['DIF'] = ema12 - ema26
+    df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
+    df['HIST'] = 2 * (df['DIF'] - df['DEA'])
+    
+    # RSI
+    delta = c.diff()
+    up = delta.clip(lower=0)
+    down = -1*delta.clip(upper=0)
+    rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
     df['RSI'] = 100 - (100/(1+rs))
-    low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
-    rsv = (c - l9)/(h9 - l9 + 1e-9)*100
-    df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3*df['K']-2*df['D']
+    
+    # KDJ
+    low9 = l.rolling(9).min()
+    high9 = h.rolling(9).max()
+    rsv = (c - low9) / (high9 - low9 + 1e-9) * 100
+    df['K'] = rsv.ewm(com=2).mean()
+    df['D'] = df['K'].ewm(com=2).mean()
+    df['J'] = 3 * df['K'] - 2 * df['D']
+    
+    # ATR & ADX
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
-    dp = np.where((h.diff()>l.diff().abs()) & (h.diff()>0), h.diff(), 0)
-    dm = np.where((l.diff().abs()>h.diff()) & (l.diff()<0), l.diff().abs(), 0)
-    tr14 = tr.rolling(14).sum()
-    dip = 100*pd.Series(dp).rolling(14).sum()/(tr14+1e-9)
-    dim = 100*pd.Series(dm).rolling(14).sum()/(tr14+1e-9)
-    df['ADX'] = (abs(dip-dim)/(dip+dim+1e-9)*100).rolling(14).mean()
     
-    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
+    dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
+    dm_m = np.where((l.diff().abs() > h.diff()) & (l.diff()<0), l.diff().abs(), 0)
+    tr14 = tr.rolling(14).sum()
+    di_p = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
+    di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
+    df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
+    
+    # Ichimoku
+    p_high = h.rolling(9).max()
+    p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
-    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
+    
+    p_high26 = h.rolling(26).max()
+    p_low26 = l.rolling(26).min()
     df['Kijun'] = (p_high26 + p_low26) / 2
+    
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
     df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
-    df['VolRatio'] = v / (v.rolling(5).mean()+1e-9)
+    
+    df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
+    
     return df.fillna(0)
 
 def detect_patterns(df):
@@ -337,7 +366,7 @@ def main_uptrend_check(df):
 def plot_chart(df, name, gann_show, fib_show, chan_show):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
     
-    # 1. K线 (红涨绿跌)
+    # 1. K线
     fig.add_trace(go.Candlestick(
         x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], 
         name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'
@@ -450,15 +479,16 @@ with st.sidebar:
     adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
     
     st.divider()
-    gann = st.checkbox("江恩", True); fib = st.checkbox("Fib", True); chan = st.checkbox("缠论", True)
+    gann = st.checkbox("江恩", True)
+    fib = st.checkbox("Fib", True)
+    chan = st.checkbox("缠论", True)
     
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
 
-# ✅ 修复点：确保 name 变量在 sidebar 外部正确获取
+# 核心内容区
 name = get_name(st.session_state.code, token)
-
-c1, c2 = st.columns([3, 1])
+c1, c2 = st.columns([3,1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
 if st.session_state.code != st.session_state.paid_code:

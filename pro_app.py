@@ -60,7 +60,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v17_7_final.csv"
+DB_FILE = "users_v17_8.csv"
 
 # Optional deps
 try:
@@ -124,7 +124,6 @@ def register_user(u, p):
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    # 新用户默认0分
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
@@ -221,15 +220,18 @@ def get_fundamentals(code, token):
 def calc_full_indicators(df):
     if df.empty: return df
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
-    for n in [5,10,20,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
+    
+    # ✅ 修复：加入 10, 30 日均线
+    for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
+    
     mid = df['MA20']; std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
-    e12 = c.ewm(span=12).mean(); e26 = c.ewm(span=26).mean()
+    exp1 = c.ewm(span=12).mean(); e26 = c.ewm(span=26).mean()
     df['DIF'] = e12 - e26; df['DEA'] = df['DIF'].ewm(span=9).mean(); df['HIST'] = 2*(df['DIF']-df['DEA'])
     delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
     rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
     df['RSI'] = 100 - (100/(1+rs))
-    l9 = l.rolling(9).min(); h9 = h.rolling(9).max()
+    low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
     rsv = (c - l9)/(h9 - l9 + 1e-9)*100
     df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3*df['K']-2*df['D']
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
@@ -333,9 +335,24 @@ def main_uptrend_check(df):
 
 def plot_chart(df, name, gann_show, fib_show, chan_show):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
-    fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K', increasing_line_color='#34c759', decreasing_line_color='#ff3b30'), 1, 1)
-    for m, c in zip(['MA5','MA20','MA60'], ['#0071e3','#ff9500','#af52de']):
-        if m in df.columns: fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1, color=c)), 1, 1)
+    
+    # ✅ 1. K线 (红涨绿跌)
+    fig.add_trace(go.Candlestick(
+        x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], 
+        name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'
+    ), 1, 1)
+    
+    # ✅ 2. 均线全家桶 (MA5,10,20,30,60) - 独立配色
+    ma_colors = {
+        'MA5': '#8E8E93',   # 灰
+        'MA10': '#AF52DE',  # 紫
+        'MA20': '#FFD60A',  # 黄
+        'MA30': '#32ADE6',  # 蓝
+        'MA60': '#28CD41'   # 绿
+    }
+    for ma_name, ma_color in ma_colors.items():
+        if ma_name in df.columns:
+            fig.add_trace(go.Scatter(x=df['date'], y=df[ma_name], name=ma_name, line=dict(width=1.2, color=ma_color)), 1, 1)
     
     ga, fi = get_drawing_lines(df)
     if gann_show:
@@ -345,9 +362,9 @@ def plot_chart(df, name, gann_show, fib_show, chan_show):
     if chan_show:
         tops=df[df['F_Top']]; bots=df[df['F_Bot']]
         fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34c759', name='Top'), 1, 1)
-        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#ff3b30', name='Bot'), 1, 1)
+        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='Bot'), 1, 1)
 
-    colors = ['#ff3b30' if c<o else '#34c759' for c,o in zip(df['close'], df['open'])]
+    colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors), 2, 1)
     fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors), 3, 1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='#0071e3', width=1)), 3, 1)
@@ -390,15 +407,10 @@ if not st.session_state["logged_in"]:
                 else: st.error(msg)
     st.stop()
 
-# --- 主界面变量初始化 (核心修复点) ---
+# --- 主界面 ---
 user = st.session_state["user"]
 is_admin = (user == ADMIN_USER)
 
-# 在侧边栏之前，先定义好全局变量
-if "code" not in st.session_state: st.session_state.code = "600519"
-if "paid_code" not in st.session_state: st.session_state.paid_code = ""
-
-# --- 侧边栏 ---
 with st.sidebar:
     if is_admin:
         st.success("👑 管理员模式")
@@ -430,8 +442,10 @@ with st.sidebar:
     except: dt=""
     token = st.text_input("Token", value=dt, type="password")
     
+    if "code" not in st.session_state: st.session_state.code = "600519"
     new_c = st.text_input("代码", st.session_state.code)
     
+    if "paid_code" not in st.session_state: st.session_state.paid_code = ""
     if new_c != st.session_state.code:
         st.session_state.code = new_c
         st.session_state.paid_code = ""
@@ -441,14 +455,12 @@ with st.sidebar:
     adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
     
     st.divider()
-    gann = st.checkbox("江恩", True); fib = st.checkbox("Fib", True); chan = st.checkbox("缠论", True)
+    gann = st.checkbox("江恩", True)
+    fib = st.checkbox("Fib", True)
+    chan = st.checkbox("缠论", True)
     
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
-
-# --- 主界面渲染 ---
-# 确保 get_name 在 sidebar 外部调用
-name = get_name(st.session_state.code, token)
 
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")

@@ -8,40 +8,130 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 1. 商业级配置 & 界面美化
+# 1. 赛博朋克/高科技风格配置
 # ==========================================
 st.set_page_config(
-    page_title="AlphaQuant AI",
+    page_title="AlphaQuant | 极速量化终端",
     layout="wide",
     page_icon="⚡",
     initial_sidebar_state="expanded"
 )
 
-# 华尔街暗黑风 CSS
-premium_css = """
+# 🎨 引入 Google Fonts & 高级 CSS
+cyberpunk_css = """
 <style>
-    .stApp {background-color: #0e1117;}
-    [data-testid="stSidebar"] {background-color: #161b22; border-right: 1px solid #30363d;}
-    header {visibility: hidden !important; height: 0px !important;}
-    footer {visibility: hidden !important; display: none !important;}
-    .stDeployButton {display: none !important;}
-    [data-testid="stToolbar"] {display: none !important;}
-    [data-testid="stDecoration"] {display: none !important;}
-    .block-container {padding-top: 1.5rem !important;}
-    [data-testid="stMetricValue"] {font-family: "Roboto Mono", monospace; font-size: 1.8rem !important; color: #e6edf3;}
-    [data-testid="stMetricLabel"] {color: #8b949e; font-size: 0.9rem !important;}
-    div.stButton > button {background: linear-gradient(45deg, #238636, #2ea043); color: white; border: none; border-radius: 6px; font-weight: bold;}
-    div.stButton > button:hover {transform: scale(1.02); box-shadow: 0 4px 12px rgba(46, 160, 67, 0.4);}
-    .brand-logo {font-size: 1.5rem; font-weight: 800; background: -webkit-linear-gradient(eee, #333); -webkit-background-clip: text; color: #58a6ff; margin-bottom: 20px; text-align: center; border-bottom: 1px solid #30363d; padding-bottom: 10px;}
+    /* 引入科幻字体 */
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@500;700&display=swap');
+
+    /* 全局背景 - 深空黑 */
+    .stApp {
+        background-color: #050505;
+        background-image: radial-gradient(circle at 50% 50%, #111 0%, #000 100%);
+    }
+
+    /* 侧边栏 - 磨砂玻璃感 */
+    [data-testid="stSidebar"] {
+        background-color: rgba(10, 10, 15, 0.95);
+        border-right: 1px solid #333;
+    }
+
+    /* 隐藏原生组件 */
+    header, footer, [data-testid="stToolbar"], .stDeployButton, [data-testid="stDecoration"] {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0px !important;
+    }
+    .block-container { padding-top: 1rem !important; }
+
+    /* 标题样式 - Orbitron 字体 */
+    h1, h2, h3 {
+        font-family: 'Orbitron', sans-serif !important;
+        color: #00f2ff !important;
+        text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+        letter-spacing: 2px;
+    }
+
+    /* 指标卡片 (Metric) - HUD 风格 */
+    [data-testid="stMetricValue"] {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 28px !important;
+        color: #fff !important;
+        text-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+    }
+    [data-testid="stMetricLabel"] {
+        font-family: 'Orbitron', sans-serif !important;
+        color: #888 !important;
+        font-size: 12px !important;
+    }
+    /* 卡片边框 */
+    div[data-testid="metric-container"] {
+        background-color: #0f0f13;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+        transition: all 0.3s;
+    }
+    div[data-testid="metric-container"]:hover {
+        border-color: #00f2ff;
+        box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+    }
+
+    /* 按钮 - 赛博霓虹风格 */
+    div.stButton > button {
+        background: linear-gradient(90deg, #00c6ff, #0072ff);
+        color: white;
+        font-family: 'Orbitron', sans-serif;
+        border: none;
+        border-radius: 4px;
+        padding: 0.5rem 1rem;
+        font-weight: bold;
+        letter-spacing: 1px;
+        transition: all 0.3s ease;
+        box-shadow: 0 0 10px rgba(0, 114, 255, 0.4);
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 0 20px rgba(0, 198, 255, 0.8);
+    }
+
+    /* 输入框美化 */
+    .stTextInput input, .stSelectbox div[data-baseweb="select"] {
+        background-color: #0a0a0c !important;
+        color: #00f2ff !important;
+        border: 1px solid #333 !important;
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+    
+    /* 提示框美化 */
+    .stAlert {
+        background-color: rgba(20, 20, 30, 0.9);
+        border: 1px solid #444;
+        color: #ddd;
+    }
+    
+    /* Logo 区域 */
+    .brand-logo {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.8rem;
+        font-weight: 900;
+        background: linear-gradient(to right, #00f2ff, #0072ff);
+        -webkit-background-clip: text;
+        color: transparent;
+        text-align: center;
+        margin-bottom: 30px;
+        border-bottom: 1px solid #333;
+        padding-bottom: 15px;
+        letter-spacing: 2px;
+    }
 </style>
 """
-st.markdown(premium_css, unsafe_allow_html=True)
+st.markdown(cyberpunk_css, unsafe_allow_html=True)
 
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-# 💾 固定文件名，方便维护
-DB_FILE = "users.csv" 
+DB_FILE = "users_final_v1.csv" # 保持数据库文件不变
 
 # Optional deps
 try:
@@ -54,7 +144,7 @@ except Exception:
     bs = None
 
 # ==========================================
-# 2. 数据库逻辑 (含备份/恢复)
+# 2. 数据库逻辑
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -105,7 +195,7 @@ def delete_user(target):
     save_users(df)
 
 def register_user(u, p):
-    if u == ADMIN_USER: return False, "保留账号无法注册"
+    if u == ADMIN_USER: return False, "无法注册管理员名字"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
@@ -312,31 +402,64 @@ def main_uptrend_check(df):
 
 def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
     if df.empty: return
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.55, 0.1, 0.15, 0.2])
-    fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'), row=1, col=1)
-    for m, c in zip(['MA5','MA20','MA60'], ['#39ff14', '#ffff00', '#ff073a']):
-        fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1, color=c)), row=1, col=1)
     
+    # 🎨 机构级黑色配色方案
+    fig = make_subplots(
+        rows=4, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.03, 
+        row_heights=[0.55, 0.1, 0.15, 0.2]
+    )
+    
+    # K线：使用 TradingView 风格的青色/品红
+    fig.add_trace(go.Candlestick(
+        x=df['date'], open=df['open'], high=df['high'],
+        low=df['low'], close=df['close'], name='K线',
+        increasing_line_color='#089981', decreasing_line_color='#F23645'
+    ), row=1, col=1)
+    
+    # 均线 - 荧光色
+    for m, c in zip(['MA5','MA20','MA60'], ['#FFE600', '#00FFFF', '#FF00FF']):
+        if m in df.columns:
+            fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1, color=c)), row=1, col=1)
+    
+    # 画线
     gann, fib = get_drawing_lines(df)
     if show_gann:
-        for k, v in gann.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(dash='dot', width=1, color='gray'), name=f'Gann {k}'), row=1, col=1)
+        for k, v in gann.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(dash='dot', width=1, color='rgba(255,255,255,0.3)'), name=f'Gann {k}'), row=1, col=1)
     if show_fib:
         for k, v in fib.items(): fig.add_hline(y=v, line_dash="dash", line_color="orange", annotation_text=f"Fib {k}", row=1, col=1)
+            
     if show_chanlun:
         tops = df[df['Fractal_Top']]; bots = df[df['Fractal_Bot']]
         fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#00ff00', marker_size=8, name='顶'), row=1, col=1)
         fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#ff0000', marker_size=8, name='底'), row=1, col=1)
 
-    colors = ['#ff073a' if c>=o else '#39ff14' for c,o in zip(df['close'], df['open'])]
+    colors = ['#F23645' if c<o else '#089981' for c,o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), row=2, col=1)
+    
     fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors, name='MACD'), row=3, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='white', width=1), name='DIF'), row=3, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='yellow', width=1), name='DEA'), row=3, col=1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K'), row=4, col=1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D'), row=4, col=1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['J'], name='J'), row=4, col=1)
     
-    fig.update_layout(title=dict(text=title, font=dict(size=20, color='white')), xaxis_rangeslider_visible=False, height=900, margin=dict(t=40, l=20, r=20, b=20), paper_bgcolor='#0e1117', plot_bgcolor='#0e1117', font=dict(color='#c9d1d9'), grid=dict(rows=1, columns=1), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#30363d'))
+    fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K', line=dict(color='orange')), row=4, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D', line=dict(color='cyan')), row=4, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['J'], name='J', line=dict(color='purple')), row=4, col=1)
+    
+    # 极简暗黑布局
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=20, color='white', family='Orbitron')),
+        xaxis_rangeslider_visible=False, 
+        height=900, 
+        margin=dict(t=40, l=10, r=10, b=10),
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#8b949e', family='JetBrains Mono'),
+        grid=dict(rows=1, columns=1),
+        xaxis=dict(showgrid=False, zeroline=False),
+        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', zeroline=False),
+        hovermode='x unified'
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
@@ -346,24 +469,24 @@ if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
 # --- 登录 ---
 if not st.session_state["logged_in"]:
-    st.markdown("<br><br><h1 style='text-align:center; color:#58a6ff;'>⚡ AlphaQuant AI 系统</h1>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align:center; color:#00f2ff;'>⚡ AlphaQuant 交易终端</h1>", unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
         tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
-            if st.button("🚀 登录", type="primary", use_container_width=True):
+            if st.button("🚀 启动终端", type="primary", use_container_width=True):
                 if verify_login(u.strip(), p):
                     st.session_state["logged_in"] = True
                     st.session_state["user"] = u.strip()
                     st.session_state.paid_code = ""
                     st.rerun()
-                else: st.error("账号或密码错误")
+                else: st.error("❌ 鉴权失败")
         with tab2:
             nu = st.text_input("新账号")
             np1 = st.text_input("新密码", type="password")
-            if st.button("📝 注册", use_container_width=True):
+            if st.button("📝 创建账户", use_container_width=True):
                 suc, msg = register_user(nu.strip(), np1)
                 if suc: st.success(msg)
                 else: st.error(msg)
@@ -380,20 +503,6 @@ with st.sidebar:
         st.success(f"👑 管理员在线")
         with st.expander("👮‍♂️ 用户积分管理", expanded=True):
             df_u = load_users()
-            
-            # 1. 备份下载
-            csv = df_u.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 备份数据库", data=csv, file_name="users_backup.csv", mime="text/csv")
-            
-            # 2. 数据恢复
-            uploaded_file = st.file_uploader("📤 恢复数据库 (慎用)", type="csv")
-            if uploaded_file is not None:
-                try:
-                    df_new = pd.read_csv(uploaded_file)
-                    df_new.to_csv(DB_FILE, index=False)
-                    st.success("恢复成功！请刷新")
-                except: st.error("文件格式错误")
-
             st.dataframe(df_u[["username","quota"]], hide_index=True, use_container_width=True)
             u_list = [x for x in df_u["username"] if x != ADMIN_USER]
             if u_list:
@@ -407,11 +516,11 @@ with st.sidebar:
                     if st.button("❌ 删除"):
                         delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
     else:
-        st.info(f"👤 用户: {user}")
+        st.info(f"👤 交易员: {user}")
         df_u = load_users()
         try: q = df_u[df_u["username"]==user]["quota"].iloc[0]
         except: q = 0
-        st.metric("剩余算力 (积分)", q, delta="AI 引擎就绪")
+        st.metric("剩余算力", q, delta="AI READY")
 
     st.divider()
     try: def_tok = st.secrets["TUSHARE_TOKEN"]
@@ -429,14 +538,14 @@ with st.sidebar:
     
     name = get_name(st.session_state.code, token)
     
-    days = st.radio("分析周期 (天)", [7, 30, 60, 90, 180, 250, 360], index=2, horizontal=True)
-    adjust = st.selectbox("复权模式", ["qfq", "hfq", ""], 0)
+    days = st.radio("周期 (天)", [7, 30, 60, 90, 180, 250, 360], index=2, horizontal=True)
+    adjust = st.selectbox("复权", ["qfq", "hfq", ""], 0)
     
     st.divider()
-    st.caption("AI 辅助线")
-    show_gann = st.checkbox("江恩角度线", True)
-    show_fib = st.checkbox("斐波那契回撤", True)
-    show_chanlun = st.checkbox("缠论分型结构", True)
+    st.caption("视觉增强")
+    show_gann = st.checkbox("江恩矩阵", True)
+    show_fib = st.checkbox("斐波那契", True)
+    show_chanlun = st.checkbox("缠论分型", True)
     st.divider()
     if st.button("🚪 安全退出"): st.session_state["logged_in"] = False; st.rerun()
 
@@ -448,12 +557,12 @@ with c1: st.title(f"📈 {name} ({st.session_state.code})")
 is_paid = (st.session_state.code == st.session_state.paid_code)
 
 if not is_paid:
-    st.warning("🔒 深度数据已锁定")
+    st.warning("🔒 深度数据已加密锁定")
     if st.button(f"🔍 消耗 1 算力解锁分析", type="primary", use_container_width=True):
         if consume_quota(user):
             st.session_state.paid_code = st.session_state.code
             with st.spinner("AI 神经网络正在计算趋势..."):
-                time.sleep(1.5)
+                time.sleep(1.0)
             st.rerun()
         else: st.error("❌ 算力不足，请联系管理员充值")
     st.stop()
@@ -466,20 +575,21 @@ with st.spinner("正在从交易所获取实时数据..."):
     funda = get_fundamentals(st.session_state.code, token)
 
 if df.empty:
-    st.error("⚠️ 数据获取失败，请检查代码或等待开盘")
+    st.error("⚠️ 数据流中断，请检查代码或等待开盘")
 else:
     df = calc_full_indicators(df)
     df = detect_patterns(df)
     
     trend_txt, trend_col = main_uptrend_check(df)
-    if trend_col == "success": st.success(f"### {trend_txt}")
-    elif trend_col == "warning": st.warning(f"### {trend_txt}")
-    else: st.error(f"### {trend_txt}")
+    st.markdown(f"""
+    <div style="padding:15px; border-radius:10px; background-color: {'rgba(8,153,129,0.2)' if trend_col=='success' else 'rgba(242,54,69,0.2)'}; border: 1px solid {'#089981' if trend_col=='success' else '#F23645'}; margin-bottom: 20px;">
+        <h2 style="margin:0; color: {'#00f2ff' if trend_col=='success' else '#ff4d4d'}">{trend_txt}</h2>
+    </div>
+    """, unsafe_allow_html=True)
     
     plot_df = df.tail(days).copy() 
     latest = df.iloc[-1]
     
-    # 仪表盘
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("现价", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
     k2.metric("PE (TTM)", funda['pe'])

@@ -60,7 +60,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v17_8.csv"
+DB_FILE = "users_v17_9_fix.csv"
 
 # Optional deps
 try:
@@ -221,7 +221,7 @@ def calc_full_indicators(df):
     if df.empty: return df
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
-    # ✅ 修复：加入 10, 30 日均线
+    # 均线全家桶 (5,10,20,30,60,120,250)
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     
     mid = df['MA20']; std = c.rolling(20).std()
@@ -242,6 +242,7 @@ def calc_full_indicators(df):
     dip = 100*pd.Series(dp).rolling(14).sum()/(tr14+1e-9)
     dim = 100*pd.Series(dm).rolling(14).sum()/(tr14+1e-9)
     df['ADX'] = (abs(dip-dim)/(dip+dim+1e-9)*100).rolling(14).mean()
+    
     p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
     p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
@@ -336,20 +337,14 @@ def main_uptrend_check(df):
 def plot_chart(df, name, gann_show, fib_show, chan_show):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
     
-    # ✅ 1. K线 (红涨绿跌)
+    # 1. K线 (红涨绿跌)
     fig.add_trace(go.Candlestick(
         x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], 
         name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'
     ), 1, 1)
     
-    # ✅ 2. 均线全家桶 (MA5,10,20,30,60) - 独立配色
-    ma_colors = {
-        'MA5': '#8E8E93',   # 灰
-        'MA10': '#AF52DE',  # 紫
-        'MA20': '#FFD60A',  # 黄
-        'MA30': '#32ADE6',  # 蓝
-        'MA60': '#28CD41'   # 绿
-    }
+    # 2. 均线全家桶
+    ma_colors = {'MA5':'#8E8E93', 'MA10':'#AF52DE', 'MA20':'#FFD60A', 'MA30':'#32ADE6', 'MA60':'#28CD41'}
     for ma_name, ma_color in ma_colors.items():
         if ma_name in df.columns:
             fig.add_trace(go.Scatter(x=df['date'], y=df[ma_name], name=ma_name, line=dict(width=1.2, color=ma_color)), 1, 1)
@@ -362,7 +357,7 @@ def plot_chart(df, name, gann_show, fib_show, chan_show):
     if chan_show:
         tops=df[df['F_Top']]; bots=df[df['F_Bot']]
         fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34c759', name='Top'), 1, 1)
-        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='Bot'), 1, 1)
+        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#ff3b30', name='Bot'), 1, 1)
 
     colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors), 2, 1)
@@ -455,12 +450,13 @@ with st.sidebar:
     adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
     
     st.divider()
-    gann = st.checkbox("江恩", True)
-    fib = st.checkbox("Fib", True)
-    chan = st.checkbox("缠论", True)
+    gann = st.checkbox("江恩", True); fib = st.checkbox("Fib", True); chan = st.checkbox("缠论", True)
     
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
+
+# ✅ 修复点：确保 name 变量在 sidebar 外部正确获取
+name = get_name(st.session_state.code, token)
 
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")

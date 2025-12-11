@@ -52,7 +52,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v26_1.csv"
+DB_FILE = "users_v26_2.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -162,7 +162,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 股票数据与分析逻辑 (强力修复版)
+# 3. 智能股票逻辑 (Global Markets)
 # ==========================================
 def is_cn_stock(code):
     return code.isdigit() and len(code) == 6
@@ -178,11 +178,13 @@ def process_ticker(code):
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     code = process_ticker(code)
+    # 美股/港股
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
             return t.info.get('shortName') or t.info.get('longName') or code
         except: return code
+    # A股
     if token and ts:
         try:
             ts.set_token(token)
@@ -204,54 +206,57 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     fetch_days = 1500 
     raw_df = pd.DataFrame()
     
-    # 🌍 美股/港股 (Yfinance 强力清洗)
+    # 🌍 美股/港股 (Yfinance 终极修复)
     if not is_cn_stock(code):
         try:
             if proxy: 
-                st.info(f"使用代理: {proxy}")
                 os.environ["HTTP_PROXY"] = proxy
                 os.environ["HTTPS_PROXY"] = proxy
-                
+            
+            # 下载数据
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
             
             if not yf_df.empty:
-                # 1. 降维 MultiIndex
+                # 1. 降维 MultiIndex (关键!)
                 if isinstance(yf_df.columns, pd.MultiIndex):
                     yf_df.columns = yf_df.columns.get_level_values(0)
                 
-                # 2. 必须先重置索引，把 Date 变成列
+                # 2. 统一转小写并去重
+                yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
+                # 3. 去除重复列名 (例如 Close 和 Adj Close 可能重名)
+                yf_df = yf_df.loc[:, ~yf_df.columns.duplicated()]
+                
+                # 4. 重置索引拿到 Date 列
                 yf_df.reset_index(inplace=True)
                 
-                # 3. 强制全部小写 + 去空格
-                yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
-                
-                # 4. 暴力映射列名
+                # 5. 映射列名
                 rename_map = {}
                 for c in yf_df.columns:
                     if 'date' in c: rename_map[c] = 'date'
-                    elif 'adj' in c and 'close' in c: rename_map[c] = 'close'
-                    elif 'close' in c and 'close' not in rename_map.values(): rename_map[c] = 'close' # 优先 Adj Close
+                    elif 'close' in c: rename_map[c] = 'close' # 已经去重，直接用
                     elif 'open' in c: rename_map[c] = 'open'
                     elif 'high' in c: rename_map[c] = 'high'
                     elif 'low' in c: rename_map[c] = 'low'
                     elif 'volume' in c: rename_map[c] = 'volume'
-
+                
                 yf_df.rename(columns=rename_map, inplace=True)
                 
-                # 5. 提取必要列
-                req_cols = ['date','open','high','low','close','volume']
-                # 如果没有 volume，补全为 0 (防止报错)
-                if 'volume' not in yf_df.columns: yf_df['volume'] = 0
-                
-                # 检查其他关键列是否存在
-                if all(c in yf_df.columns for c in ['date','open','high','low','close']):
-                    raw_df = yf_df[req_cols].copy()
-                    for c in req_cols[1:]: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
+                # 6. 只要有核心数据就提取
+                req_cols = ['date','open','high','low','close']
+                if all(c in yf_df.columns for c in req_cols):
+                    # 如果没有volume，补0
+                    if 'volume' not in yf_df.columns: yf_df['volume'] = 0
+                    
+                    raw_df = yf_df[['date','open','high','low','close','volume']].copy()
+                    
+                    # 7. 强制转为一维 float，防止 Series 变 DataFrame
+                    for c in ['open','high','low','close','volume']:
+                        raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
+                    
+                    # 计算涨跌幅
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
-                else:
-                    st.error(f"列名解析失败: {list(yf_df.columns)}")
         except Exception as e:
-            st.error(f"美股接口错误: {e}")
+            st.error(f"全球数据源错误: {e}")
             
     # 🇨🇳 A股
     else:
@@ -287,11 +292,12 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
             if not data.empty:
                 df = data.rename(columns={'pctChg':'pct_change'})
                 df['date'] = pd.to_datetime(df['date'])
-                for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
+                for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
                 raw_df = df.sort_values('date').reset_index(drop=True)
 
     if raw_df.empty: return raw_df
 
+    # 重采样
     if timeframe == '日线': return raw_df
     
     rule = 'W' if timeframe == '周线' else 'M'
@@ -306,7 +312,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
 def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
     code = process_ticker(code)
-    
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
@@ -333,8 +338,19 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
-    c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
+    # 🚨 核心防御：强制提取 Series，防止 DataFrame 混入
+    # 如果 df['close'] 是 DataFrame，iloc[:, 0] 会取第一列
+    # 如果 df['close'] 是 Series，它保持不变
+    try:
+        c = df['close'].squeeze() if isinstance(df['close'], pd.DataFrame) else df['close']
+        h = df['high'].squeeze() if isinstance(df['high'], pd.DataFrame) else df['high']
+        l = df['low'].squeeze() if isinstance(df['low'], pd.DataFrame) else df['low']
+        v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
+    except:
+        # 兜底：直接按列名重组
+        c = df['close']; h = df['high']; l = df['low']; v = df['volume']
+
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     mid = df['MA20']; std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
@@ -509,7 +525,7 @@ def plot_chart(df, name, flags):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 执行入口 (Logic)
+# 4. 路由逻辑
 # ==========================================
 init_db()
 
@@ -657,7 +673,7 @@ if st.session_state.code != st.session_state.paid_code:
 with c2:
     if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
-# ✅ 全局异常捕获 (关键修复)
+# ✅ 核心逻辑 (异常捕获)
 try:
     with st.spinner("AI 正在生成深度研报..."):
         df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)

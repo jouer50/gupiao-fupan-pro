@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 1. 核心配置 & 界面隐藏
+# 1. 核心配置
 # ==========================================
 st.set_page_config(
     page_title="A股深度复盘系统 Pro",
@@ -33,7 +33,7 @@ st.markdown(hide_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v9_admin_fix.csv" # 确保文件干净
+DB_FILE = "users_v10_quota_fix.csv" # 升级数据库，确保逻辑纯净
 
 # Optional deps
 try:
@@ -65,9 +65,7 @@ def save_users(df):
     df.to_csv(DB_FILE, index=False)
 
 def verify_login(u, p):
-    # 👑 管理员超级通道
     if u == ADMIN_USER and p == ADMIN_PASS: return True
-    
     df = load_users()
     row = df[df["username"] == u]
     if row.empty: return False
@@ -75,13 +73,17 @@ def verify_login(u, p):
     except: return False
 
 def consume_quota(u):
+    # 👑 管理员无限
     if u == ADMIN_USER: return True
+    
     df = load_users()
     idx = df[df["username"] == u].index
-    if len(idx) > 0 and df.loc[idx[0], "quota"] > 0:
-        df.loc[idx[0], "quota"] -= 1
-        save_users(df)
-        return True
+    if len(idx) > 0:
+        current_q = int(df.loc[idx[0], "quota"])
+        if current_q > 0:
+            df.loc[idx[0], "quota"] = current_q - 1
+            save_users(df)
+            return True
     return False
 
 def update_user_quota(target, new_q):
@@ -102,7 +104,6 @@ def register_user(u, p):
     if u == ADMIN_USER: return False, "无法注册管理员名字"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
-    
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 20}
@@ -386,7 +387,7 @@ if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
 # --- 登录 ---
 if not st.session_state["logged_in"]:
-    st.markdown("<br><br><h1 style='text-align:center'>🔐 A股深度复盘系统 V13.3</h1>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align:center'>🔐 A股深度复盘系统 V13.4</h1>", unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
         tab1, tab2 = st.tabs(["登录", "注册"])
@@ -397,6 +398,9 @@ if not st.session_state["logged_in"]:
                 if verify_login(u.strip(), p):
                     st.session_state["logged_in"] = True
                     st.session_state["user"] = u.strip()
+                    # 登录时重置分析状态，要求重新扣费
+                    st.session_state["analysis_paid"] = False 
+                    st.session_state["paid_code"] = ""
                     st.rerun()
                 else: st.error("账号或密码错误 (管理员: ZCX001 / 123456)")
         with tab2:
@@ -411,13 +415,11 @@ if not st.session_state["logged_in"]:
 user = st.session_state["user"]
 is_admin = (user == ADMIN_USER)
 
+# --- 侧边栏 ---
 with st.sidebar:
-    st.header(f"👤 {user}")
-    
-    # ✅✅✅ 修复点：这里必须有 if is_admin 块，才能看到后台！
     if is_admin:
-        st.success("✅ 管理员后台已激活")
-        with st.expander("👮‍♂️ 积分管理", expanded=True):
+        st.success(f"👑 管理员: {user} (后台已激活)")
+        with st.expander("👮‍♂️ 积分管理后台", expanded=True):
             df_u = load_users()
             st.dataframe(df_u[["username","quota"]], hide_index=True)
             u_list = [x for x in df_u["username"] if x != ADMIN_USER]
@@ -436,8 +438,11 @@ with st.sidebar:
                         st.success("已删")
                         time.sleep(0.5); st.rerun()
     else:
+        st.info(f"👤 用户: {user}")
         df_u = load_users()
-        q = df_u[df_u["username"]==user]["quota"].iloc[0]
+        try:
+            q = df_u[df_u["username"]==user]["quota"].iloc[0]
+        except: q = 0
         st.metric("剩余积分", q)
 
     st.divider()
@@ -447,7 +452,13 @@ with st.sidebar:
     
     if "code" not in st.session_state: st.session_state.code = "600519"
     new_code = st.text_input("股票代码", st.session_state.code)
-    if new_code != st.session_state.code: st.session_state.code = new_code
+    
+    # 🔒 核心逻辑：如果代码变了，锁住界面，要求重新付费
+    if "paid_code" not in st.session_state: st.session_state.paid_code = ""
+    if new_code != st.session_state.code:
+        st.session_state.code = new_code
+        st.session_state.paid_code = "" # 清空已付费记录
+        st.rerun()
     
     name = get_name(st.session_state.code, token)
     
@@ -461,12 +472,29 @@ with st.sidebar:
     st.divider()
     if st.button("🚪 退出登录"): st.session_state["logged_in"] = False; st.rerun()
 
+# --- 主界面 ---
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
+
+# 🔒 付费墙逻辑
+is_paid = (st.session_state.code == st.session_state.paid_code)
+
+if not is_paid:
+    # 未付费状态
+    st.warning("🔒 当前股票数据未解锁")
+    if st.button(f"🔍 支付 1 积分并分析 {st.session_state.code}", type="primary", use_container_width=True):
+        if consume_quota(user):
+            st.session_state.paid_code = st.session_state.code # 记录已付费的代码
+            st.rerun()
+        else:
+            st.error("❌ 积分不足！请联系管理员 ZCX001 充值。")
+    st.stop() # 停止往下执行
+
+# 已付费状态：显示数据
 with c2:
-    if st.button("🔄 刷新数据 (消耗1积分)", type="primary"):
-        if consume_quota(user): st.session_state["refresh"] = time.time(); st.rerun()
-        else: st.error("积分不足")
+    if st.button("🔄 刷新 (不扣分)"):
+        st.cache_data.clear()
+        st.rerun()
 
 with st.spinner("🚀 AI 正在深度分析..."):
     df = get_data(st.session_state.code, token, days, adjust) 

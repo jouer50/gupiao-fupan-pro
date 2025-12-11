@@ -32,7 +32,7 @@ st.markdown(hide_css, unsafe_allow_html=True)
 
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
-ADMIN_PASS = "123456"
+ADMIN_PASS = "1232503"
 DB_FILE = "users_v10_quota_fix.csv" # 升级数据库，确保逻辑纯净
 
 # Optional deps

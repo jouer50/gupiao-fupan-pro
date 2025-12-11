@@ -8,12 +8,16 @@ import random
 import string
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import traceback # 用于显示具体报错
 
-# ✅ 引入 yfinance
+# ==========================================
+# 0. 依赖检查
+# ==========================================
 try:
     import yfinance as yf
-except:
-    st.error("⚠️ 缺少 yfinance 库。请在 requirements.txt 中添加 'yfinance' 并重启 App。")
+except ImportError:
+    st.error("🚨 缺少必要库：yfinance")
+    st.info("请在 GitHub 仓库的 `requirements.txt` 文件中添加一行：`yfinance`")
     st.stop()
 
 # ==========================================
@@ -62,6 +66,10 @@ apple_css = """
     .position-box {
         padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 16px; margin-top: 5px;
     }
+    
+    .captcha-box {
+        background-color: #e5e5ea; color: #1d1d1f; font-family: monospace; font-weight: bold; font-size: 24px; text-align: center; padding: 10px; border-radius: 8px; letter-spacing: 8px; text-decoration: line-through; user-select: none;
+    }
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -69,7 +77,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v25_1_fix.csv"
+DB_FILE = "users_v25_2.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -81,7 +89,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 数据库逻辑
+# 2. 数据库与验证码逻辑
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -104,6 +112,15 @@ def load_keys():
     except: return pd.DataFrame(columns=["key", "points", "status"])
 
 def save_keys(df): df.to_csv(KEYS_FILE, index=False)
+
+def generate_captcha():
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    st.session_state['captcha_correct'] = code
+    return code
+
+def verify_captcha(user_input):
+    if 'captcha_correct' not in st.session_state: generate_captcha(); return False
+    return user_input.strip().upper() == st.session_state['captcha_correct']
 
 def generate_key(points):
     key = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
@@ -170,44 +187,27 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 智能路由与数据引擎 (核心修复)
+# 3. 智能股票逻辑 (Global Markets)
 # ==========================================
 def is_cn_stock(code):
-    # A股特征：6位数字 (600519)
     return code.isdigit() and len(code) == 6
 
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
 def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
 
 def process_ticker(code):
-    """
-    智能处理代码格式：
-    1. 纯数字且长度<6 (如 700, 9988) -> 港股 (0700.HK, 9988.HK)
-    2. 6位数字 -> A股
-    3. 字母 -> 美股/加密货币
-    """
     code = code.strip().upper()
-    
-    # 港股智能补全
-    if code.isdigit() and len(code) < 6:
-        return f"{code.zfill(4)}.HK"
-    
+    if code.isdigit() and len(code) < 6: return f"{code.zfill(4)}.HK"
     return code
 
 @st.cache_data(ttl=3600)
 def get_name(code, token):
     code = process_ticker(code)
-    
-    # 1. 美股/港股 (Yahoo)
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
-            # 尝试获取简称，Yahoo 接口有时不稳定，多试几个字段
-            n = t.info.get('shortName') or t.info.get('longName') or code
-            return n
+            return t.info.get('shortName') or t.info.get('longName') or code
         except: return code
-    
-    # 2. A股
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -224,48 +224,38 @@ def get_name(code, token):
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust):
-    code = process_ticker(code) # 预处理代码格式
+    code = process_ticker(code)
     fetch_days = 800 
     raw_df = pd.DataFrame()
     
-    # --- 🌍 非A股 (美股/港股/加密) ---
+    # --- 美股/港股 ---
     if not is_cn_stock(code):
         try:
-            # 修复：auto_adjust=False 确保拿到原始 OHLC
-            yf_df = yf.download(code, period="2y", interval="1d", progress=False, auto_adjust=False)
-            
+            # ✅ 修复：时间拉长到5年，确保年线数据充足
+            yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
             if not yf_df.empty:
-                # ✅ 核心修复：处理 yfinance 多级索引问题
+                # ✅ 修复：多级索引处理
                 if isinstance(yf_df.columns, pd.MultiIndex):
                     yf_df.columns = yf_df.columns.get_level_values(0)
                 
-                # 统一列名小写
                 yf_df.columns = [c.lower() for c in yf_df.columns]
-                
-                # 重置索引，确保 date 是一列
                 yf_df.reset_index(inplace=True)
                 
-                # 再次检查列名，防止 Date/Datetime 大小写问题
                 rename_map = {}
                 for c in yf_df.columns:
                     if 'date' in c: rename_map[c] = 'date'
-                    if 'adj' in c and 'close' in c: rename_map[c] = 'close' # 优先用复权收盘
-                
+                    if 'adj' in c and 'close' in c: rename_map[c] = 'close'
                 yf_df.rename(columns=rename_map, inplace=True)
                 
-                # 确保必须列存在
                 req_cols = ['date','open','high','low','close','volume']
                 if all(c in yf_df.columns for c in req_cols):
                     raw_df = yf_df[req_cols].copy()
-                    # 确保数值类型
-                    for c in req_cols[1:]:
-                        raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
-                    
+                    for c in req_cols[1:]: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
         except Exception as e:
-            st.error(f"美/港股数据获取失败: {e}")
+            st.error(f"全球数据源连接失败: {e}")
             
-    # --- 🇨🇳 A股 ---
+    # --- A股 ---
     else:
         if token and ts:
             try:
@@ -304,7 +294,6 @@ def get_data_and_resample(code, token, timeframe, adjust):
 
     if raw_df.empty: return raw_df
 
-    # 重采样
     if timeframe == '日线': return raw_df
     
     rule = 'W' if timeframe == '周线' else 'M'
@@ -319,23 +308,18 @@ def get_data_and_resample(code, token, timeframe, adjust):
 @st.cache_data(ttl=3600)
 def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
-    
-    # 美股/港股
     code = process_ticker(code)
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
             i = t.info
-            pe = i.get('trailingPE')
-            pb = i.get('priceToBook')
-            mk = i.get('marketCap')
+            pe = i.get('trailingPE'); pb = i.get('priceToBook'); mk = i.get('marketCap')
             if pe: res['pe'] = f"{pe:.2f}"
             if pb: res['pb'] = f"{pb:.2f}"
             if mk: res['mv'] = f"{mk/100000000:.2f}亿"
         except: pass
         return res
 
-    # A股
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -661,67 +645,68 @@ if st.session_state.code != st.session_state.paid_code:
 with c2:
     if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
-with st.spinner("AI 正在生成深度研报..."):
-    df = get_data_and_resample(st.session_state.code, token, timeframe, adjust)
-    funda = get_fundamentals(st.session_state.code, token)
+# ✅ 全局异常捕获 (关键修复)
+try:
+    with st.spinner("AI 正在生成深度研报..."):
+        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust)
+        funda = get_fundamentals(st.session_state.code, token)
 
-if df is None or df.empty:
-    st.error("无数据")
-else:
-    df = calc_full_indicators(df)
-    df = detect_patterns(df)
-    
-    trend_txt, trend_col = main_uptrend_check(df)
-    bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
-    tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
-    st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
-    
-    l = df.iloc[-1]
-    k1,k2,k3,k4,k5 = st.columns(5)
-    k1.metric("价格", f"{l['close']:.2f}", f"{l['pct_change']:.2f}%")
-    k2.metric("PE", funda['pe'])
-    k3.metric("RSI", f"{l['RSI']:.1f}")
-    k4.metric("ADX", f"{l['ADX']:.1f}")
-    k5.metric("量比", f"{l['VolRatio']:.2f}")
-    
-    plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
-    
-    report_html = generate_deep_report(df, name)
-    st.markdown(report_html, unsafe_allow_html=True)
-    
-    score, act, col, sl, tp, pos = analyze_score(df)
-    st.subheader(f"🤖 最终建议: {act} (评分 {score})")
-    
-    s1,s2,s3 = st.columns(3)
-    if col == 'success': s1.success(f"仓位: {pos}")
-    elif col == 'warning': s1.warning(f"仓位: {pos}")
-    else: s1.error(f"仓位: {pos}")
-    
-    s2.info(f"🛡️ 止损: {sl:.2f}"); s3.info(f"💰 止盈: {tp:.2f}")
-    st.caption(f"📍 支撑: **{l['low']:.2f}** | 压力: **{l['high']:.2f}**")
-    
-    st.divider()
-    
-    with st.expander("📚 新手必读：如何看懂回测报告？"):
-        st.markdown("""
-        **1. 什么是历史回测？**
-        AI 模拟在过去一段时间，如果完全按照本系统的策略买卖，您的账户表现会如何。
+    if df is None or df.empty:
+        st.warning("⚠️ 暂无数据。可能原因：\n1. 代码错误\n2. 网络连接失败 (美股)\n3. 刚开盘无数据")
+    else:
+        df = calc_full_indicators(df)
+        df = detect_patterns(df)
         
-        **2. 核心指标解读：**
-        * **💰 总收益率**：策略在这段时间内赚了多少钱。正数越大约好。
-        * **🏆 胜率**：交易获胜的次数占比。一般 >50% 说明策略有效，>70% 为极品策略。
-        * **📉 交易次数**：策略是否活跃。次数过少（如<5次）可能具有偶然性，仅供参考。
-        """)
+        trend_txt, trend_col = main_uptrend_check(df)
+        bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
+        tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
+        st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
         
-    st.subheader("⚖️ 历史回测报告 (Trend Following)")
-    ret, win, buys, sells, equity = run_backtest(df)
-    
-    b1, b2, b3 = st.columns(3)
-    b1.metric("总收益率", f"{ret:.2f}%", delta_color="normal" if ret>0 else "inverse")
-    b2.metric("胜率", f"{win:.1f}%")
-    b3.metric("交易次数", f"{len(buys)} 次")
-    
-    fig_bt = go.Figure()
-    fig_bt.add_trace(go.Scatter(y=equity, mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2)))
-    fig_bt.update_layout(height=300, margin=dict(t=10,b=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'))
-    st.plotly_chart(fig_bt, use_container_width=True)
+        l = df.iloc[-1]
+        k1,k2,k3,k4,k5 = st.columns(5)
+        k1.metric("价格", f"{l['close']:.2f}", f"{l['pct_change']:.2f}%")
+        k2.metric("PE", funda['pe'])
+        k3.metric("RSI", f"{l['RSI']:.1f}")
+        k4.metric("ADX", f"{l['ADX']:.1f}")
+        k5.metric("量比", f"{l['VolRatio']:.2f}")
+        
+        plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
+        
+        report_html = generate_deep_report(df, name)
+        st.markdown(report_html, unsafe_allow_html=True)
+        
+        score, act, col, sl, tp, pos = analyze_score(df)
+        st.subheader(f"🤖 最终建议: {act} (评分 {score})")
+        
+        s1,s2,s3 = st.columns(3)
+        if col == 'success': s1.success(f"仓位: {pos}")
+        elif col == 'warning': s1.warning(f"仓位: {pos}")
+        else: s1.error(f"仓位: {pos}")
+        
+        s2.info(f"🛡️ 止损: {sl:.2f}"); s3.info(f"💰 止盈: {tp:.2f}")
+        st.caption(f"📍 支撑: **{l['low']:.2f}** | 压力: **{l['high']:.2f}**")
+        
+        st.divider()
+        with st.expander("📚 新手必读：如何看懂回测报告？"):
+            st.markdown("""
+            **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。
+            **2. 总收益率**：策略跑出来的净利润率。
+            **3. 胜率**：赚钱次数占比。>50% 为有效。
+            """)
+            
+        st.subheader("⚖️ 历史回测报告 (Trend Following)")
+        ret, win, buys, sells, equity = run_backtest(df)
+        
+        b1, b2, b3 = st.columns(3)
+        b1.metric("总收益率", f"{ret:.2f}%", delta_color="normal" if ret>0 else "inverse")
+        b2.metric("胜率", f"{win:.1f}%")
+        b3.metric("交易次数", f"{len(buys)} 次")
+        
+        fig_bt = go.Figure()
+        fig_bt.add_trace(go.Scatter(y=equity, mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2)))
+        fig_bt.update_layout(height=300, margin=dict(t=10,b=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'))
+        st.plotly_chart(fig_bt, use_container_width=True)
+
+except Exception as e:
+    st.error(f"❌ 系统发生错误: {e}")
+    # st.code(traceback.format_exc()) # 调试用，商业版可注释掉

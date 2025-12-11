@@ -44,6 +44,13 @@ apple_css = """
     }
     .report-title {color: #0071e3; font-weight: bold; font-size: 16px; margin-bottom: 8px;}
     .tech-term {font-weight: bold; color: #1d1d1f;}
+    
+    /* 趋势横幅样式 */
+    .trend-banner {
+        padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .trend-title {font-size: 22px; font-weight: 800; margin: 0;}
+    .trend-desc {font-size: 14px; opacity: 0.9;}
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -51,7 +58,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v17_2_fix.csv" # 升级文件名确保干净
+DB_FILE = "users_v18_trend.csv"
 
 # Optional deps
 try:
@@ -115,7 +122,7 @@ def register_user(u, p):
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0} # 默认0积分
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
     return True, "注册成功，请联系管理员充值"
@@ -210,55 +217,62 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
-    c = df['close']; h = df['high']; l = df['low']; v = df['volume']
-    for n in [5,10,20,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
-    mid = df['MA20']; std = c.rolling(20).std()
+    for c in ['close','high','low','volume']: df[c] = df[c].astype(float)
+    close, high, low = df['close'], df['high'], df['low']
+    for n in [5,10,20,60,120,250]: df[f'MA{n}'] = close.rolling(n).mean()
+    mid = df['MA20']; std = close.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
-    e12 = c.ewm(span=12).mean(); e26 = c.ewm(span=26).mean()
-    df['DIF'] = e12 - e26; df['DEA'] = df['DIF'].ewm(span=9).mean(); df['HIST'] = 2*(df['DIF']-df['DEA'])
-    delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
-    rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
+    exp1 = close.ewm(span=12, adjust=False).mean()
+    exp2 = close.ewm(span=26, adjust=False).mean()
+    df['DIF'] = exp1 - exp2
+    df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
+    df['HIST'] = 2 * (df['DIF'] - df['DEA'])
+    delta = close.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
+    rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
     df['RSI'] = 100 - (100/(1+rs))
-    l9 = l.rolling(9).min(); h9 = h.rolling(9).max()
-    rsv = (c - l9)/(h9 - l9 + 1e-9)*100
-    df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3*df['K']-2*df['D']
-    tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
+    low9 = low.rolling(9).min(); high9 = high.rolling(9).max()
+    rsv = (close - low9) / (high9 - low9 + 1e-9) * 100
+    df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3 * df['K'] - 2 * df['D']
+    tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
-    dp = np.where((h.diff()>l.diff().abs()) & (h.diff()>0), h.diff(), 0)
-    dm = np.where((l.diff().abs()>h.diff()) & (l.diff()<0), l.diff().abs(), 0)
+    dm_p = np.where((high.diff() > low.diff().abs()) & (high.diff()>0), high.diff(), 0)
+    dm_m = np.where((low.diff().abs() > high.diff()) & (low.diff()<0), low.diff().abs(), 0)
     tr14 = tr.rolling(14).sum()
-    dip = 100*pd.Series(dp).rolling(14).sum()/(tr14+1e-9)
-    dim = 100*pd.Series(dm).rolling(14).sum()/(tr14+1e-9)
-    df['ADX'] = (abs(dip-dim)/(dip+dim+1e-9)*100).rolling(14).mean()
-    ph = h.rolling(9).max(); pl = l.rolling(9).min()
-    df['Tenkan'] = (ph+pl)/2
-    ph26 = h.rolling(26).max(); pl26 = l.rolling(26).min()
-    df['Kijun'] = (ph26+pl26)/2
-    df['SpanA'] = ((df['Tenkan']+df['Kijun'])/2).shift(26)
-    df['SpanB'] = ((h.rolling(52).max()+l.rolling(52).min())/2).shift(26)
-    df['VolRatio'] = v / (v.rolling(5).mean()+1e-9)
+    di_p = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
+    di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
+    df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
+    p_high = high.rolling(9).max(); p_low = low.rolling(9).min()
+    df['Tenkan'] = (p_high + p_low) / 2
+    p_high26 = high.rolling(26).max(); p_low26 = low.rolling(26).min()
+    df['Kijun'] = (p_high26 + p_low26) / 2
+    df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
+    df['SpanB'] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
+    df['VolRatio'] = df['volume'] / (df['volume'].rolling(5).mean() + 1e-9)
     return df.fillna(0)
 
 def detect_patterns(df):
-    df['F_Top'] = (df['high'].shift(1)<df['high']) & (df['high'].shift(-1)<df['high'])
-    df['F_Bot'] = (df['low'].shift(1)>df['low']) & (df['low'].shift(-1)>df['low'])
+    df['Fractal_Top'] = (df['high'].shift(1) < df['high']) & (df['high'].shift(-1) < df['high'])
+    df['Fractal_Bot'] = (df['low'].shift(1) > df['low']) & (df['low'].shift(-1) > df['low'])
     return df
 
 def get_drawing_lines(df):
-    idx = df['low'].tail(60).idxmin()
-    if pd.isna(idx): return {}, {}
-    sd = df.loc[idx, 'date']; sp = df.loc[idx, 'low']
-    days = (df['date'] - sd).dt.days
-    step = df['ATR14'].iloc[-1]*0.5 if df['ATR14'].iloc[-1]>0 else sp*0.01
-    gann = {k: sp + days*step*r for k,r in [('1x1',1),('1x2',0.5),('2x1',2)]}
-    rec = df.tail(120)
-    h = rec['high'].max(); l = rec['low'].min(); d = h-l
-    fib = {k: h-d*v for k,v in {'0.236':0.236,'0.382':0.382,'0.5':0.5,'0.618':0.618}.items()}
+    low_idx = df['low'].tail(60).idxmin()
+    if pd.isna(low_idx): return {}, {}
+    start_date = df.loc[low_idx, 'date']; start_price = df.loc[low_idx, 'low']
+    gann = {}
+    days = (df['date'] - start_date).dt.days
+    step = df['ATR14'].iloc[-1] * 0.5
+    if step == 0: step = start_price * 0.01
+    gann['1x1'] = start_price + days * step
+    gann['1x2'] = start_price + days * step * 0.5
+    gann['2x1'] = start_price + days * step * 2.0
+    recent = df.tail(120)
+    h = recent['high'].max(); l = recent['low'].min(); diff = h - l
+    fib = {'0.236': h-diff*0.236, '0.382': h-diff*0.382, '0.5': h-diff*0.5, '0.618': h-diff*0.618}
     return gann, fib
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]; prev = df.iloc[-2]
-    
     chan_trend = "底分型构造中" if curr['F_Bot'] else "顶分型构造中" if curr['F_Top'] else "中继形态"
     chan_logic = f"""
     <div class="report-box">
@@ -268,33 +282,28 @@ def generate_deep_report(df, name):
         <br>• <b>笔的延伸</b>：当前价格处于一笔走势的{ "延续阶段" if not (curr['F_Top'] or curr['F_Bot']) else "转折关口" }。
     </div>
     """
-    
     gann, fib = get_drawing_lines(df)
     try:
         fib_near = min(fib.items(), key=lambda x: abs(x[1]-curr['close']))
         fib_txt = f"股价正逼近斐波那契 <b>{fib_near[0]}</b> 关键位 ({fib_near[1]:.2f})。"
-    except:
-        fib_txt = "数据不足，无法计算斐波那契位置。"
-
+    except: fib_txt = "数据不足，无法计算位置。"
     gann_logic = f"""
     <div class="report-box" style="margin-top:10px;">
         <div class="report-title">🌌 江恩与斐波那契时空矩阵</div>
-        <span class="tech-term">江恩角度线 (Gann Fan)</span> 代表了时间与价格的平衡关系。1x1线是多空分界线。
+        <span class="tech-term">江恩角度线</span> 1x1线是多空分界线。
         <br>• <b>斐波那契回撤</b>：{fib_txt}
     </div>
     """
-    
     macd_state = "金叉共振" if curr['DIF']>curr['DEA'] else "死叉调整"
     vol_state = "放量" if curr['VolRatio']>1.2 else "缩量" if curr['VolRatio']<0.8 else "温和"
-    
     ind_logic = f"""
     <div class="report-box" style="margin-top:10px;">
         <div class="report-title">📊 核心动能指标解析</div>
         <ul>
-            <li><span class="tech-term">MACD</span>：当前 <b>{macd_state}</b>。红柱代表多头主导，绿柱代表空头主导。</li>
-            <li><span class="tech-term">MA (均线)</span>：MA5({curr['MA5']:.2f}) {"大于" if curr['MA5']>curr['MA20'] else "小于"} MA20({curr['MA20']:.2f})。MA20是短期生命线。</li>
+            <li><span class="tech-term">MACD</span>：当前 <b>{macd_state}</b>。</li>
+            <li><span class="tech-term">MA</span>：MA5({curr['MA5']:.2f}) {"大于" if curr['MA5']>curr['MA20'] else "小于"} MA20({curr['MA20']:.2f})。</li>
             <li><span class="tech-term">BOLL</span>：股价运行于 { "中轨上方" if curr['close']>curr['MA20'] else "中轨下方" }。</li>
-            <li><span class="tech-term">VOL</span>：今日 <b>{vol_state}</b> (量比 {curr['VolRatio']:.2f})。放量上涨更可靠。</li>
+            <li><span class="tech-term">VOL</span>：今日 <b>{vol_state}</b> (量比 {curr['VolRatio']:.2f})。</li>
         </ul>
     </div>
     """
@@ -311,8 +320,43 @@ def analyze_score(df):
     
     action = "积极买入" if score>=4 else "持有/观望" if score>=0 else "减仓/卖出"
     color = "success" if score>=4 else "warning" if score>=0 else "error"
+    if score >= 4: pos_txt = "80% (重仓)"
+    elif score >= 1: pos_txt = "50% (中仓)"
+    elif score >= -2: pos_txt = "20% (底仓)"
+    else: pos_txt = "0% (空仓)"
+    
     atr = c['ATR14']
-    return score, action, color, c['close']-2*atr, c['close']+3*atr
+    return score, action, color, c['close']-2*atr, c['close']+3*atr, pos_txt
+
+# ✅ 新增：更精细的趋势判断函数
+def main_uptrend_check(df):
+    curr = df.iloc[-1]
+    
+    # 1. 均线系统
+    ma_bull = curr['MA5'] > curr['MA20'] > curr['MA60']
+    ma_bear = curr['MA5'] < curr['MA20'] < curr['MA60']
+    
+    # 2. 云图系统
+    cloud_top = max(curr['SpanA'], curr['SpanB'])
+    is_above_cloud = curr['close'] > cloud_top
+    
+    # 3. 动能系统
+    is_strong = curr['ADX'] > 25
+    is_oversold = curr['RSI'] < 25
+    
+    # 综合判断逻辑
+    if ma_bull and is_above_cloud and is_strong:
+        return "🚀 主升浪 (强趋势)", "success"
+    elif ma_bull and is_above_cloud:
+        return "📈 震荡上行 (趋势中)", "warning"
+    elif not ma_bull and is_above_cloud:
+        return "🔄 回调蓄势 (多头修正)", "warning"
+    elif ma_bear and is_oversold:
+        return "⚡ 超跌反弹 (博弈)", "success" # 用绿色提示机会，虽然风险大
+    elif ma_bear:
+        return "📉 主跌浪 (回避)", "error"
+    else:
+        return "⚖️ 盘整震荡 (观望)", "secondary"
 
 def plot_chart(df, name, gann_show, fib_show, chan_show):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
@@ -373,7 +417,6 @@ if not st.session_state["logged_in"]:
                 else: st.error(msg)
     st.stop()
 
-# --- 主界面 ---
 user = st.session_state["user"]
 is_admin = (user == ADMIN_USER)
 
@@ -387,11 +430,9 @@ with st.sidebar:
             if u_list:
                 target = st.selectbox("选择用户", u_list)
                 val = st.number_input("新积分", value=0, step=10)
-                # ✅ 修复点：确保变量名一致
                 if st.button("修改"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
                 if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
             
-            # 备份功能
             csv = df_u.to_csv(index=False).encode('utf-8')
             st.download_button("下载备份", csv, "backup.csv", "text/csv")
             uf = st.file_uploader("恢复数据", type="csv")
@@ -419,9 +460,8 @@ with st.sidebar:
         st.session_state.paid_code = ""
         st.rerun()
         
-    # ✅ 修复点：变量 adjust 拼写一致
     days = st.radio("周期", [7,30,60,120,250], 2, horizontal=True)
-    adjust = st.selectbox("复权", ["qfq","hfq",""], 0) 
+    adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
     
     st.divider()
     gann = st.checkbox("江恩", True); fib = st.checkbox("Fib", True); chan = st.checkbox("缠论", True)
@@ -429,11 +469,9 @@ with st.sidebar:
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
 
-# 内容区
-name = get_name(st.session_state.code, token)
-st.title(f"{name} ({st.session_state.code})")
+c1, c2 = st.columns([3, 1])
+with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
-# 付费墙
 if st.session_state.code != st.session_state.paid_code:
     st.info("🔒 深度研报需解锁")
     if st.button("🔍 支付 1 积分查看", type="primary"):
@@ -446,7 +484,6 @@ if st.session_state.code != st.session_state.paid_code:
 if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
 with st.spinner("AI 正在生成深度研报..."):
-    # ✅ 修复点：调用时传入 adjust
     df = get_data(st.session_state.code, token, days, adjust)
     funda = get_fundamentals(st.session_state.code, token)
 
@@ -456,7 +493,23 @@ else:
     df = calc_full_indicators(df)
     df = detect_patterns(df)
     
-    # 1. 核心指标
+    # 1. 趋势横幅 (V17.4 新增)
+    trend_txt, trend_col = main_uptrend_check(df)
+    
+    # 动态样式设置
+    bg_color = "#f2fcf5" if trend_col == "success" else "#fff7e6" if trend_col == "warning" else "#fff2f2"
+    txt_color = "#2e7d32" if trend_col == "success" else "#d46b08" if trend_col == "warning" else "#c53030"
+    
+    st.markdown(f"""
+        <div class="trend-banner" style="background-color: {bg_color}; border: 1px solid {txt_color};">
+            <div>
+                <h3 class="trend-title" style="color: {txt_color};">{trend_txt}</h3>
+            </div>
+            <div style="font-size: 24px;">🧭</div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # 2. 核心指标
     l = df.iloc[-1]
     c1,c2,c3,c4,c5 = st.columns(5)
     c1.metric("价格", f"{l['close']:.2f}", f"{l['pct_change']:.2f}%")
@@ -465,17 +518,20 @@ else:
     c4.metric("ADX", f"{l['ADX']:.1f}")
     c5.metric("量比", f"{l['VolRatio']:.2f}")
     
-    # 2. 图表
-    # ✅ 修复点：调用函数名统一为 plot_chart
+    # 3. 图表
     plot_chart(df.tail(days), f"{name} 分析图", gann, fib, chan)
     
-    # 3. 深度研报
+    # 4. 深度研报
     report_html = generate_deep_report(df, name)
     st.markdown(report_html, unsafe_allow_html=True)
     
-    # 4. 结论
-    score, act, col, sl, tp = analyze_score(df)
+    # 5. 结论
+    score, act, col, sl, tp, pos = analyze_score(df)
     st.subheader(f"🤖 最终建议: {act} (评分 {score})")
     
-    s1,s2 = st.columns(2)
-    s1.info(f"🛡️ 止损: {sl:.2f}"); s2.info(f"💰 止盈: {tp:.2f}")
+    s1,s2,s3 = st.columns(3)
+    if col == 'success': s1.success(f"建议仓位: {pos}")
+    elif col == 'warning': s1.warning(f"建议仓位: {pos}")
+    else: s1.error(f"建议仓位: {pos}")
+    
+    s2.info(f"🛡️ 止损: {sl:.2f}"); s3.info(f"💰 止盈: {tp:.2f}")

@@ -9,11 +9,11 @@ import string
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# ✅ 新增：引入 Yahoo Finance
+# ✅ 引入 yfinance
 try:
     import yfinance as yf
 except:
-    st.error("请在 requirements.txt 中添加 yfinance")
+    st.error("⚠️ 缺少 yfinance 库。请在 requirements.txt 中添加 'yfinance' 并重启 App。")
     st.stop()
 
 # ==========================================
@@ -69,7 +69,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v25_global.csv"
+DB_FILE = "users_v25_1_fix.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -81,7 +81,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 数据库逻辑 (含卡密)
+# 2. 数据库逻辑
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -170,25 +170,44 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 智能股票逻辑 (Global Markets)
+# 3. 智能路由与数据引擎 (核心修复)
 # ==========================================
 def is_cn_stock(code):
-    # 简单的判断：如果是6位数字，大概率是A股
+    # A股特征：6位数字 (600519)
     return code.isdigit() and len(code) == 6
 
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
 def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
 
+def process_ticker(code):
+    """
+    智能处理代码格式：
+    1. 纯数字且长度<6 (如 700, 9988) -> 港股 (0700.HK, 9988.HK)
+    2. 6位数字 -> A股
+    3. 字母 -> 美股/加密货币
+    """
+    code = code.strip().upper()
+    
+    # 港股智能补全
+    if code.isdigit() and len(code) < 6:
+        return f"{code.zfill(4)}.HK"
+    
+    return code
+
 @st.cache_data(ttl=3600)
 def get_name(code, token):
-    # 1. 尝试 Yahoo Finance (美股/港股)
+    code = process_ticker(code)
+    
+    # 1. 美股/港股 (Yahoo)
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
-            return t.info.get('longName') or t.info.get('shortName') or code
-        except: pass
+            # 尝试获取简称，Yahoo 接口有时不稳定，多试几个字段
+            n = t.info.get('shortName') or t.info.get('longName') or code
+            return n
+        except: return code
     
-    # 2. 尝试 A股渠道
+    # 2. A股
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -205,37 +224,49 @@ def get_name(code, token):
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust):
+    code = process_ticker(code) # 预处理代码格式
     fetch_days = 800 
     raw_df = pd.DataFrame()
     
-    # 🌍 分流逻辑：美股/港股 vs A股
+    # --- 🌍 非A股 (美股/港股/加密) ---
     if not is_cn_stock(code):
-        # --- Yahoo Finance ---
         try:
-            # yfinance 自动处理分割和股息，adj close 比较准
-            yf_df = yf.download(code, period="2y", interval="1d", progress=False)
+            # 修复：auto_adjust=False 确保拿到原始 OHLC
+            yf_df = yf.download(code, period="2y", interval="1d", progress=False, auto_adjust=False)
+            
             if not yf_df.empty:
-                yf_df.reset_index(inplace=True)
-                # 标准化列名
+                # ✅ 核心修复：处理 yfinance 多级索引问题
+                if isinstance(yf_df.columns, pd.MultiIndex):
+                    yf_df.columns = yf_df.columns.get_level_values(0)
+                
+                # 统一列名小写
                 yf_df.columns = [c.lower() for c in yf_df.columns]
-                # 兼容 yfinance 新版返回 MultiIndex 的情况
-                if isinstance(yf_df.columns[0], tuple): 
-                     # 简单处理：取 Price 下的 Close 等
-                     pass # 假设 yf 版本较稳，暂不处理极复杂的 MultiIndex
                 
-                # 统一列名映射
-                rename_map = {'date': 'date', 'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'volume': 'volume', 'adj close': 'close'} 
-                # 优先用 adj close 作为 close
-                if 'adj close' in yf_df.columns:
-                    yf_df['close'] = yf_df['adj close']
+                # 重置索引，确保 date 是一列
+                yf_df.reset_index(inplace=True)
                 
-                raw_df = yf_df[['date','open','high','low','close','volume']].copy()
-                # 计算涨跌幅
-                raw_df['pct_change'] = raw_df['close'].pct_change() * 100
-        except: pass
-        
+                # 再次检查列名，防止 Date/Datetime 大小写问题
+                rename_map = {}
+                for c in yf_df.columns:
+                    if 'date' in c: rename_map[c] = 'date'
+                    if 'adj' in c and 'close' in c: rename_map[c] = 'close' # 优先用复权收盘
+                
+                yf_df.rename(columns=rename_map, inplace=True)
+                
+                # 确保必须列存在
+                req_cols = ['date','open','high','low','close','volume']
+                if all(c in yf_df.columns for c in req_cols):
+                    raw_df = yf_df[req_cols].copy()
+                    # 确保数值类型
+                    for c in req_cols[1:]:
+                        raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
+                    
+                    raw_df['pct_change'] = raw_df['close'].pct_change() * 100
+        except Exception as e:
+            st.error(f"美/港股数据获取失败: {e}")
+            
+    # --- 🇨🇳 A股 ---
     else:
-        # --- A股 (Tushare/Baostock) ---
         if token and ts:
             try:
                 pro = ts.pro_api(token)
@@ -273,7 +304,7 @@ def get_data_and_resample(code, token, timeframe, adjust):
 
     if raw_df.empty: return raw_df
 
-    # 4. 多周期重采样 (Resample)
+    # 重采样
     if timeframe == '日线': return raw_df
     
     rule = 'W' if timeframe == '周线' else 'M'
@@ -289,22 +320,22 @@ def get_data_and_resample(code, token, timeframe, adjust):
 def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
     
-    # 🌍 美股基本面
+    # 美股/港股
+    code = process_ticker(code)
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
-            info = t.info
-            pe = info.get('trailingPE', '-')
-            pb = info.get('priceToBook', '-')
-            mk = info.get('marketCap', 0)
-            if pe != '-': pe = f"{pe:.2f}"
-            if pb != '-': pb = f"{pb:.2f}"
-            mv = f"{mk/100000000:.2f}亿" if mk else "-"
-            res = {"pe": pe, "pb": pb, "roe": "-", "mv": mv}
+            i = t.info
+            pe = i.get('trailingPE')
+            pb = i.get('priceToBook')
+            mk = i.get('marketCap')
+            if pe: res['pe'] = f"{pe:.2f}"
+            if pb: res['pb'] = f"{pb:.2f}"
+            if mk: res['mv'] = f"{mk/100000000:.2f}亿"
         except: pass
         return res
 
-    # 🇨🇳 A股基本面
+    # A股
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -319,11 +350,6 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
-    # 强制转换类型
-    for col in ['close','high','low','volume']:
-        if col in df.columns:
-            df[col] = df[col].astype(float)
-    
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
@@ -507,8 +533,16 @@ if not st.session_state["logged_in"]:
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
+            if 'captcha_correct' not in st.session_state: generate_captcha()
+            c_code, c_show = st.columns([2,1])
+            with c_code: cap_in = st.text_input("验证码", placeholder="不区分大小写")
+            with c_show:
+                st.markdown(f"<div class='captcha-box'>{st.session_state['captcha_correct']}</div>", unsafe_allow_html=True)
+                if st.button("🔄"): generate_captcha(); st.rerun()
+            
             if st.button("登录系统"):
-                if verify_login(u.strip(), p):
+                if not verify_captcha(cap_in): st.error("验证码错误"); generate_captcha()
+                elif verify_login(u.strip(), p):
                     st.session_state["logged_in"] = True
                     st.session_state["user"] = u.strip()
                     st.session_state["paid_code"] = ""
@@ -517,10 +551,19 @@ if not st.session_state["logged_in"]:
         with tab2:
             nu = st.text_input("新用户")
             np1 = st.text_input("设置密码", type="password")
+            if 'reg_captcha_correct' not in st.session_state: st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+            rc_code, rc_show = st.columns([2,1])
+            with rc_code: rcap_in = st.text_input("注册验证码")
+            with rc_show:
+                st.markdown(f"<div class='captcha-box'>{st.session_state['reg_captcha_correct']}</div>", unsafe_allow_html=True)
+                if st.button("🔄", key="reg_ref"): st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4)); st.rerun()
+
             if st.button("立即注册"):
-                suc, msg = register_user(nu.strip(), np1)
-                if suc: st.success(msg)
-                else: st.error(msg)
+                if rcap_in.upper() != st.session_state['reg_captcha_correct']: st.error("验证码错误")
+                else:
+                    suc, msg = register_user(nu.strip(), np1)
+                    if suc: st.success(msg)
+                    else: st.error(msg)
     st.stop()
 
 # --- 主界面 ---

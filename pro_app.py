@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 1. 核心配置
+# 1. 核心配置 & 界面隐藏
 # ==========================================
 st.set_page_config(
     page_title="A股深度复盘系统 Pro",
@@ -32,8 +32,8 @@ st.markdown(hide_css, unsafe_allow_html=True)
 
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
-ADMIN_PASS = "1232503"
-DB_FILE = "users_v10_quota_fix.csv" # 升级数据库，确保逻辑纯净
+ADMIN_PASS = "123456"
+DB_FILE = "users_v10_quota_fix.csv" 
 
 # Optional deps
 try:
@@ -73,9 +73,7 @@ def verify_login(u, p):
     except: return False
 
 def consume_quota(u):
-    # 👑 管理员无限
     if u == ADMIN_USER: return True
-    
     df = load_users()
     idx = df[df["username"] == u].index
     if len(idx) > 0:
@@ -149,7 +147,6 @@ def get_name(code, token):
 @st.cache_data(ttl=3600)
 def get_data(code, token, window_size, adjust):
     fetch_days = max(400, window_size + 100)
-    
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -166,14 +163,12 @@ def get_data(code, token, window_size, adjust):
                         f = df['factor']
                         ratio = f / f.iloc[-1] if adjust == 'qfq' else f / f.iloc[0]
                         for c in ['open','high','low','close']: df[c] = df[c] * ratio
-                
                 df = df.rename(columns={'trade_date':'date','vol':'volume','pct_chg':'pct_change'})
                 df['date'] = pd.to_datetime(df['date'])
                 cols = ['open','high','low','close','volume']
                 for c in cols: df[c] = pd.to_numeric(df[c], errors='coerce')
                 return df.sort_values('date').reset_index(drop=True)
         except: pass
-        
     if bs:
         bs.login()
         e = pd.Timestamp.today().strftime('%Y-%m-%d')
@@ -190,7 +185,6 @@ def get_data(code, token, window_size, adjust):
             cols = ['open','high','low','close','volume','pct_change']
             for c in cols: df[c] = pd.to_numeric(df[c], errors='coerce')
             return df.sort_values('date').reset_index(drop=True)
-            
     return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
@@ -228,55 +222,35 @@ def calc_full_indicators(df):
     if df.empty: return df
     for c in ['close','high','low','volume']: df[c] = df[c].astype(float)
     close, high, low = df['close'], df['high'], df['low']
-    
-    for n in [5,10,20,60,120,250]:
-        df[f'MA{n}'] = close.rolling(n).mean()
-    
-    mid = df['MA20']
-    std = close.rolling(20).std()
-    df['Upper'] = mid + 2*std
-    df['Lower'] = mid - 2*std
-    
+    for n in [5,10,20,60,120,250]: df[f'MA{n}'] = close.rolling(n).mean()
+    mid = df['MA20']; std = close.rolling(20).std()
+    df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
     exp1 = close.ewm(span=12, adjust=False).mean()
     exp2 = close.ewm(span=26, adjust=False).mean()
     df['DIF'] = exp1 - exp2
     df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
     df['HIST'] = 2 * (df['DIF'] - df['DEA'])
-    
-    delta = close.diff()
-    up = delta.clip(lower=0)
-    down = -1*delta.clip(upper=0)
+    delta = close.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
     rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
     df['RSI'] = 100 - (100/(1+rs))
-    
-    low9 = low.rolling(9).min()
-    high9 = high.rolling(9).max()
+    low9 = low.rolling(9).min(); high9 = high.rolling(9).max()
     rsv = (close - low9) / (high9 - low9 + 1e-9) * 100
-    df['K'] = rsv.ewm(com=2).mean()
-    df['D'] = df['K'].ewm(com=2).mean()
-    df['J'] = 3 * df['K'] - 2 * df['D']
-    
+    df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3 * df['K'] - 2 * df['D']
     tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
-    
     dm_p = np.where((high.diff() > low.diff().abs()) & (high.diff()>0), high.diff(), 0)
     dm_m = np.where((low.diff().abs() > high.diff()) & (low.diff()<0), low.diff().abs(), 0)
     tr14 = tr.rolling(14).sum()
     di_p = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
     di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
     df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
-    
-    p_high = high.rolling(9).max()
-    p_low = low.rolling(9).min()
+    p_high = high.rolling(9).max(); p_low = low.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
-    p_high26 = high.rolling(26).max()
-    p_low26 = low.rolling(26).min()
+    p_high26 = high.rolling(26).max(); p_low26 = low.rolling(26).min()
     df['Kijun'] = (p_high26 + p_low26) / 2
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
     df['SpanB'] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-    
     df['VolRatio'] = df['volume'] / (df['volume'].rolling(5).mean() + 1e-9)
-    
     return df.fillna(0)
 
 def detect_patterns(df):
@@ -287,8 +261,7 @@ def detect_patterns(df):
 def get_drawing_lines(df):
     low_idx = df['low'].tail(60).idxmin()
     if pd.isna(low_idx): return {}, {}
-    start_date = df.loc[low_idx, 'date']
-    start_price = df.loc[low_idx, 'low']
+    start_date = df.loc[low_idx, 'date']; start_price = df.loc[low_idx, 'low']
     gann = {}
     days = (df['date'] - start_date).dt.days
     step = df['ATR14'].iloc[-1] * 0.5
@@ -297,48 +270,30 @@ def get_drawing_lines(df):
     gann['1x2'] = start_price + days * step * 0.5
     gann['2x1'] = start_price + days * step * 2.0
     recent = df.tail(120)
-    h = recent['high'].max()
-    l = recent['low'].min()
-    diff = h - l
-    fib = {
-        '0.236': h - diff * 0.236,
-        '0.382': h - diff * 0.382,
-        '0.5': h - diff * 0.5,
-        '0.618': h - diff * 0.618
-    }
+    h = recent['high'].max(); l = recent['low'].min(); diff = h - l
+    fib = {'0.236': h-diff*0.236, '0.382': h-diff*0.382, '0.5': h-diff*0.5, '0.618': h-diff*0.618}
     return gann, fib
 
 def analyze_signals(df):
-    curr = df.iloc[-1]
-    prev = df.iloc[-2]
-    score = 0
-    reasons = []
-    
+    curr = df.iloc[-1]; prev = df.iloc[-2]; score = 0; reasons = []
     if curr['MA5'] > curr['MA20']: score += 2; reasons.append("✅ 短线多头 (MA5>MA20)")
     else: score -= 2; reasons.append("❌ 短线空头 (MA5<MA20)")
     if curr['close'] > curr['MA60']: score += 1; reasons.append("✅ 站上生命线 (MA60)")
-    
     if curr['DIF'] > curr['DEA'] and curr['HIST'] > prev['HIST']: score += 1; reasons.append("✅ MACD金叉增强")
     elif curr['DIF'] < curr['DEA']: score -= 1; reasons.append("❌ MACD死叉")
-    
     if curr['RSI'] < 20: score += 2; reasons.append("📉 RSI极度超卖")
     elif curr['RSI'] > 80: score -= 2; reasons.append("📈 RSI极度超买")
-    
     if curr['close'] > max(curr['SpanA'], curr['SpanB']): score += 1; reasons.append("☁️ 云层上方 (趋势多)")
     if curr['ADX'] > 25: reasons.append("🔥 趋势强劲 (ADX>25)")
     if curr['VolRatio'] > 1.5: score += 1; reasons.append("🌊 今日放量")
-        
     if score >= 4: action, color = "🚀 强力买入", "success"
     elif score >= 1: action, color = "👀 逢低吸纳", "warning"
     elif score >= -2: action, color = "✋ 观望/持有", "secondary"
     else: action, color = "🏃 减仓/卖出", "error"
-    
-    support = df['low'].tail(20).min()
-    resistance = df['high'].tail(20).max()
+    support = df['low'].tail(20).min(); resistance = df['high'].tail(20).max()
     atr = curr['ATR14']
     stop_loss = curr['close'] - 2 * atr
     take_profit = curr['close'] + 3 * atr
-    
     return {"score": score, "action": action, "color": color, "reasons": reasons, "sup": support, "res": resistance, "sl": stop_loss, "tp": take_profit}
 
 def main_uptrend_check(df):
@@ -357,18 +312,15 @@ def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
         if m in df.columns: fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=0), showlegend=False), row=1, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], fill='tonexty', fillcolor='rgba(0,0,255,0.05)', line=dict(width=0), name='BOLL'), row=1, col=1)
-    
     gann, fib = get_drawing_lines(df)
     if show_gann:
         for k, v in gann.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(dash='dot', width=1), name=f'Gann {k}'), row=1, col=1)
     if show_fib:
         for k, v in fib.items(): fig.add_hline(y=v, line_dash="dash", line_color="orange", annotation_text=f"Fib {k}", row=1, col=1)
-            
     if show_chanlun:
         tops, bots = df[df['Fractal_Top']], df[df['Fractal_Bot']]
         fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='green', name='顶分型'), row=1, col=1)
         fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='red', name='底分型'), row=1, col=1)
-
     colors = ['red' if c>=o else 'green' for c,o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), row=2, col=1)
     fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], name='MACD柱'), row=3, col=1)
@@ -385,9 +337,8 @@ def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
 # ==========================================
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
-# --- 登录 ---
 if not st.session_state["logged_in"]:
-    st.markdown("<br><br><h1 style='text-align:center'>🔐 A股深度复盘系统 V13.4</h1>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align:center'>🔐 A股深度复盘系统 V13.5</h1>", unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
         tab1, tab2 = st.tabs(["登录", "注册"])
@@ -398,9 +349,8 @@ if not st.session_state["logged_in"]:
                 if verify_login(u.strip(), p):
                     st.session_state["logged_in"] = True
                     st.session_state["user"] = u.strip()
-                    # 登录时重置分析状态，要求重新扣费
-                    st.session_state["analysis_paid"] = False 
-                    st.session_state["paid_code"] = ""
+                    # 重置状态，要求重新扣费
+                    st.session_state.paid_code = ""
                     st.rerun()
                 else: st.error("账号或密码错误 (管理员: ZCX001 / 123456)")
         with tab2:
@@ -415,28 +365,44 @@ if not st.session_state["logged_in"]:
 user = st.session_state["user"]
 is_admin = (user == ADMIN_USER)
 
-# --- 侧边栏 ---
 with st.sidebar:
     if is_admin:
-        st.success(f"👑 管理员: {user} (后台已激活)")
-        with st.expander("👮‍♂️ 积分管理后台", expanded=True):
+        st.success(f"👑 管理员: {user}")
+        
+        # ✅✅✅ 修复点：管理员后台展示全员列表 ✅✅✅
+        with st.expander("👮‍♂️ 积分管理后台 (全员)", expanded=True):
             df_u = load_users()
-            st.dataframe(df_u[["username","quota"]], hide_index=True)
+            # 1. 顶部展示统计
+            st.caption(f"总用户数: {len(df_u)}")
+            
+            # 2. 展示干净的表格 (去除密码列)
+            view_df = df_u[["username", "quota"]].copy()
+            view_df.columns = ["用户", "剩余积分"]
+            st.dataframe(view_df, use_container_width=True, hide_index=True)
+            
+            # 3. 修改功能
+            st.divider()
             u_list = [x for x in df_u["username"] if x != ADMIN_USER]
             if u_list:
-                target = st.selectbox("修改用户", u_list)
-                val = st.number_input("积分", value=50, step=10)
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("💾 保存"):
-                        update_user_quota(target, val)
-                        st.success("成功")
-                        time.sleep(0.5); st.rerun()
-                with col2:
-                    if st.button("❌ 删除"):
-                        delete_user(target)
-                        st.success("已删")
-                        time.sleep(0.5); st.rerun()
+                target = st.selectbox("🔧 修改指定用户", ["请选择"] + u_list)
+                if target != "请选择":
+                    curr_q = df_u[df_u["username"]==target]["quota"].iloc[0]
+                    new_q = st.number_input("设置新积分", value=int(curr_q), step=10)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("💾 保存", use_container_width=True):
+                            update_user_quota(target, new_q)
+                            st.success("已保存")
+                            time.sleep(0.5); st.rerun()
+                    with col2:
+                        if st.button("❌ 删除", type="primary", use_container_width=True):
+                            delete_user(target)
+                            st.warning("已删除")
+                            time.sleep(0.5); st.rerun()
+            else:
+                st.info("暂无普通用户")
+                
     else:
         st.info(f"👤 用户: {user}")
         df_u = load_users()
@@ -453,11 +419,11 @@ with st.sidebar:
     if "code" not in st.session_state: st.session_state.code = "600519"
     new_code = st.text_input("股票代码", st.session_state.code)
     
-    # 🔒 核心逻辑：如果代码变了，锁住界面，要求重新付费
+    # 🔒 换股自动上锁
     if "paid_code" not in st.session_state: st.session_state.paid_code = ""
     if new_code != st.session_state.code:
         st.session_state.code = new_code
-        st.session_state.paid_code = "" # 清空已付费记录
+        st.session_state.paid_code = "" 
         st.rerun()
     
     name = get_name(st.session_state.code, token)
@@ -472,7 +438,6 @@ with st.sidebar:
     st.divider()
     if st.button("🚪 退出登录"): st.session_state["logged_in"] = False; st.rerun()
 
-# --- 主界面 ---
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
@@ -480,17 +445,15 @@ with c1: st.title(f"📈 {name} ({st.session_state.code})")
 is_paid = (st.session_state.code == st.session_state.paid_code)
 
 if not is_paid:
-    # 未付费状态
     st.warning("🔒 当前股票数据未解锁")
     if st.button(f"🔍 支付 1 积分并分析 {st.session_state.code}", type="primary", use_container_width=True):
         if consume_quota(user):
-            st.session_state.paid_code = st.session_state.code # 记录已付费的代码
+            st.session_state.paid_code = st.session_state.code
             st.rerun()
         else:
             st.error("❌ 积分不足！请联系管理员 ZCX001 充值。")
-    st.stop() # 停止往下执行
+    st.stop()
 
-# 已付费状态：显示数据
 with c2:
     if st.button("🔄 刷新 (不扣分)"):
         st.cache_data.clear()

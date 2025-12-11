@@ -52,7 +52,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v26_2.csv"
+DB_FILE = "users_v26_3.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -64,7 +64,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 核心工具函数
+# 2. 核心工具函数 (含安全格式化)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -73,6 +73,19 @@ def init_db():
     if not os.path.exists(KEYS_FILE):
         df_keys = pd.DataFrame(columns=["key", "points", "status"])
         df_keys.to_csv(KEYS_FILE, index=False)
+
+# ✅ 核心修复：安全格式化函数，防止报错
+def safe_fmt(value, fmt="{:.2f}", default="-"):
+    try:
+        if value is None or value == "" or value == "N/A":
+            return default
+        # 尝试转为浮点数
+        f_val = float(value)
+        if np.isnan(f_val):
+            return default
+        return fmt.format(f_val)
+    except:
+        return default
 
 def generate_captcha():
     code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
@@ -162,7 +175,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 智能股票逻辑 (Global Markets)
+# 3. 智能股票逻辑
 # ==========================================
 def is_cn_stock(code):
     return code.isdigit() and len(code) == 6
@@ -178,13 +191,14 @@ def process_ticker(code):
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     code = process_ticker(code)
-    # 美股/港股
     if not is_cn_stock(code):
         try:
+            if proxy: 
+                os.environ["HTTP_PROXY"] = proxy
+                os.environ["HTTPS_PROXY"] = proxy
             t = yf.Ticker(code)
             return t.info.get('shortName') or t.info.get('longName') or code
         except: return code
-    # A股
     if token and ts:
         try:
             ts.set_token(token)
@@ -206,34 +220,26 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     fetch_days = 1500 
     raw_df = pd.DataFrame()
     
-    # 🌍 美股/港股 (Yfinance 终极修复)
     if not is_cn_stock(code):
         try:
             if proxy: 
                 os.environ["HTTP_PROXY"] = proxy
                 os.environ["HTTPS_PROXY"] = proxy
             
-            # 下载数据
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
             
             if not yf_df.empty:
-                # 1. 降维 MultiIndex (关键!)
                 if isinstance(yf_df.columns, pd.MultiIndex):
                     yf_df.columns = yf_df.columns.get_level_values(0)
                 
-                # 2. 统一转小写并去重
                 yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
-                # 3. 去除重复列名 (例如 Close 和 Adj Close 可能重名)
                 yf_df = yf_df.loc[:, ~yf_df.columns.duplicated()]
-                
-                # 4. 重置索引拿到 Date 列
                 yf_df.reset_index(inplace=True)
                 
-                # 5. 映射列名
                 rename_map = {}
                 for c in yf_df.columns:
                     if 'date' in c: rename_map[c] = 'date'
-                    elif 'close' in c: rename_map[c] = 'close' # 已经去重，直接用
+                    elif 'close' in c: rename_map[c] = 'close'
                     elif 'open' in c: rename_map[c] = 'open'
                     elif 'high' in c: rename_map[c] = 'high'
                     elif 'low' in c: rename_map[c] = 'low'
@@ -241,24 +247,16 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                 
                 yf_df.rename(columns=rename_map, inplace=True)
                 
-                # 6. 只要有核心数据就提取
                 req_cols = ['date','open','high','low','close']
                 if all(c in yf_df.columns for c in req_cols):
-                    # 如果没有volume，补0
                     if 'volume' not in yf_df.columns: yf_df['volume'] = 0
-                    
                     raw_df = yf_df[['date','open','high','low','close','volume']].copy()
-                    
-                    # 7. 强制转为一维 float，防止 Series 变 DataFrame
                     for c in ['open','high','low','close','volume']:
                         raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
-                    
-                    # 计算涨跌幅
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
         except Exception as e:
             st.error(f"全球数据源错误: {e}")
             
-    # 🇨🇳 A股
     else:
         if token and ts:
             try:
@@ -297,7 +295,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
 
     if raw_df.empty: return raw_df
 
-    # 重采样
     if timeframe == '日线': return raw_df
     
     rule = 'W' if timeframe == '周线' else 'M'
@@ -312,14 +309,19 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
 def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
     code = process_ticker(code)
+    
+    # ✅ 修复点：使用 safe_fmt 转换数据
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
             i = t.info
-            pe = i.get('trailingPE'); pb = i.get('priceToBook'); mk = i.get('marketCap')
-            if pe: res['pe'] = f"{pe:.2f}"
-            if pb: res['pb'] = f"{pb:.2f}"
-            if mk: res['mv'] = f"{mk/100000000:.2f}亿"
+            pe = i.get('trailingPE')
+            pb = i.get('priceToBook')
+            mk = i.get('marketCap')
+            
+            res['pe'] = safe_fmt(pe)
+            res['pb'] = safe_fmt(pb)
+            res['mv'] = f"{mk/100000000:.2f}亿" if mk else "-"
         except: pass
         return res
 
@@ -330,7 +332,9 @@ def get_fundamentals(code, token):
             df = pro.daily_basic(ts_code=_to_ts_code(code), fields='pe_ttm,pb,total_mv')
             if not df.empty:
                 r = df.iloc[-1]
-                res.update({'pe':f"{r['pe_ttm']:.2f}", 'pb':f"{r['pb']:.2f}", 'mv':f"{r['total_mv']/10000:.1f}亿"})
+                res['pe'] = safe_fmt(r['pe_ttm'])
+                res['pb'] = safe_fmt(r['pb'])
+                res['mv'] = f"{r['total_mv']/10000:.1f}亿" if r['total_mv'] else "-"
             df2 = pro.fina_indicator(ts_code=_to_ts_code(code), fields='roe')
             if not df2.empty: res['roe'] = f"{df2.iloc[0]['roe']:.2f}%"
         except: pass
@@ -338,19 +342,8 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
+    c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
-    # 🚨 核心防御：强制提取 Series，防止 DataFrame 混入
-    # 如果 df['close'] 是 DataFrame，iloc[:, 0] 会取第一列
-    # 如果 df['close'] 是 Series，它保持不变
-    try:
-        c = df['close'].squeeze() if isinstance(df['close'], pd.DataFrame) else df['close']
-        h = df['high'].squeeze() if isinstance(df['high'], pd.DataFrame) else df['high']
-        l = df['low'].squeeze() if isinstance(df['low'], pd.DataFrame) else df['low']
-        v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
-    except:
-        # 兜底：直接按列名重组
-        c = df['close']; h = df['high']; l = df['low']; v = df['volume']
-
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     mid = df['MA20']; std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
@@ -371,6 +364,7 @@ def calc_full_indicators(df):
     
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
+    
     dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
     dm_m = np.where((l.diff().abs() > h.diff()) & (l.diff()<0), l.diff().abs(), 0)
     tr14 = tr.rolling(14).sum()
@@ -442,16 +436,17 @@ def generate_deep_report(df, name):
         <br>• <b>斐波那契回撤</b>：{fib_txt}
     </div>
     """
+    # ✅ 修复点：使用 safe_fmt
     macd_state = "金叉共振" if curr['DIF']>curr['DEA'] else "死叉调整"
     vol_state = "放量" if curr['VolRatio']>1.2 else "缩量" if curr['VolRatio']<0.8 else "温和"
     ind_logic = f"""
     <div class="report-box" style="margin-top:10px;">
         <div class="report-title">📊 核心动能指标解析</div>
         <ul>
-            <li><span class="tech-term">MACD</span>：当前 <b>{macd_state}</b>。DIF={curr['DIF']:.2f}, DEA={curr['DEA']:.2f}。</li>
-            <li><span class="tech-term">MA均线</span>：MA5({curr['MA5']:.2f}) {"大于" if curr['MA5']>curr['MA20'] else "小于"} MA20({curr['MA20']:.2f})。MA20是短期生命线。</li>
+            <li><span class="tech-term">MACD</span>：当前 <b>{macd_state}</b>。DIF={safe_fmt(curr['DIF'])}, DEA={safe_fmt(curr['DEA'])}。</li>
+            <li><span class="tech-term">MA均线</span>：MA5({safe_fmt(curr['MA5'])}) {"大于" if curr['MA5']>curr['MA20'] else "小于"} MA20({safe_fmt(curr['MA20'])}).</li>
             <li><span class="tech-term">BOLL</span>：股价运行于 { "中轨上方" if curr['close']>curr['MA20'] else "中轨下方" }。</li>
-            <li><span class="tech-term">VOL量能</span>：今日 <b>{vol_state}</b> (量比 {curr['VolRatio']:.2f})。</li>
+            <li><span class="tech-term">VOL量能</span>：今日 <b>{vol_state}</b> (量比 {safe_fmt(curr['VolRatio'])})。</li>
         </ul>
     </div>
     """
@@ -692,11 +687,12 @@ try:
         
         l = df.iloc[-1]
         k1,k2,k3,k4,k5 = st.columns(5)
+        # ✅ 修复：使用 safe_fmt
         k1.metric("价格", f"{l['close']:.2f}", f"{l['pct_change']:.2f}%")
         k2.metric("PE", funda['pe'])
-        k3.metric("RSI", f"{l['RSI']:.1f}")
-        k4.metric("ADX", f"{l['ADX']:.1f}")
-        k5.metric("量比", f"{l['VolRatio']:.2f}")
+        k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
+        k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
+        k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
         
         plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
         

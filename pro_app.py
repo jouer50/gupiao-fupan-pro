@@ -8,16 +8,14 @@ import random
 import string
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import traceback # 用于显示具体报错
+import traceback
 
-# ==========================================
-# 0. 依赖检查
-# ==========================================
+# ✅ 0. 依赖库检查
 try:
     import yfinance as yf
 except ImportError:
-    st.error("🚨 缺少必要库：yfinance")
-    st.info("请在 GitHub 仓库的 `requirements.txt` 文件中添加一行：`yfinance`")
+    st.error("🚨 严重错误：缺少 `yfinance` 库")
+    st.info("请在 GitHub 仓库的 requirements.txt 文件中添加一行：yfinance")
     st.stop()
 
 # ==========================================
@@ -30,54 +28,31 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 🎨 极简商业风 CSS
 apple_css = """
 <style>
     .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     header, footer, .stDeployButton, [data-testid="stToolbar"], [data-testid="stDecoration"] {display: none !important;}
     .block-container {padding-top: 1.5rem !important;}
-    
-    div.stButton > button {
-        background-color: #0071e3; color: white; border-radius: 8px; border: none;
-        padding: 0.6rem 1rem; font-weight: 500; width: 100%; transition: 0.2s; font-size: 14px;
-    }
+    div.stButton > button {background-color: #0071e3; color: white; border-radius: 8px; border: none; padding: 0.6rem 1rem; font-weight: 500; width: 100%;}
     div.stButton > button:hover {background-color: #0077ed; box-shadow: 0 4px 12px rgba(0,113,227,0.3);}
-    div.stButton > button[kind="secondary"] {background-color: #e5e5ea; color: #1d1d1f;}
-    
-    div[data-testid="metric-container"] {
-        background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px;
-        padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    }
+    div[data-testid="metric-container"] {background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
-    
-    .report-box {
-        background-color: #ffffff; border-radius: 12px; padding: 20px;
-        border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    }
+    .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     .report-title {color: #0071e3; font-weight: bold; font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #f5f5f7; padding-bottom: 5px;}
     .tech-term {font-weight: bold; color: #1d1d1f; background-color: #f5f5f7; padding: 2px 6px; border-radius: 4px;}
-    
-    .trend-banner {
-        padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    }
+    .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
-    
-    .position-box {
-        padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 16px; margin-top: 5px;
-    }
-    
-    .captcha-box {
-        background-color: #e5e5ea; color: #1d1d1f; font-family: monospace; font-weight: bold; font-size: 24px; text-align: center; padding: 10px; border-radius: 8px; letter-spacing: 8px; text-decoration: line-through; user-select: none;
-    }
+    .position-box {padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 16px; margin-top: 5px;}
+    .captcha-box {background-color: #e5e5ea; color: #1d1d1f; font-family: monospace; font-weight: bold; font-size: 24px; text-align: center; padding: 10px; border-radius: 8px; letter-spacing: 8px; text-decoration: line-through; user-select: none;}
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
 
-# 👑 管理员账号
+# 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v25_2.csv"
+DB_FILE = "users_v26.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -89,7 +64,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 数据库与验证码逻辑
+# 2. 核心工具函数
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -99,7 +74,16 @@ def init_db():
         df_keys = pd.DataFrame(columns=["key", "points", "status"])
         df_keys.to_csv(KEYS_FILE, index=False)
 
-init_db()
+def generate_captcha():
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    st.session_state['captcha_correct'] = code
+    return code
+
+def verify_captcha(user_input):
+    if 'captcha_correct' not in st.session_state: 
+        generate_captcha()
+        return False
+    return user_input.strip().upper() == st.session_state['captcha_correct']
 
 def load_users():
     try: return pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int})
@@ -112,15 +96,6 @@ def load_keys():
     except: return pd.DataFrame(columns=["key", "points", "status"])
 
 def save_keys(df): df.to_csv(KEYS_FILE, index=False)
-
-def generate_captcha():
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-    st.session_state['captcha_correct'] = code
-    return code
-
-def verify_captcha(user_input):
-    if 'captcha_correct' not in st.session_state: generate_captcha(); return False
-    return user_input.strip().upper() == st.session_state['captcha_correct']
 
 def generate_key(points):
     key = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
@@ -187,7 +162,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 智能股票逻辑 (Global Markets)
+# 3. 股票数据与分析逻辑 (强力修复版)
 # ==========================================
 def is_cn_stock(code):
     return code.isdigit() and len(code) == 6
@@ -201,61 +176,83 @@ def process_ticker(code):
     return code
 
 @st.cache_data(ttl=3600)
-def get_name(code, token):
+def get_name(code, token, proxy=None):
     code = process_ticker(code)
+    # 美股/港股
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
+            # 如果有代理，传入代理（yfinance部分版本支持，或全局设置）
             return t.info.get('shortName') or t.info.get('longName') or code
         except: return code
-    if token and ts:
+    # A股 (Tushare)
+    if token:
         try:
-            pro = ts.pro_api(token)
+            ts.set_token(token)
+            pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-    if bs:
-        try:
-            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(code))
-            if rs.error_code == '0':
-                row = rs.get_row_data(); name = row[1]; bs.logout(); return name
-            bs.logout()
-        except: pass
     return code
 
-def get_data_and_resample(code, token, timeframe, adjust):
+def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
-    fetch_days = 800 
+    fetch_days = 1500 # 再次加大拉取范围
     raw_df = pd.DataFrame()
     
-    # --- 美股/港股 ---
+    # 🌍 美股/港股 (Yfinance 暴力解析)
     if not is_cn_stock(code):
         try:
-            # ✅ 修复：时间拉长到5年，确保年线数据充足
-            yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
-            if not yf_df.empty:
-                # ✅ 修复：多级索引处理
-                if isinstance(yf_df.columns, pd.MultiIndex):
-                    yf_df.columns = yf_df.columns.get_level_values(0)
+            # 代理设置
+            if proxy: 
+                st.info(f"正在使用代理: {proxy}")
+                # yfinance 不直接支持 proxy 参数，需要环境变量
+                os.environ["HTTP_PROXY"] = proxy
+                os.environ["HTTPS_PROXY"] = proxy
                 
-                yf_df.columns = [c.lower() for c in yf_df.columns]
+            # 下载数据
+            yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
+            
+            if not yf_df.empty:
+                # 🛠️ 暴力清洗列名：不管几层索引，全部展平
+                if isinstance(yf_df.columns, pd.MultiIndex):
+                    # 取第一层级 (通常是 Price 类型)
+                    # 有些版本是 (Price, Ticker), 有些是 (Ticker, Price)
+                    # 我们直接把列名转成字符串列表，然后找关键词
+                    yf_df.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col for col in yf_df.columns]
+                
+                # 统一转小写
+                yf_df.columns = [str(c).lower() for c in yf_df.columns]
+                
+                # 重置索引
                 yf_df.reset_index(inplace=True)
                 
+                # 智能列名映射
                 rename_map = {}
                 for c in yf_df.columns:
                     if 'date' in c: rename_map[c] = 'date'
-                    if 'adj' in c and 'close' in c: rename_map[c] = 'close'
+                    elif 'adj' in c and 'close' in c: rename_map[c] = 'close' # 优先复权
+                    elif 'close' in c and 'close' not in rename_map.values(): rename_map[c] = 'close'
+                    elif 'open' in c: rename_map[c] = 'open'
+                    elif 'high' in c: rename_map[c] = 'high'
+                    elif 'low' in c: rename_map[c] = 'low'
+                    elif 'volume' in c: rename_map[c] = 'volume'
+
                 yf_df.rename(columns=rename_map, inplace=True)
                 
-                req_cols = ['date','open','high','low','close','volume']
-                if all(c in yf_df.columns for c in req_cols):
-                    raw_df = yf_df[req_cols].copy()
-                    for c in req_cols[1:]: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
+                # 检查必要列
+                req = ['date','open','high','low','close','volume']
+                if all(c in yf_df.columns for c in req):
+                    raw_df = yf_df[req].copy()
+                    # 确保是数值
+                    for c in req[1:]: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
+                else:
+                    st.error(f"解析失败，缺少列。当前列名: {list(yf_df.columns)}")
         except Exception as e:
-            st.error(f"全球数据源连接失败: {e}")
+            st.error(f"美/港股连接错误: {e}")
             
-    # --- A股 ---
+    # 🇨🇳 A股
     else:
         if token and ts:
             try:
@@ -263,13 +260,13 @@ def get_data_and_resample(code, token, timeframe, adjust):
                 e = pd.Timestamp.today().strftime('%Y%m%d')
                 s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y%m%d')
                 df = pro.daily(ts_code=_to_ts_code(code), start_date=s, end_date=e)
-                if df is not None and not df.empty:
+                if not df.empty:
                     if adjust in ['qfq', 'hfq']:
-                        adj = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
-                        if not adj.empty:
-                            adj = adj.rename(columns={'trade_date':'date','adj_factor':'factor'})
+                        adj_f = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
+                        if not adj_f.empty:
+                            adj_f = adj_f.rename(columns={'trade_date':'date','adj_factor':'factor'})
                             df = df.rename(columns={'trade_date':'date'})
-                            df = df.merge(adj[['date','factor']], on='date', how='left').fillna(method='ffill')
+                            df = df.merge(adj_f[['date','factor']], on='date', how='left').fillna(method='ffill')
                             f = df['factor']
                             ratio = f/f.iloc[-1] if adjust=='qfq' else f/f.iloc[0]
                             for c in ['open','high','low','close']: df[c] *= ratio
@@ -278,37 +275,25 @@ def get_data_and_resample(code, token, timeframe, adjust):
                     for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
                     raw_df = df.sort_values('date').reset_index(drop=True)
             except: pass
-            
-        if raw_df.empty and bs:
-            bs.login()
-            e = pd.Timestamp.today().strftime('%Y-%m-%d')
-            s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y-%m-%d')
-            flag = "2" if adjust=='qfq' else "1" if adjust=='hfq' else "3"
-            rs = bs.query_history_k_data_plus(_to_bs_code(code), "date,open,high,low,close,volume,pctChg", start_date=s, end_date=e, frequency="d", adjustflag=flag)
-            data = rs.get_data(); bs.logout()
-            if not data.empty:
-                df = data.rename(columns={'pctChg':'pct_change'})
-                df['date'] = pd.to_datetime(df['date'])
-                for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
-                raw_df = df.sort_values('date').reset_index(drop=True)
 
     if raw_df.empty: return raw_df
 
+    # 重采样
     if timeframe == '日线': return raw_df
     
     rule = 'W' if timeframe == '周线' else 'M'
     raw_df.set_index('date', inplace=True)
-    agg_dict = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
-    resampled = raw_df.resample(rule).agg(agg_dict).dropna()
+    agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
+    resampled = raw_df.resample(rule).agg(agg).dropna()
     resampled['pct_change'] = resampled['close'].pct_change() * 100
     resampled.reset_index(inplace=True)
-    
     return resampled
 
 @st.cache_data(ttl=3600)
 def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
     code = process_ticker(code)
+    
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
@@ -320,9 +305,10 @@ def get_fundamentals(code, token):
         except: pass
         return res
 
-    if token and ts:
+    if token:
         try:
-            pro = ts.pro_api(token)
+            ts.set_token(token)
+            pro = ts.pro_api()
             df = pro.daily_basic(ts_code=_to_ts_code(code), fields='pe_ttm,pb,total_mv')
             if not df.empty:
                 r = df.iloc[-1]
@@ -339,17 +325,21 @@ def calc_full_indicators(df):
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     mid = df['MA20']; std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
-    exp1 = c.ewm(span=12, adjust=False).mean()
-    exp2 = c.ewm(span=26, adjust=False).mean()
-    df['DIF'] = exp1 - exp2
+    
+    e12 = c.ewm(span=12, adjust=False).mean()
+    e26 = c.ewm(span=26, adjust=False).mean()
+    df['DIF'] = e12 - e26
     df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
     df['HIST'] = 2 * (df['DIF'] - df['DEA'])
+    
     delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
     rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
     df['RSI'] = 100 - (100/(1+rs))
+    
     low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
     rsv = (c - low9)/(high9 - low9 + 1e-9) * 100
     df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3 * df['K'] - 2 * df['D']
+    
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
     dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
@@ -358,6 +348,7 @@ def calc_full_indicators(df):
     di_plus = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
     di_minus = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
     df['ADX'] = (abs(di_plus - di_minus)/(di_plus + di_minus + 1e-9) * 100).rolling(14).mean()
+    
     p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
     p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
@@ -505,11 +496,14 @@ def plot_chart(df, name, flags):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 路由逻辑
+# 4. 执行入口 (Logic)
 # ==========================================
-if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
+init_db()
 
-if not st.session_state["logged_in"]:
+# --- 登录 ---
+if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+
+if not st.session_state['logged_in']:
     st.markdown("<br><br><h1 style='text-align:center'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
@@ -550,9 +544,13 @@ if not st.session_state["logged_in"]:
                     else: st.error(msg)
     st.stop()
 
-# --- 主界面 ---
+# --- 主程序 ---
 user = st.session_state["user"]
 is_admin = (user == ADMIN_USER)
+
+# 全局状态初始化
+if "code" not in st.session_state: st.session_state.code = "600519"
+if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
 with st.sidebar:
     if is_admin:
@@ -595,14 +593,15 @@ with st.sidebar:
                 else: st.error(msg)
 
     st.divider()
+    # 🌍 代理设置 (修复无数据关键点)
+    proxy = st.text_input("网络代理 (本地可选)", placeholder="http://127.0.0.1:7890", help="如美股无法获取，请填本地代理地址")
+    
     try: dt = st.secrets["TUSHARE_TOKEN"]
     except: dt=""
     token = st.text_input("Token", value=dt, type="password")
     
-    if "code" not in st.session_state: st.session_state.code = "600519"
     new_c = st.text_input("代码 (支持美/港/A股)", st.session_state.code)
     
-    if "paid_code" not in st.session_state: st.session_state.paid_code = ""
     if new_c != st.session_state.code:
         st.session_state.code = new_c
         st.session_state.paid_code = ""
@@ -645,14 +644,14 @@ if st.session_state.code != st.session_state.paid_code:
 with c2:
     if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
-# ✅ 全局异常捕获 (关键修复)
+# ✅ 核心逻辑 (异常捕获)
 try:
     with st.spinner("AI 正在生成深度研报..."):
-        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust)
+        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
         funda = get_fundamentals(st.session_state.code, token)
 
     if df is None or df.empty:
-        st.warning("⚠️ 暂无数据。可能原因：\n1. 代码错误\n2. 网络连接失败 (美股)\n3. 刚开盘无数据")
+        st.warning("⚠️ 暂无数据。可能原因：\n1. 代码错误 (A股6位数字, 美股字母)\n2. 网络连接失败 (请在左侧填代理)\n3. 刚开盘无数据")
     else:
         df = calc_full_indicators(df)
         df = detect_patterns(df)
@@ -709,4 +708,4 @@ try:
 
 except Exception as e:
     st.error(f"❌ 系统发生错误: {e}")
-    # st.code(traceback.format_exc()) # 调试用，商业版可注释掉
+    # st.code(traceback.format_exc()) # 调试用

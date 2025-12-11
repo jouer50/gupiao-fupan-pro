@@ -30,10 +30,10 @@ hide_css = """
 """
 st.markdown(hide_css, unsafe_allow_html=True)
 
-# 👑 管理员账号 (硬编码，绝对能进)
+# 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v6_final.csv"
+DB_FILE = "users_v7_final.csv"
 
 # Optional deps
 try:
@@ -94,7 +94,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 股票数据逻辑 (增强版)
+# 3. 股票数据逻辑 (修复名称显示)
 # ==========================================
 def _to_ts_code(symbol):
     symbol = symbol.strip()
@@ -108,19 +108,33 @@ def _to_bs_code(symbol):
 
 @st.cache_data(ttl=3600)
 def get_name(code, token):
+    # 1. 优先 Tushare
     if token and ts:
         try:
             pro = ts.pro_api(token)
             df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-    return code
+        
+    # 2. Baostock 兜底 (修复点：加回了这段代码)
+    if bs:
+        try:
+            bs.login()
+            rs = bs.query_stock_basic(code=_to_bs_code(code))
+            if rs.error_code == '0':
+                row = rs.get_row_data()
+                if row and len(row) > 1:
+                    name = row[1] # [code, name, ...]
+                    bs.logout()
+                    return name
+            bs.logout()
+        except: pass
+        
+    return code # 实在找不到就显示代码
 
 @st.cache_data(ttl=3600)
 def get_data(code, token, window_size, adjust):
-    # 核心修改：无论用户选几天，强制多拉取 400 天数据
-    # 这样可以保证 MA250, MA120, MACD 等指标在切片前就能算准
-    fetch_days = max(400, window_size + 100)
+    fetch_days = max(400, window_size + 100) # 智能回溯
     
     # Tushare
     if token and ts:
@@ -170,6 +184,8 @@ def get_data(code, token, window_size, adjust):
 @st.cache_data(ttl=3600)
 def get_fundamentals(code, token):
     res = {"pe": "N/A", "pb": "N/A", "roe": "N/A", "mv": "N/A"}
+    
+    # 1. Tushare
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -182,16 +198,31 @@ def get_fundamentals(code, token):
             df2 = pro.fina_indicator(ts_code=_to_ts_code(code), fields='roe')
             if not df2.empty: res['roe'] = f"{df2.iloc[0]['roe']:.2f}%"
         except: pass
+        
+    # 2. Baostock 兜底 (修复点：加回了 PE/PB 获取)
+    if res['pe'] == "N/A" and bs:
+        try:
+            bs.login()
+            import datetime
+            e = datetime.date.today().strftime("%Y-%m-%d")
+            s = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y-%m-%d")
+            rs = bs.query_history_k_data_plus(_to_bs_code(code), "date,peTTM,pbMRQ", start_date=s, end_date=e, frequency="d")
+            rows = rs.get_data()
+            if not rows.empty:
+                last = rows.iloc[-1]
+                res['pe'] = str(last['peTTM'])
+                res['pb'] = str(last['pbMRQ'])
+            bs.logout()
+        except: pass
+        
     return res
 
 def calc_full_indicators(df):
     if df.empty: return df
-    # 强制类型转换，防止KeyError/乱码
     for c in ['close','high','low','volume']: df[c] = df[c].astype(float)
-    
     close, high, low = df['close'], df['high'], df['low']
     
-    for n in [5,10,20,60,120,250]: # 补齐年线
+    for n in [5,10,20,60,120,250]:
         df[f'MA{n}'] = close.rolling(n).mean()
     
     mid = df['MA20']
@@ -199,21 +230,18 @@ def calc_full_indicators(df):
     df['Upper'] = mid + 2*std
     df['Lower'] = mid - 2*std
     
-    # MACD
     exp1 = close.ewm(span=12, adjust=False).mean()
     exp2 = close.ewm(span=26, adjust=False).mean()
     df['DIF'] = exp1 - exp2
     df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
     df['HIST'] = 2 * (df['DIF'] - df['DEA'])
     
-    # RSI
     delta = close.diff()
     up = delta.clip(lower=0)
     down = -1*delta.clip(upper=0)
     rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
     df['RSI'] = 100 - (100/(1+rs))
     
-    # KDJ
     low9 = low.rolling(9).min()
     high9 = high.rolling(9).max()
     rsv = (close - low9) / (high9 - low9 + 1e-9) * 100
@@ -221,7 +249,6 @@ def calc_full_indicators(df):
     df['D'] = df['K'].ewm(com=2).mean()
     df['J'] = 3 * df['K'] - 2 * df['D']
     
-    # ATR & ADX
     tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
     
@@ -232,7 +259,6 @@ def calc_full_indicators(df):
     di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
     df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
     
-    # Cloud
     p_high = high.rolling(9).max()
     p_low = low.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
@@ -320,7 +346,8 @@ def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
     if df.empty: return
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.5, 0.15, 0.15, 0.2])
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'), row=1, col=1)
-    for m in ['MA5','MA20','MA60']: fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1)), row=1, col=1)
+    for m in ['MA5','MA20','MA60','MA120','MA250']: 
+        if m in df.columns: fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=0), showlegend=False), row=1, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], fill='tonexty', fillcolor='rgba(0,0,255,0.05)', line=dict(width=0), name='BOLL'), row=1, col=1)
     
@@ -407,9 +434,10 @@ with st.sidebar:
     new_code = st.text_input("股票代码", st.session_state.code)
     if new_code != st.session_state.code: st.session_state.code = new_code
     
+    # 名称获取 (已修复Baostock)
     name = get_name(st.session_state.code, token)
     
-    # ✅ 修复：找回所有时间窗口选项
+    # 选项找回！
     days = st.radio("窗口 (天)", [7, 30, 60, 90, 180, 250, 360], index=2, horizontal=True)
     adjust = st.selectbox("复权", ["qfq", "hfq", ""], 0)
     
@@ -428,26 +456,24 @@ with c2:
         else: st.error("积分不足")
 
 with st.spinner("🚀 AI 正在深度分析..."):
-    # ✅ 核心修复：后台强制多拉数据，前台只展示选定的天数
-    # 如果用户选7天，我们后台仍然拉400天，算出指标后，再截取最后7天画图
-    # 这样 MA250 就不会断了
+    # 后台强制多拉数据保证指标准确
     df = get_data(st.session_state.code, token, days, adjust) 
     funda = get_fundamentals(st.session_state.code, token)
 
 if df.empty:
     st.warning("⚠️ 暂无数据，请检查代码或 Token")
 else:
-    # 1. 先在全量数据上算指标 (保证准确)
+    # 1. 先在全量数据上算指标
     df = calc_full_indicators(df)
     df = detect_patterns(df)
     
-    # 2. 趋势判断 (用最新数据)
+    # 2. 趋势判断
     trend_txt, trend_col = main_uptrend_check(df)
     if trend_col == "success": st.success(f"### {trend_txt}")
     elif trend_col == "warning": st.warning(f"### {trend_txt}")
     else: st.error(f"### {trend_txt}")
     
-    # 3. 截取用户想看的时间段进行画图 (View Slice)
+    # 3. 截取展示数据
     plot_df = df.tail(days).copy() 
     
     # 4. 指标卡片
@@ -459,10 +485,10 @@ else:
     k4.metric("ADX (力度)", f"{latest['ADX']:.1f}")
     k5.metric("量比", f"{latest['VolRatio']:.2f}")
     
-    # 5. 画图 (用切片后的数据)
+    # 5. 画图
     plot_full_chart(plot_df, f"{name} 深度技术分析", show_gann, show_fib, show_chanlun)
     
-    # 6. 信号分析 (用全量数据算出的结果)
+    # 6. AI 信号
     res = analyze_signals(df)
     st.subheader(f"🤖 AI 决策建议: {res['action']} (评分: {res['score']})")
     

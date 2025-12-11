@@ -52,7 +52,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v26.csv"
+DB_FILE = "users_v26_1.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -178,61 +178,59 @@ def process_ticker(code):
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     code = process_ticker(code)
-    # 美股/港股
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
-            # 如果有代理，传入代理（yfinance部分版本支持，或全局设置）
             return t.info.get('shortName') or t.info.get('longName') or code
         except: return code
-    # A股 (Tushare)
-    if token:
+    if token and ts:
         try:
             ts.set_token(token)
             pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
+    if bs:
+        try:
+            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(code))
+            if rs.error_code == '0':
+                row = rs.get_row_data(); name = row[1]; bs.logout(); return name
+            bs.logout()
+        except: pass
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
-    fetch_days = 1500 # 再次加大拉取范围
+    fetch_days = 1500 
     raw_df = pd.DataFrame()
     
-    # 🌍 美股/港股 (Yfinance 暴力解析)
+    # 🌍 美股/港股 (Yfinance 强力清洗)
     if not is_cn_stock(code):
         try:
-            # 代理设置
             if proxy: 
-                st.info(f"正在使用代理: {proxy}")
-                # yfinance 不直接支持 proxy 参数，需要环境变量
+                st.info(f"使用代理: {proxy}")
                 os.environ["HTTP_PROXY"] = proxy
                 os.environ["HTTPS_PROXY"] = proxy
                 
-            # 下载数据
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
             
             if not yf_df.empty:
-                # 🛠️ 暴力清洗列名：不管几层索引，全部展平
+                # 1. 降维 MultiIndex
                 if isinstance(yf_df.columns, pd.MultiIndex):
-                    # 取第一层级 (通常是 Price 类型)
-                    # 有些版本是 (Price, Ticker), 有些是 (Ticker, Price)
-                    # 我们直接把列名转成字符串列表，然后找关键词
-                    yf_df.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col for col in yf_df.columns]
+                    yf_df.columns = yf_df.columns.get_level_values(0)
                 
-                # 统一转小写
-                yf_df.columns = [str(c).lower() for c in yf_df.columns]
-                
-                # 重置索引
+                # 2. 必须先重置索引，把 Date 变成列
                 yf_df.reset_index(inplace=True)
                 
-                # 智能列名映射
+                # 3. 强制全部小写 + 去空格
+                yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
+                
+                # 4. 暴力映射列名
                 rename_map = {}
                 for c in yf_df.columns:
                     if 'date' in c: rename_map[c] = 'date'
-                    elif 'adj' in c and 'close' in c: rename_map[c] = 'close' # 优先复权
-                    elif 'close' in c and 'close' not in rename_map.values(): rename_map[c] = 'close'
+                    elif 'adj' in c and 'close' in c: rename_map[c] = 'close'
+                    elif 'close' in c and 'close' not in rename_map.values(): rename_map[c] = 'close' # 优先 Adj Close
                     elif 'open' in c: rename_map[c] = 'open'
                     elif 'high' in c: rename_map[c] = 'high'
                     elif 'low' in c: rename_map[c] = 'low'
@@ -240,17 +238,20 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
 
                 yf_df.rename(columns=rename_map, inplace=True)
                 
-                # 检查必要列
-                req = ['date','open','high','low','close','volume']
-                if all(c in yf_df.columns for c in req):
-                    raw_df = yf_df[req].copy()
-                    # 确保是数值
-                    for c in req[1:]: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
+                # 5. 提取必要列
+                req_cols = ['date','open','high','low','close','volume']
+                # 如果没有 volume，补全为 0 (防止报错)
+                if 'volume' not in yf_df.columns: yf_df['volume'] = 0
+                
+                # 检查其他关键列是否存在
+                if all(c in yf_df.columns for c in ['date','open','high','low','close']):
+                    raw_df = yf_df[req_cols].copy()
+                    for c in req_cols[1:]: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
                 else:
-                    st.error(f"解析失败，缺少列。当前列名: {list(yf_df.columns)}")
+                    st.error(f"列名解析失败: {list(yf_df.columns)}")
         except Exception as e:
-            st.error(f"美/港股连接错误: {e}")
+            st.error(f"美股接口错误: {e}")
             
     # 🇨🇳 A股
     else:
@@ -275,10 +276,22 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                     for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
                     raw_df = df.sort_values('date').reset_index(drop=True)
             except: pass
+            
+        if raw_df.empty and bs:
+            bs.login()
+            e = pd.Timestamp.today().strftime('%Y-%m-%d')
+            s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y-%m-%d')
+            flag = "2" if adjust=='qfq' else "1" if adjust=='hfq' else "3"
+            rs = bs.query_history_k_data_plus(_to_bs_code(code), "date,open,high,low,close,volume,pctChg", start_date=s, end_date=e, frequency="d", adjustflag=flag)
+            data = rs.get_data(); bs.logout()
+            if not data.empty:
+                df = data.rename(columns={'pctChg':'pct_change'})
+                df['date'] = pd.to_datetime(df['date'])
+                for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
+                raw_df = df.sort_values('date').reset_index(drop=True)
 
     if raw_df.empty: return raw_df
 
-    # 重采样
     if timeframe == '日线': return raw_df
     
     rule = 'W' if timeframe == '周线' else 'M'
@@ -644,7 +657,7 @@ if st.session_state.code != st.session_state.paid_code:
 with c2:
     if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
-# ✅ 核心逻辑 (异常捕获)
+# ✅ 全局异常捕获 (关键修复)
 try:
     with st.spinner("AI 正在生成深度研报..."):
         df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)

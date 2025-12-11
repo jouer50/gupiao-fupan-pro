@@ -11,13 +11,13 @@ from plotly.subplots import make_subplots
 # 1. 核心配置 & 界面隐藏
 # ==========================================
 st.set_page_config(
-    page_title="A股复盘系统(修复版)",
+    page_title="A股深度复盘系统 Pro",
     layout="wide",
     page_icon="📈",
     initial_sidebar_state="expanded"
 )
 
-# 🚫 隐藏菜单 CSS
+# 🚫 隐藏菜单 CSS (强力版)
 hide_css = """
 <style>
     header {visibility: hidden !important; height: 0px !important; padding: 0px !important; margin: 0px !important;}
@@ -30,10 +30,10 @@ hide_css = """
 """
 st.markdown(hide_css, unsafe_allow_html=True)
 
-# 👑 管理员账号
+# 👑 管理员账号 (硬编码，绝对能进)
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v4.csv" # 升级数据库版本
+DB_FILE = "users_v5_full.csv" # 升级文件，确保干净
 
 # Optional deps
 try:
@@ -46,7 +46,7 @@ except Exception:
     bs = None
 
 # ==========================================
-# 2. 数据库逻辑
+# 2. 数据库逻辑 (积分系统)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -65,7 +65,7 @@ def save_users(df):
     df.to_csv(DB_FILE, index=False)
 
 def verify_login(u, p):
-    # 优先检查管理员
+    # 👑 管理员超级通道
     if u == ADMIN_USER and p == ADMIN_PASS: return True
     
     df = load_users()
@@ -97,7 +97,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 股票数据逻辑 (增强健壮性)
+# 3. 股票数据与高级指标 (功能召回!)
 # ==========================================
 def _to_ts_code(symbol):
     symbol = symbol.strip()
@@ -126,9 +126,20 @@ def get_data(code, token, days, adjust):
         try:
             pro = ts.pro_api(token)
             e = pd.Timestamp.today().strftime('%Y%m%d')
-            s = (pd.Timestamp.today() - pd.Timedelta(days=days*2)).strftime('%Y%m%d')
+            s = (pd.Timestamp.today() - pd.Timedelta(days=days*2.5)).strftime('%Y%m%d')
             df = pro.daily(ts_code=_to_ts_code(code), start_date=s, end_date=e)
             if df is not None and not df.empty:
+                # 复权处理 (如果有token)
+                if adjust in ['qfq', 'hfq']:
+                    adj = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
+                    if not adj.empty:
+                        adj = adj.rename(columns={'trade_date':'date','adj_factor':'factor'})
+                        df = df.rename(columns={'trade_date':'date'})
+                        df = df.merge(adj[['date','factor']], on='date', how='left').fillna(method='ffill')
+                        f = df['factor']
+                        ratio = f / f.iloc[-1] if adjust == 'qfq' else f / f.iloc[0]
+                        for c in ['open','high','low','close']: df[c] = df[c] * ratio
+                
                 df = df.rename(columns={'trade_date':'date','vol':'volume','pct_chg':'pct_change'})
                 df['date'] = pd.to_datetime(df['date'])
                 cols = ['open','high','low','close','volume']
@@ -140,10 +151,11 @@ def get_data(code, token, days, adjust):
     if bs:
         bs.login()
         e = pd.Timestamp.today().strftime('%Y-%m-%d')
-        s = (pd.Timestamp.today() - pd.Timedelta(days=days*2)).strftime('%Y-%m-%d')
+        s = (pd.Timestamp.today() - pd.Timedelta(days=days*2.5)).strftime('%Y-%m-%d')
+        flag = "2" if adjust == 'qfq' else "1" if adjust == 'hfq' else "3"
         rs = bs.query_history_k_data_plus(_to_bs_code(code),
             "date,open,high,low,close,volume,pctChg",
-            start_date=s, end_date=e, frequency="d", adjustflag="3")
+            start_date=s, end_date=e, frequency="d", adjustflag=flag)
         data = rs.get_data()
         bs.logout()
         if not data.empty:
@@ -155,93 +167,256 @@ def get_data(code, token, days, adjust):
             
     return pd.DataFrame()
 
-def calc_indicators(df):
+@st.cache_data(ttl=3600)
+def get_fundamentals(code, token):
+    res = {"pe": "N/A", "pb": "N/A", "roe": "N/A", "mv": "N/A"}
+    if token and ts:
+        try:
+            pro = ts.pro_api(token)
+            df = pro.daily_basic(ts_code=_to_ts_code(code), fields='pe_ttm,pb,total_mv')
+            if not df.empty:
+                r = df.iloc[-1]
+                res['pe'] = f"{r['pe_ttm']:.2f}" if r['pe_ttm'] else "-"
+                res['pb'] = f"{r['pb']:.2f}" if r['pb'] else "-"
+                res['mv'] = f"{r['total_mv']/10000:.1f}亿" if r['total_mv'] else "-"
+            # ROE
+            df2 = pro.fina_indicator(ts_code=_to_ts_code(code), fields='roe')
+            if not df2.empty: res['roe'] = f"{df2.iloc[0]['roe']:.2f}%"
+        except: pass
+    return res
+
+# --- 高级指标计算 (满血复活版) ---
+def calc_full_indicators(df):
     if df.empty: return df
-    # 强制转为float，防止报错
-    for c in ['close','high','low','volume']:
-        df[c] = df[c].astype(float)
-        
-    close = df['close']
-    # MA
+    for c in ['close','high','low','volume']: df[c] = df[c].astype(float)
+    close, high, low = df['close'], df['high'], df['low']
+    
+    # 均线
     for n in [5,10,20,60]: df[f'MA{n}'] = close.rolling(n).mean()
     
-    # KDJ (增加异常处理)
-    try:
-        low_list = df['low'].rolling(9, min_periods=1).min()
-        high_list = df['high'].rolling(9, min_periods=1).max()
-        rsv = (close - low_list) / (high_list - low_list + 1e-9) * 100
-        df['K'] = rsv.ewm(com=2, adjust=False).mean()
-        df['D'] = df['K'].ewm(com=2, adjust=False).mean()
-        df['J'] = 3 * df['K'] - 2 * df['D']
-    except:
-        df['K'] = 50; df['D'] = 50; df['J'] = 50
-
+    # BOLL
+    mid = df['MA20']
+    std = close.rolling(20).std()
+    df['Upper'] = mid + 2*std
+    df['Lower'] = mid - 2*std
+    
     # MACD
-    try:
-        exp1 = close.ewm(span=12, adjust=False).mean()
-        exp2 = close.ewm(span=26, adjust=False).mean()
-        df['DIF'] = exp1 - exp2
-        df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
-        df['HIST'] = 2 * (df['DIF'] - df['DEA'])
-    except:
-        df['DIF'] = 0; df['DEA'] = 0; df['HIST'] = 0
-
+    exp1 = close.ewm(span=12, adjust=False).mean()
+    exp2 = close.ewm(span=26, adjust=False).mean()
+    df['DIF'] = exp1 - exp2
+    df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
+    df['HIST'] = 2 * (df['DIF'] - df['DEA'])
+    
     # RSI
-    try:
-        delta = close.diff()
-        up = delta.clip(lower=0)
-        down = -1 * delta.clip(upper=0)
-        ema_up = up.ewm(com=13, adjust=False).mean()
-        ema_down = down.ewm(com=13, adjust=False).mean()
-        rs = ema_up / (ema_down + 1e-9)
-        df['RSI'] = 100 - (100 / (1 + rs))
-    except:
-        df['RSI'] = 50
+    delta = close.diff()
+    up = delta.clip(lower=0)
+    down = -1*delta.clip(upper=0)
+    rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
+    df['RSI'] = 100 - (100/(1+rs))
+    
+    # KDJ
+    low9 = low.rolling(9).min()
+    high9 = high.rolling(9).max()
+    rsv = (close - low9) / (high9 - low9 + 1e-9) * 100
+    df['K'] = rsv.ewm(com=2).mean()
+    df['D'] = df['K'].ewm(com=2).mean()
+    df['J'] = 3 * df['K'] - 2 * df['D']
+    
+    # ATR & ADX (趋势力度)
+    tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
+    df['ATR14'] = tr.rolling(14).mean()
+    
+    dm_p = np.where((high.diff() > low.diff().abs()) & (high.diff()>0), high.diff(), 0)
+    dm_m = np.where((low.diff().abs() > high.diff()) & (low.diff()<0), low.diff().abs(), 0)
+    tr14 = tr.rolling(14).sum()
+    di_p = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
+    di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
+    df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
+    
+    # Ichimoku (云图)
+    p_high = high.rolling(9).max()
+    p_low = low.rolling(9).min()
+    df['Tenkan'] = (p_high + p_low) / 2
+    p_high26 = high.rolling(26).max()
+    p_low26 = low.rolling(26).min()
+    df['Kijun'] = (p_high26 + p_low26) / 2
+    df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
+    df['SpanB'] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
+    
+    # 量比
+    df['VolRatio'] = df['volume'] / (df['volume'].rolling(5).mean() + 1e-9)
+    
+    return df.fillna(0)
 
+# --- 形态识别 (缠论/江恩/斐波那契) ---
+def detect_patterns(df):
+    # 缠论分型
+    df['Fractal_Top'] = (df['high'].shift(1) < df['high']) & (df['high'].shift(-1) < df['high'])
+    df['Fractal_Bot'] = (df['low'].shift(1) > df['low']) & (df['low'].shift(-1) > df['low'])
     return df
 
-def plot_kline(df, title):
+def get_drawing_lines(df):
+    # 江恩线 & 斐波那契 (基于最近低点)
+    low_idx = df['low'].tail(60).idxmin()
+    if pd.isna(low_idx): return {}, {}
+    
+    start_date = df.loc[low_idx, 'date']
+    start_price = df.loc[low_idx, 'low']
+    
+    # 江恩
+    gann = {}
+    days = (df['date'] - start_date).dt.days
+    # 简单的1x1假设：每天涨1%或ATR
+    step = df['ATR14'].iloc[-1] * 0.5
+    if step == 0: step = start_price * 0.01
+    
+    gann['1x1'] = start_price + days * step
+    gann['1x2'] = start_price + days * step * 0.5
+    gann['2x1'] = start_price + days * step * 2.0
+    
+    # 斐波那契 (基于最近120天高低点)
+    recent = df.tail(120)
+    h = recent['high'].max()
+    l = recent['low'].min()
+    diff = h - l
+    fib = {
+        '0.236': h - diff * 0.236,
+        '0.382': h - diff * 0.382,
+        '0.5': h - diff * 0.5,
+        '0.618': h - diff * 0.618
+    }
+    
+    return gann, fib
+
+# --- 核心：打分与信号系统 ---
+def analyze_signals(df):
+    curr = df.iloc[-1]
+    prev = df.iloc[-2]
+    
+    score = 0
+    reasons = []
+    
+    # 1. 均线趋势
+    if curr['MA5'] > curr['MA20']:
+        score += 2; reasons.append("✅ 短线多头排列 (MA5 > MA20)")
+    else:
+        score -= 2; reasons.append("❌ 短线空头排列")
+        
+    if curr['close'] > curr['MA60']:
+        score += 1; reasons.append("✅ 站上生命线 (MA60)")
+    
+    # 2. MACD
+    if curr['DIF'] > curr['DEA'] and curr['HIST'] > prev['HIST']:
+        score += 1; reasons.append("✅ MACD金叉且红柱放大")
+    elif curr['DIF'] < curr['DEA']:
+        score -= 1; reasons.append("❌ MACD死叉")
+        
+    # 3. RSI
+    if curr['RSI'] < 20: score += 2; reasons.append("📉 RSI极度超卖 (反弹机会)")
+    elif curr['RSI'] > 80: score -= 2; reasons.append("📈 RSI极度超买 (风险)")
+    
+    # 4. 趋势 (ADX + Cloud)
+    if curr['close'] > max(curr['SpanA'], curr['SpanB']):
+        score += 1; reasons.append("☁️ 股价位于云层上方 (多头)")
+    if curr['ADX'] > 25:
+        reasons.append("🔥 当前趋势强劲 (ADX>25)")
+        
+    # 5. 量能
+    if curr['VolRatio'] > 1.5:
+        score += 1; reasons.append("🌊 今日放量 (量比>1.5)")
+        
+    # 结论
+    if score >= 4: action, color = "🚀 强力买入", "success"
+    elif score >= 1: action, color = "👀 逢低吸纳", "warning"
+    elif score >= -2: action, color = "✋ 观望/持有", "secondary"
+    else: action, color = "🏃 减仓/卖出", "error"
+    
+    # 关键位
+    support = df['low'].tail(20).min()
+    resistance = df['high'].tail(20).max()
+    atr = curr['ATR14']
+    stop_loss = curr['close'] - 2 * atr
+    take_profit = curr['close'] + 3 * atr
+    
+    return {
+        "score": score, "action": action, "color": color, 
+        "reasons": reasons, "sup": support, "res": resistance,
+        "sl": stop_loss, "tp": take_profit
+    }
+
+def main_uptrend_check(df):
+    curr = df.iloc[-1]
+    # 主升浪定义：均线多头 + 云上 + ADX强
+    is_bull = curr['MA5'] > curr['MA20'] > curr['MA60']
+    is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB'])
+    
+    if is_bull and is_cloud and curr['ADX'] > 20:
+        return "🚀 确认：主升浪行情中", "success"
+    if is_cloud:
+        return "📈 趋势：震荡上行", "warning"
+    return "📉 趋势：弱势调整 / 空头", "error"
+
+# ==========================================
+# 4. 绘图逻辑 (全功能)
+# ==========================================
+def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
     if df.empty: return
     
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, 
-                        row_heights=[0.5, 0.1, 0.2, 0.2], vertical_spacing=0.02)
-
+                        vertical_spacing=0.03, row_heights=[0.5, 0.15, 0.15, 0.2])
+    
     # K线
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'],
                                  low=df['low'], close=df['close'], name='K线'), row=1, col=1)
     
-    # 均线 (防御性添加)
-    for ma in ['MA5','MA20','MA60']:
-        if ma in df.columns:
-            fig.add_trace(go.Scatter(x=df['date'], y=df[ma], name=ma, line=dict(width=1)), row=1, col=1)
+    # 均线
+    for m in ['MA5','MA20','MA60']:
+        fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1)), row=1, col=1)
+        
+    # 布林带
+    fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=0), showlegend=False), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], fill='tonexty', fillcolor='rgba(0,0,255,0.05)', line=dict(width=0), name='Bollinger'), row=1, col=1)
+    
+    # 画线工具
+    gann, fib = get_drawing_lines(df)
+    if show_gann:
+        for k, v in gann.items():
+            fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(dash='dot', width=1), name=f'Gann {k}'), row=1, col=1)
+    if show_fib:
+        for k, v in fib.items():
+            fig.add_hline(y=v, line_dash="dash", line_color="orange", annotation_text=f"Fib {k}", row=1, col=1)
+            
+    if show_chanlun:
+        tops = df[df['Fractal_Top']]
+        bots = df[df['Fractal_Bot']]
+        fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='green', name='顶分型'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='red', name='底分型'), row=1, col=1)
 
     # 成交量
-    colors = ['red' if o >= c else 'green' for o, c in zip(df['open'], df['close'])]
-    fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='成交量'), row=2, col=1)
-
-    # MACD (防御性添加)
-    if 'DIF' in df.columns:
-        fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], name='DIF'), row=3, col=1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], name='DEA'), row=3, col=1)
-        fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], name='MACD柱'), row=3, col=1)
-
-    # KDJ (防御性添加 - 这里是之前报错的地方)
-    if 'K' in df.columns and 'D' in df.columns:
-        fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K'), row=4, col=1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D'), row=4, col=1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['J'], name='J'), row=4, col=1)
-
-    fig.update_layout(title=title, xaxis_rangeslider_visible=False, height=800, margin=dict(t=30,b=20,l=20,r=20))
+    colors = ['red' if c>=o else 'green' for c,o in zip(df['close'], df['open'])]
+    fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), row=2, col=1)
+    
+    # MACD
+    fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], name='MACD柱'), row=3, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], name='DIF'), row=3, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], name='DEA'), row=3, col=1)
+    
+    # KDJ
+    fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K'), row=4, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D'), row=4, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['J'], name='J'), row=4, col=1)
+    
+    fig.update_layout(title=title, xaxis_rangeslider_visible=False, height=900, margin=dict(t=30, l=10, r=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 主程序
+# 5. 主程序逻辑
 # ==========================================
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
 # --- 登录 ---
 if not st.session_state["logged_in"]:
-    st.markdown("<br><br><h1 style='text-align:center'>🔐 复盘系统 Pro</h1>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align:center'>🔐 A股深度复盘系统 V13.0</h1>", unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
         tab1, tab2 = st.tabs(["登录", "注册"])
@@ -271,9 +446,8 @@ is_admin = (user == ADMIN_USER)
 with st.sidebar:
     st.header(f"👤 {user}")
     
-    # 管理员后台
     if is_admin:
-        st.success("✅ 管理员")
+        st.success("✅ 管理员后台已激活")
         with st.expander("👮‍♂️ 积分管理", expanded=True):
             df_u = load_users()
             st.dataframe(df_u[["username","quota"]], hide_index=True)
@@ -281,85 +455,103 @@ with st.sidebar:
             if u_list:
                 target = st.selectbox("修改用户", u_list)
                 val = st.number_input("积分", value=50, step=10)
-                if st.button("保存修改"):
+                if st.button("💾 保存"):
                     idx = df_u[df_u["username"]==target].index[0]
                     df_u.loc[idx, "quota"] = val
                     save_users(df_u)
                     st.success("成功")
     else:
-        # 普通用户看积分
         df_u = load_users()
         q = df_u[df_u["username"]==user]["quota"].iloc[0]
         st.metric("剩余积分", q)
 
     st.divider()
     
-    # 令牌设置
+    # 股票输入区
     try:
         def_tok = st.secrets["TUSHARE_TOKEN"]
     except:
         def_tok = ""
     token = st.text_input("Tushare Token", value=def_tok, type="password")
     
-    # 股票输入
     if "code" not in st.session_state: st.session_state.code = "600519"
     new_code = st.text_input("股票代码", st.session_state.code)
-    if new_code != st.session_state.code:
-        st.session_state.code = new_code
+    if new_code != st.session_state.code: st.session_state.code = new_code
     
     name = get_name(st.session_state.code, token)
-    st.caption(f"当前股票: {name}")
     
-    # ✅ 修复1：找回了7天/30天等选项
-    days = st.radio("时间窗口 (天)", [7, 30, 60, 90, 180, 360], index=2, horizontal=True)
-    adjust = st.selectbox("复权方式", ["qfq", "hfq", ""], 0)
+    # 选项找回！
+    days = st.radio("窗口 (天)", [30, 60, 120, 250, 360], index=2, horizontal=True)
+    adjust = st.selectbox("复权", ["qfq", "hfq", ""], 0)
+    
+    st.divider()
+    st.markdown("### 🛠️ 画图工具")
+    show_gann = st.checkbox("江恩角度线", True)
+    show_fib = st.checkbox("斐波那契回撤", True)
+    show_chanlun = st.checkbox("缠论分型", True)
     
     st.divider()
     if st.button("🚪 退出登录"):
         st.session_state["logged_in"] = False
         st.rerun()
 
-# 主区域
+# 主区域内容
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 with c2:
     if st.button("🔄 刷新数据 (消耗1积分)", type="primary"):
         if consume_quota(user):
-            st.session_state["refresh"] = time.time() # 强制刷新
+            st.session_state["refresh"] = time.time()
             st.rerun()
-        else:
-            st.error("积分不足")
+        else: st.error("积分不足")
 
-# 数据获取与展示
-with st.spinner("正在分析数据..."):
+# 数据处理
+with st.spinner("🚀 AI 正在深度分析..."):
     df = get_data(st.session_state.code, token, days, adjust)
+    funda = get_fundamentals(st.session_state.code, token)
+
+if df.empty:
+    st.warning("⚠️ 暂无数据，请检查代码或 Token")
+else:
+    # 1. 计算满血指标
+    df = calc_full_indicators(df)
+    df = detect_patterns(df)
     
-    if df.empty:
-        st.warning("⚠️ 未获取到数据，请检查：\n1. 股票代码是否正确\n2. Tushare Token 是否有效\n3. 刚开盘或收盘可能存在延迟")
-    else:
-        # ✅ 修复2：增强的指标计算，防止KeyError
-        df = calc_indicators(df)
-        
-        latest = df.iloc[-1]
-        c1, c2, c3 = st.columns(3)
-        c1.metric("当前价格", f"{latest['close']:.2f}")
-        c2.metric("涨跌幅", f"{latest['pct_change']:.2f}%")
-        
-        # 安全获取指标，防止报错
-        rsi_val = f"{latest['RSI']:.1f}" if 'RSI' in df.columns else "N/A"
-        c3.metric("RSI (14)", rsi_val)
-        
-        # ✅ 修复3：安全的绘图函数
-        plot_kline(df, f"{name} K线走势")
-        
-        # 简单的信号提示
-        st.subheader("💡 智能信号")
-        msgs = []
-        if 'MA5' in df.columns and latest['MA5'] > latest['MA20']: msgs.append("✅ 短线多头排列 (MA5 > MA20)")
-        if 'MA5' in df.columns and latest['MA5'] < latest['MA20']: msgs.append("❌ 短线空头排列 (MA5 < MA20)")
-        if 'RSI' in df.columns and latest['RSI'] < 30: msgs.append("📉 超卖区域 (RSI < 30)，注意反弹")
-        
-        if msgs:
-            for m in msgs: st.write(m)
-        else:
-            st.info("暂无明显趋势信号")
+    # 2. 趋势判断横幅
+    trend_txt, trend_col = main_uptrend_check(df)
+    if trend_col == "success": st.success(f"### {trend_txt}")
+    elif trend_col == "warning": st.warning(f"### {trend_txt}")
+    else: st.error(f"### {trend_txt}")
+    
+    # 3. 核心指标卡
+    latest = df.iloc[-1]
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("价格", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
+    k2.metric("PE (市盈率)", funda['pe'])
+    k3.metric("RSI (强弱)", f"{latest['RSI']:.1f}")
+    k4.metric("ADX (力度)", f"{latest['ADX']:.1f}")
+    k5.metric("量比", f"{latest['VolRatio']:.2f}")
+    
+    # 4. 全功能绘图 (包含江恩/缠论/Fib)
+    plot_full_chart(df, f"{name} 深度技术分析", show_gann, show_fib, show_chanlun)
+    
+    # 5. AI 打分与信号 (核心功能回归)
+    res = analyze_signals(df)
+    
+    st.subheader(f"🤖 AI 决策建议: {res['action']} (评分: {res['score']})")
+    
+    # 信号胶囊
+    s1, s2, s3 = st.columns(3)
+    if res['color'] == 'success': s1.success(f"建议仓位: 高 (50%~80%)")
+    elif res['color'] == 'warning': s1.warning(f"建议仓位: 中 (20%~50%)")
+    else: s1.error(f"建议仓位: 低/空仓 (0%~20%)")
+    
+    # 支撑压力位回归
+    s2.info(f"🛡️ 止损位: {res['sl']:.2f} (2ATR)")
+    s3.info(f"💰 止盈位: {res['tp']:.2f} (3ATR)")
+    
+    st.caption(f"📍 关键点位监测 | 支撑: **{res['sup']:.2f}** | 压力: **{res['res']:.2f}**")
+    
+    # 详细理由
+    with st.expander("🔍 点击查看详细评分逻辑", expanded=True):
+        for r in res['reasons']: st.write(r)

@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 1. Core Configuration (Apple Design)
+# 1. 核心配置 (Apple Design)
 # ==========================================
 st.set_page_config(
     page_title="AlphaQuant Pro",
@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 🎨 Minimalist Commercial CSS
+# 🎨 极简商业风 CSS
 apple_css = """
 <style>
     .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
@@ -58,10 +58,10 @@ apple_css = """
 """
 st.markdown(apple_css, unsafe_allow_html=True)
 
-# 👑 Administrator Account
+# 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v18_1_chartfix.csv"
+DB_FILE = "users_v18_2_chart.csv"
 
 # Optional deps
 try:
@@ -72,7 +72,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. Database Logic
+# 2. 数据库逻辑
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -120,18 +120,18 @@ def delete_user(target):
     save_users(df)
 
 def register_user(u, p):
-    if u == ADMIN_USER: return False, "Cannot register admin account"
+    if u == ADMIN_USER: return False, "保留账号无法注册"
     df = load_users()
-    if u in df["username"].values: return False, "User already exists"
+    if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
-    return True, "Registration successful, please contact admin to recharge"
+    return True, "注册成功，请联系管理员充值"
 
 # ==========================================
-# 3. Stock & Indicator Logic (Fix fillna issue)
+# 3. 股票与指标逻辑
 # ==========================================
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
 def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
@@ -155,7 +155,7 @@ def get_name(code, token):
 
 @st.cache_data(ttl=3600)
 def get_data(code, token, days, adjust):
-    fetch_days = max(400, days + 150) # Fetch more data to ensure MA250 has value
+    fetch_days = max(400, days + 150)
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -222,29 +222,38 @@ def calc_full_indicators(df):
     if df.empty: return df
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
-    # MAs (5,10,20,30,60,120,250)
+    # MA
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     
-    mid = df['MA20']; std = c.rolling(20).std()
+    # BOLL
+    mid = df['MA20']
+    std = c.rolling(20).std()
     df['Upper'] = mid + 2*std
     df['Lower'] = mid - 2*std
     
+    # MACD
     exp1 = c.ewm(span=12, adjust=False).mean()
     exp2 = c.ewm(span=26, adjust=False).mean()
     df['DIF'] = exp1 - exp2
     df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
     df['HIST'] = 2 * (df['DIF'] - df['DEA'])
     
-    delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
-    rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
+    # RSI
+    delta = c.diff()
+    up = delta.clip(lower=0)
+    down = -1*delta.clip(upper=0)
+    rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
     df['RSI'] = 100 - (100/(1+rs))
     
-    low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
-    rsv = (c - low9)/(high9 - low9 + 1e-9) * 100
+    # KDJ
+    low9 = l.rolling(9).min()
+    high9 = h.rolling(9).max()
+    rsv = (c - low9) / (high9 - low9 + 1e-9) * 100
     df['K'] = rsv.ewm(com=2).mean()
     df['D'] = df['K'].ewm(com=2).mean()
     df['J'] = 3 * df['K'] - 2 * df['D']
     
+    # ATR & ADX
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
     
@@ -255,16 +264,19 @@ def calc_full_indicators(df):
     di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
     df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
     
-    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
+    # Ichimoku
+    p_high = h.rolling(9).max()
+    p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
-    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
+    p_high26 = h.rolling(26).max()
+    p_low26 = l.rolling(26).min()
     df['Kijun'] = (p_high26 + p_low26) / 2
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
     df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
+    
     df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
     
-    # ❌ Core Fix: Do NOT use fillna(0), this will cause chart to compress to a line!
-    # Only fill short-term fluctuation indicators like KDJ/MACD, do not fill MA related to price
+    # 填充指标 (不填充价格相关 MA)
     df[['K','D','J','DIF','DEA','HIST','RSI','ADX']] = df[['K','D','J','DIF','DEA','HIST','RSI','ADX']].fillna(50)
     
     return df
@@ -354,51 +366,48 @@ def main_uptrend_check(df):
 def plot_chart(df, name, gann_show, fib_show, chan_show):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
     
-    # 1. K-line (Red for up, Green for down)
+    # 1. K-line
     fig.add_trace(go.Candlestick(
         x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], 
         name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'
     ), 1, 1)
     
-    # 2. Moving Averages
-    # Deepened colors to ensure visibility on white background
-    ma_colors = {
-        'MA5': '#666666',   # Dark Grey
-        'MA10': '#9c27b0',  # Dark Purple
-        'MA20': '#ff9800',  # Dark Orange
-        'MA30': '#2196f3',  # Dark Blue
-        'MA60': '#4caf50'   # Dark Green
-    }
+    # 2. 均线全家桶 + 中文名
+    ma_colors = {'MA5':'#666666', 'MA10':'#9c27b0', 'MA20':'#ff9800', 'MA30':'#2196f3', 'MA60':'#4caf50'}
     for ma_name, ma_color in ma_colors.items():
         if ma_name in df.columns:
             fig.add_trace(go.Scatter(x=df['date'], y=df[ma_name], name=ma_name, line=dict(width=1.2, color=ma_color)), 1, 1)
     
+    # 3. BOLL Overlay
+    fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=1, dash='dash', color='#86868b'), name='布林上轨'), 1, 1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], line=dict(width=1, dash='dash', color='#86868b'), name='布林下轨', fill='tonexty', fillcolor='rgba(200,200,200,0.1)'), 1, 1)
+
     ga, fi = get_drawing_lines(df)
     if gann_show:
-        for k,v in ga.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(width=1, dash='dot', color='#86868b'), name=f'G{k}'), 1, 1)
+        for k,v in ga.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(width=1, dash='dot', color='#86868b'), name=f'江恩 {k}'), 1, 1)
     if fib_show:
-        for k,v in fi.items(): fig.add_hline(y=v, line_dash='dash', line_color='#ff9800', row=1, col=1)
+        for k,v in fi.items(): fig.add_hline(y=v, line_dash='dash', line_color='#ff9800', row=1, col=1, annotation_text=f"Fib {k}")
     if chan_show:
         tops=df[df['F_Top']]; bots=df[df['F_Bot']]
-        fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='Top'), 1, 1)
-        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='Bot'), 1, 1)
+        fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='缠论顶分型'), 1, 1)
+        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='缠论底分型'), 1, 1)
 
     colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
-    fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors), 2, 1)
-    fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors), 3, 1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='#2196f3', width=1)), 3, 1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='#ff9800', width=1)), 3, 1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['K'], line=dict(color='#2196f3', width=1)), 4, 1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1)), 4, 1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#9c27b0', width=1)), 4, 1)
+    fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='成交量'), 2, 1)
+    fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors, name='MACD柱'), 3, 1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='#2196f3', width=1), name='DIF快线'), 3, 1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='#ff9800', width=1), name='DEA慢线'), 3, 1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['K'], line=dict(color='#2196f3', width=1), name='K线'), 4, 1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D线'), 4, 1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#9c27b0', width=1), name='J线'), 4, 1)
     
     fig.update_layout(height=900, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', 
                       font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), 
-                      yaxis=dict(showgrid=True, gridcolor='#f5f5f5'))
+                      yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=1.02))
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. Routing Logic
+# 4. 路由逻辑
 # ==========================================
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
@@ -426,7 +435,7 @@ if not st.session_state["logged_in"]:
                 else: st.error(msg)
     st.stop()
 
-# --- Main Interface ---
+# --- 主界面 ---
 user = st.session_state["user"]
 is_admin = (user == ADMIN_USER)
 
@@ -481,7 +490,7 @@ with st.sidebar:
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
 
-# Core Content Area
+# 核心内容区
 name = get_name(st.session_state.code, token)
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")

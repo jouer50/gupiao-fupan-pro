@@ -33,7 +33,7 @@ st.markdown(hide_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v7_final.csv"
+DB_FILE = "users_v9_admin_fix.csv" # 确保文件干净
 
 # Optional deps
 try:
@@ -65,7 +65,9 @@ def save_users(df):
     df.to_csv(DB_FILE, index=False)
 
 def verify_login(u, p):
+    # 👑 管理员超级通道
     if u == ADMIN_USER and p == ADMIN_PASS: return True
+    
     df = load_users()
     row = df[df["username"] == u]
     if row.empty: return False
@@ -82,10 +84,25 @@ def consume_quota(u):
         return True
     return False
 
+def update_user_quota(target, new_q):
+    df = load_users()
+    idx = df[df["username"] == target].index
+    if len(idx) > 0:
+        df.loc[idx[0], "quota"] = int(new_q)
+        save_users(df)
+        return True
+    return False
+
+def delete_user(target):
+    df = load_users()
+    df = df[df["username"] != target]
+    save_users(df)
+
 def register_user(u, p):
     if u == ADMIN_USER: return False, "无法注册管理员名字"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
+    
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 20}
@@ -94,7 +111,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 股票数据逻辑 (修复名称显示)
+# 3. 股票数据逻辑
 # ==========================================
 def _to_ts_code(symbol):
     symbol = symbol.strip()
@@ -108,15 +125,12 @@ def _to_bs_code(symbol):
 
 @st.cache_data(ttl=3600)
 def get_name(code, token):
-    # 1. 优先 Tushare
     if token and ts:
         try:
             pro = ts.pro_api(token)
             df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-        
-    # 2. Baostock 兜底 (修复点：加回了这段代码)
     if bs:
         try:
             bs.login()
@@ -124,19 +138,17 @@ def get_name(code, token):
             if rs.error_code == '0':
                 row = rs.get_row_data()
                 if row and len(row) > 1:
-                    name = row[1] # [code, name, ...]
+                    name = row[1]
                     bs.logout()
                     return name
             bs.logout()
         except: pass
-        
-    return code # 实在找不到就显示代码
+    return code
 
 @st.cache_data(ttl=3600)
 def get_data(code, token, window_size, adjust):
-    fetch_days = max(400, window_size + 100) # 智能回溯
+    fetch_days = max(400, window_size + 100)
     
-    # Tushare
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -161,7 +173,6 @@ def get_data(code, token, window_size, adjust):
                 return df.sort_values('date').reset_index(drop=True)
         except: pass
         
-    # Baostock
     if bs:
         bs.login()
         e = pd.Timestamp.today().strftime('%Y-%m-%d')
@@ -184,8 +195,6 @@ def get_data(code, token, window_size, adjust):
 @st.cache_data(ttl=3600)
 def get_fundamentals(code, token):
     res = {"pe": "N/A", "pb": "N/A", "roe": "N/A", "mv": "N/A"}
-    
-    # 1. Tushare
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -198,8 +207,6 @@ def get_fundamentals(code, token):
             df2 = pro.fina_indicator(ts_code=_to_ts_code(code), fields='roe')
             if not df2.empty: res['roe'] = f"{df2.iloc[0]['roe']:.2f}%"
         except: pass
-        
-    # 2. Baostock 兜底 (修复点：加回了 PE/PB 获取)
     if res['pe'] == "N/A" and bs:
         try:
             bs.login()
@@ -214,7 +221,6 @@ def get_fundamentals(code, token):
                 res['pb'] = str(last['pbMRQ'])
             bs.logout()
         except: pass
-        
     return res
 
 def calc_full_indicators(df):
@@ -378,8 +384,9 @@ def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
 # ==========================================
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
+# --- 登录 ---
 if not st.session_state["logged_in"]:
-    st.markdown("<br><br><h1 style='text-align:center'>🔐 A股深度复盘系统 Pro</h1>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align:center'>🔐 A股深度复盘系统 V13.3</h1>", unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
         tab1, tab2 = st.tabs(["登录", "注册"])
@@ -406,6 +413,8 @@ is_admin = (user == ADMIN_USER)
 
 with st.sidebar:
     st.header(f"👤 {user}")
+    
+    # ✅✅✅ 修复点：这里必须有 if is_admin 块，才能看到后台！
     if is_admin:
         st.success("✅ 管理员后台已激活")
         with st.expander("👮‍♂️ 积分管理", expanded=True):
@@ -415,11 +424,17 @@ with st.sidebar:
             if u_list:
                 target = st.selectbox("修改用户", u_list)
                 val = st.number_input("积分", value=50, step=10)
-                if st.button("💾 保存"):
-                    idx = df_u[df_u["username"]==target].index[0]
-                    df_u.loc[idx, "quota"] = val
-                    save_users(df_u)
-                    st.success("成功")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("💾 保存"):
+                        update_user_quota(target, val)
+                        st.success("成功")
+                        time.sleep(0.5); st.rerun()
+                with col2:
+                    if st.button("❌ 删除"):
+                        delete_user(target)
+                        st.success("已删")
+                        time.sleep(0.5); st.rerun()
     else:
         df_u = load_users()
         q = df_u[df_u["username"]==user]["quota"].iloc[0]
@@ -434,10 +449,8 @@ with st.sidebar:
     new_code = st.text_input("股票代码", st.session_state.code)
     if new_code != st.session_state.code: st.session_state.code = new_code
     
-    # 名称获取 (已修复Baostock)
     name = get_name(st.session_state.code, token)
     
-    # 选项找回！
     days = st.radio("窗口 (天)", [7, 30, 60, 90, 180, 250, 360], index=2, horizontal=True)
     adjust = st.selectbox("复权", ["qfq", "hfq", ""], 0)
     
@@ -456,27 +469,22 @@ with c2:
         else: st.error("积分不足")
 
 with st.spinner("🚀 AI 正在深度分析..."):
-    # 后台强制多拉数据保证指标准确
     df = get_data(st.session_state.code, token, days, adjust) 
     funda = get_fundamentals(st.session_state.code, token)
 
 if df.empty:
     st.warning("⚠️ 暂无数据，请检查代码或 Token")
 else:
-    # 1. 先在全量数据上算指标
     df = calc_full_indicators(df)
     df = detect_patterns(df)
     
-    # 2. 趋势判断
     trend_txt, trend_col = main_uptrend_check(df)
     if trend_col == "success": st.success(f"### {trend_txt}")
     elif trend_col == "warning": st.warning(f"### {trend_txt}")
     else: st.error(f"### {trend_txt}")
     
-    # 3. 截取展示数据
     plot_df = df.tail(days).copy() 
     
-    # 4. 指标卡片
     latest = df.iloc[-1]
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("价格", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
@@ -485,10 +493,8 @@ else:
     k4.metric("ADX (力度)", f"{latest['ADX']:.1f}")
     k5.metric("量比", f"{latest['VolRatio']:.2f}")
     
-    # 5. 画图
     plot_full_chart(plot_df, f"{name} 深度技术分析", show_gann, show_fib, show_chanlun)
     
-    # 6. AI 信号
     res = analyze_signals(df)
     st.subheader(f"🤖 AI 决策建议: {res['action']} (评分: {res['score']})")
     

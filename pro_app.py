@@ -191,6 +191,7 @@ def process_ticker(code):
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     code = process_ticker(code)
+    # 美股/港股
     if not is_cn_stock(code):
         try:
             if proxy: 
@@ -199,6 +200,7 @@ def get_name(code, token, proxy=None):
             t = yf.Ticker(code)
             return t.info.get('shortName') or t.info.get('longName') or code
         except: return code
+    # A股
     if token and ts:
         try:
             ts.set_token(token)
@@ -364,7 +366,6 @@ def calc_full_indicators(df):
     
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
-    
     dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
     dm_m = np.where((l.diff().abs() > h.diff()) & (l.diff()<0), l.diff().abs(), 0)
     tr14 = tr.rolling(14).sum()
@@ -378,7 +379,9 @@ def calc_full_indicators(df):
     df['Kijun'] = (p_high26 + p_low26) / 2
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
     df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
+    
     df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
+    
     df[['K','D','J','DIF','DEA','HIST','RSI','ADX']] = df[['K','D','J','DIF','DEA','HIST','RSI','ADX']].fillna(50)
     return df
 
@@ -398,20 +401,6 @@ def get_drawing_lines(df):
     h = rec['high'].max(); l = rec['low'].min(); d = h-l
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
-
-def run_backtest(df):
-    capital = 100000; position = 0; df = df.copy().dropna()
-    buy_signals = []; sell_signals = []; equity = [capital]
-    for i in range(1, len(df)):
-        curr = df.iloc[i]; prev = df.iloc[i-1]; price = curr['close']
-        if prev['MA5'] <= prev['MA20'] and curr['MA5'] > curr['MA20'] and position == 0:
-            position = capital / price; capital = 0; buy_signals.append(curr['date'])
-        elif prev['MA5'] >= prev['MA20'] and curr['MA5'] < curr['MA20'] and position > 0:
-            capital = position * price; position = 0; sell_signals.append(curr['date'])
-        equity.append(capital + (position * price))
-    final_equity = equity[-1]; ret = (final_equity - 100000) / 100000 * 100
-    win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
-    return ret, win_rate, buy_signals, sell_signals, equity
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
@@ -436,7 +425,6 @@ def generate_deep_report(df, name):
         <br>• <b>斐波那契回撤</b>：{fib_txt}
     </div>
     """
-    # ✅ 修复点：使用 safe_fmt
     macd_state = "金叉共振" if curr['DIF']>curr['DEA'] else "死叉调整"
     vol_state = "放量" if curr['VolRatio']>1.2 else "缩量" if curr['VolRatio']<0.8 else "温和"
     ind_logic = f"""
@@ -518,218 +506,6 @@ def plot_chart(df, name, flags):
                       font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), 
                       yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=1.02))
     st.plotly_chart(fig, use_container_width=True)
-
-# ==========================================
-# 4. 路由逻辑
-# ==========================================
-init_db()
-
-# --- 登录 ---
-if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
-
-if not st.session_state['logged_in']:
-    st.markdown("<br><br><h1 style='text-align:center'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
-    c1,c2,c3 = st.columns([1,2,1])
-    with c2:
-        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
-        with tab1:
-            u = st.text_input("账号")
-            p = st.text_input("密码", type="password")
-            if 'captcha_correct' not in st.session_state: generate_captcha()
-            c_code, c_show = st.columns([2,1])
-            with c_code: cap_in = st.text_input("验证码", placeholder="不区分大小写")
-            with c_show:
-                st.markdown(f"<div class='captcha-box'>{st.session_state['captcha_correct']}</div>", unsafe_allow_html=True)
-                if st.button("🔄"): generate_captcha(); st.rerun()
-            
-            if st.button("登录系统"):
-                if not verify_captcha(cap_in): st.error("验证码错误"); generate_captcha()
-                elif verify_login(u.strip(), p):
-                    st.session_state["logged_in"] = True
-                    st.session_state["user"] = u.strip()
-                    st.session_state["paid_code"] = ""
-                    st.rerun()
-                else: st.error("账号或密码错误")
-        with tab2:
-            nu = st.text_input("新用户")
-            np1 = st.text_input("设置密码", type="password")
-            if 'reg_captcha_correct' not in st.session_state: st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-            rc_code, rc_show = st.columns([2,1])
-            with rc_code: rcap_in = st.text_input("注册验证码")
-            with rc_show:
-                st.markdown(f"<div class='captcha-box'>{st.session_state['reg_captcha_correct']}</div>", unsafe_allow_html=True)
-                if st.button("🔄", key="reg_ref"): st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4)); st.rerun()
-
-            if st.button("立即注册"):
-                if rcap_in.upper() != st.session_state['reg_captcha_correct']: st.error("验证码错误")
-                else:
-                    suc, msg = register_user(nu.strip(), np1)
-                    if suc: st.success(msg)
-                    else: st.error(msg)
-    st.stop()
-
-# --- 主程序 ---
-user = st.session_state["user"]
-is_admin = (user == ADMIN_USER)
-
-# 全局状态初始化
-if "code" not in st.session_state: st.session_state.code = "600519"
-if "paid_code" not in st.session_state: st.session_state.paid_code = ""
-
-with st.sidebar:
-    if is_admin:
-        st.success("👑 管理员模式")
-        with st.expander("💳 卡密生成", expanded=True):
-            points_gen = st.number_input("面值", 10, 1000, 100, step=10)
-            if st.button("生成卡密"):
-                key = generate_key(points_gen)
-                st.code(key, language="text")
-                st.success(f"已生成 {points_gen} 积分")
-        
-        with st.expander("用户管理"):
-            df_u = load_users()
-            st.dataframe(df_u[["username","quota"]], hide_index=True)
-            u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
-            if u_list:
-                target = st.selectbox("选择用户", u_list)
-                val = st.number_input("修改积分", value=0, step=10)
-                if st.button("更新"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
-                if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
-            
-            csv = df_u.to_csv(index=False).encode('utf-8')
-            st.download_button("备份数据", csv, "backup.csv", "text/csv")
-            uf = st.file_uploader("恢复数据", type="csv")
-            if uf: 
-                try: pd.read_csv(uf).to_csv(DB_FILE, index=False); st.success("已恢复"); time.sleep(1); st.rerun()
-                except: st.error("格式错误")
-    else:
-        st.info(f"👤 {user}")
-        df_u = load_users()
-        try: q = df_u[df_u["username"]==user]["quota"].iloc[0]
-        except: q = 0
-        st.metric("剩余积分", q)
-        
-        with st.expander("💳 充值中心"):
-            key_in = st.text_input("请输入卡密")
-            if st.button("立即兑换"):
-                suc, msg = redeem_key(user, key_in)
-                if suc: st.success(msg); time.sleep(1); st.rerun()
-                else: st.error(msg)
-
-    st.divider()
-    # 🌍 代理设置 (修复无数据关键点)
-    proxy = st.text_input("网络代理 (本地可选)", placeholder="http://127.0.0.1:7890", help="如美股无法获取，请填本地代理地址")
-    
-    try: dt = st.secrets["TUSHARE_TOKEN"]
-    except: dt=""
-    token = st.text_input("Token", value=dt, type="password")
-    
-    new_c = st.text_input("代码 (支持美/港/A股)", st.session_state.code)
-    
-    if new_c != st.session_state.code:
-        st.session_state.code = new_c
-        st.session_state.paid_code = ""
-        st.rerun()
-        
-    timeframe = st.selectbox("K线周期", ["日线", "周线", "月线"])
-    days = st.radio("显示范围", [30,60,120,250,500], 2, horizontal=True)
-    adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
-    
-    st.divider()
-    st.markdown("### 🛠️ 指标开关")
-    flags = {
-        'ma': st.checkbox("MA 均线", True),
-        'boll': st.checkbox("BOLL 布林带", True),
-        'vol': st.checkbox("成交量", True),
-        'macd': st.checkbox("MACD", True),
-        'kdj': st.checkbox("KDJ", True),
-        'gann': st.checkbox("江恩线", False), 
-        'fib': st.checkbox("斐波那契", True),
-        'chan': st.checkbox("缠论分型", True)
-    }
-    
-    st.divider()
-    if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
-
-# 核心内容区
-name = get_name(st.session_state.code, token)
-c1, c2 = st.columns([3, 1])
-with c1: st.title(f"📈 {name} ({st.session_state.code})")
-
-if st.session_state.code != st.session_state.paid_code:
-    st.info("🔒 深度研报需解锁")
-    if st.button("🔍 支付 1 积分查看", type="primary"):
-        if consume_quota(user):
-            st.session_state.paid_code = st.session_state.code
-            st.rerun()
-        else: st.error("积分不足，请充值")
-    st.stop()
-
-with c2:
-    if st.button("刷新"): st.cache_data.clear(); st.rerun()
-
-# ✅ 核心逻辑 (异常捕获)
-try:
-    with st.spinner("AI 正在生成深度研报..."):
-        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
-        funda = get_fundamentals(st.session_state.code, token)
-
-    if df is None or df.empty:
-        st.warning("⚠️ 暂无数据。可能原因：\n1. 代码错误 (A股6位数字, 美股字母)\n2. 网络连接失败 (请在左侧填代理)\n3. 刚开盘无数据")
-    else:
-        df = calc_full_indicators(df)
-        df = detect_patterns(df)
-        
-        trend_txt, trend_col = main_uptrend_check(df)
-        bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
-        tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
-        st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
-        
-        l = df.iloc[-1]
-        k1,k2,k3,k4,k5 = st.columns(5)
-        # ✅ 修复：使用 safe_fmt
-        k1.metric("价格", f"{l['close']:.2f}", f"{l['pct_change']:.2f}%")
-        k2.metric("PE", funda['pe'])
-        k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
-        k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
-        k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
-        
-        plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
-        
-        report_html = generate_deep_report(df, name)
-        st.markdown(report_html, unsafe_allow_html=True)
-        
-        score, act, col, sl, tp, pos = analyze_score(df)
-        st.subheader(f"🤖 最终建议: {act} (评分 {score})")
-        
-        s1,s2,s3 = st.columns(3)
-        if col == 'success': s1.success(f"仓位: {pos}")
-        elif col == 'warning': s1.warning(f"仓位: {pos}")
-        else: s1.error(f"仓位: {pos}")
-        
-        s2.info(f"🛡️ 止损: {sl:.2f}"); s3.info(f"💰 止盈: {tp:.2f}")
-        st.caption(f"📍 支撑: **{l['low']:.2f}** | 压力: **{l['high']:.2f}**")
-        
-        st.divider()
-        with st.expander("📚 新手必读：如何看懂回测报告？"):
-            st.markdown("""
-            **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。
-            **2. 总收益率**：策略跑出来的净利润率。
-            **3. 胜率**：赚钱次数占比。>50% 为有效。
-            """)
-            
-        st.subheader("⚖️ 历史回测报告 (Trend Following)")
-        ret, win, buys, sells, equity = run_backtest(df)
-        
-        b1, b2, b3 = st.columns(3)
-        b1.metric("总收益率", f"{ret:.2f}%", delta_color="normal" if ret>0 else "inverse")
-        b2.metric("胜率", f"{win:.1f}%")
-        b3.metric("交易次数", f"{len(buys)} 次")
-        
-        fig_bt = go.Figure()
-        fig_bt.add_trace(go.Scatter(y=equity, mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2)))
-        fig_bt.update_layout(height=300, margin=dict(t=10,b=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'))
-        st.plotly_chart(fig_bt, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ 系统发生错误: {e}")

@@ -8,32 +8,102 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 1. 核心配置 & 界面隐藏
+# 1. 商业级配置 & 定制化 CSS (整容核心)
 # ==========================================
 st.set_page_config(
-    page_title="A股深度复盘系统 Pro",
+    page_title="AlphaQuant AI | 极速复盘", # 改个听起来很贵的名字
     layout="wide",
-    page_icon="📈",
+    page_icon="⚡",
     initial_sidebar_state="expanded"
 )
 
-# 🚫 隐藏菜单 CSS
-hide_css = """
+# 🎨 华尔街暗黑风 CSS (让界面看起来像专业终端)
+premium_css = """
 <style>
-    header {visibility: hidden !important; height: 0px !important; padding: 0px !important; margin: 0px !important;}
-    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-    [data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
+    /* 全局背景色调整 */
+    .stApp {
+        background-color: #0e1117;
+    }
+    
+    /* 侧边栏美化 */
+    [data-testid="stSidebar"] {
+        background-color: #161b22;
+        border-right: 1px solid #30363d;
+    }
+    
+    /* 隐藏 Streamlit 原生元素 */
+    header {visibility: hidden !important; height: 0px !important;}
     footer {visibility: hidden !important; display: none !important;}
-    .block-container {padding-top: 1rem !important;}
     .stDeployButton {display: none !important;}
+    [data-testid="stToolbar"] {display: none !important;}
+    [data-testid="stDecoration"] {display: none !important;}
+    
+    /* 顶部留白移除 */
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 2rem !important;
+    }
+    
+    /* 指标卡片 (Metric) 美化 - 像交易面板 */
+    [data-testid="stMetricValue"] {
+        font-family: "Roboto Mono", monospace;
+        font-size: 1.8rem !important;
+        color: #e6edf3;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #8b949e;
+        font-size: 0.9rem !important;
+    }
+    
+    /* 按钮美化 - 渐变色 */
+    div.stButton > button {
+        background: linear-gradient(45deg, #238636, #2ea043);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-weight: bold;
+        transition: all 0.3s;
+    }
+    div.stButton > button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 4px 12px rgba(46, 160, 67, 0.4);
+    }
+    
+    /* 文本输入框美化 */
+    .stTextInput input {
+        background-color: #0d1117;
+        color: #c9d1d9;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+    }
+    
+    /* 成功/警告/错误 提示框样式微调 */
+    .stAlert {
+        background-color: #161b22;
+        border: 1px solid #30363d;
+        color: #c9d1d9;
+    }
+    
+    /* 自定义 Logo 区域 */
+    .brand-logo {
+        font-size: 1.5rem;
+        font-weight: 800;
+        background: -webkit-linear-gradient(eee, #333);
+        -webkit-background-clip: text;
+        color: #58a6ff;
+        margin-bottom: 20px;
+        text-align: center;
+        border-bottom: 1px solid #30363d;
+        padding-bottom: 10px;
+    }
 </style>
 """
-st.markdown(hide_css, unsafe_allow_html=True)
+st.markdown(premium_css, unsafe_allow_html=True)
 
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v10_quota_fix.csv" 
+DB_FILE = "users_v11_pro.csv" # 升级文件
 
 # Optional deps
 try:
@@ -76,12 +146,10 @@ def consume_quota(u):
     if u == ADMIN_USER: return True
     df = load_users()
     idx = df[df["username"] == u].index
-    if len(idx) > 0:
-        current_q = int(df.loc[idx[0], "quota"])
-        if current_q > 0:
-            df.loc[idx[0], "quota"] = current_q - 1
-            save_users(df)
-            return True
+    if len(idx) > 0 and df.loc[idx[0], "quota"] > 0:
+        df.loc[idx[0], "quota"] -= 1
+        save_users(df)
+        return True
     return False
 
 def update_user_quota(target, new_q):
@@ -99,7 +167,7 @@ def delete_user(target):
     save_users(df)
 
 def register_user(u, p):
-    if u == ADMIN_USER: return False, "无法注册管理员名字"
+    if u == ADMIN_USER: return False, "保留账号无法注册"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
@@ -306,30 +374,66 @@ def main_uptrend_check(df):
 
 def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
     if df.empty: return
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.5, 0.15, 0.15, 0.2])
-    fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'), row=1, col=1)
-    for m in ['MA5','MA20','MA60','MA120','MA250']: 
-        if m in df.columns: fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=0), showlegend=False), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], fill='tonexty', fillcolor='rgba(0,0,255,0.05)', line=dict(width=0), name='BOLL'), row=1, col=1)
+    
+    # 商业级图表配置
+    fig = make_subplots(
+        rows=4, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.03, 
+        row_heights=[0.55, 0.1, 0.15, 0.2]
+    )
+    
+    # 主图 K 线
+    fig.add_trace(go.Candlestick(
+        x=df['date'], open=df['open'], high=df['high'],
+        low=df['low'], close=df['close'], name='K线'
+    ), row=1, col=1)
+    
+    # 均线
+    for m, c in zip(['MA5','MA20','MA60'], ['#39ff14', '#ffff00', '#ff073a']):
+        fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1, color=c)), row=1, col=1)
+    
+    # 画线工具
     gann, fib = get_drawing_lines(df)
     if show_gann:
-        for k, v in gann.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(dash='dot', width=1), name=f'Gann {k}'), row=1, col=1)
+        for k, v in gann.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(dash='dot', width=1, color='gray'), name=f'Gann {k}'), row=1, col=1)
     if show_fib:
         for k, v in fib.items(): fig.add_hline(y=v, line_dash="dash", line_color="orange", annotation_text=f"Fib {k}", row=1, col=1)
+            
+    # 缠论
     if show_chanlun:
-        tops, bots = df[df['Fractal_Top']], df[df['Fractal_Bot']]
-        fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='green', name='顶分型'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='red', name='底分型'), row=1, col=1)
-    colors = ['red' if c>=o else 'green' for c,o in zip(df['close'], df['open'])]
+        tops = df[df['Fractal_Top']]
+        bots = df[df['Fractal_Bot']]
+        fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#00ff00', marker_size=8, name='顶'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#ff0000', marker_size=8, name='底'), row=1, col=1)
+
+    # 成交量
+    colors = ['#ff073a' if c>=o else '#39ff14' for c,o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), row=2, col=1)
-    fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], name='MACD柱'), row=3, col=1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], name='DIF'), row=3, col=1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], name='DEA'), row=3, col=1)
+    
+    # MACD
+    fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors, name='MACD'), row=3, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='white', width=1), name='DIF'), row=3, col=1)
+    fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='yellow', width=1), name='DEA'), row=3, col=1)
+    
+    # KDJ
     fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K'), row=4, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D'), row=4, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['J'], name='J'), row=4, col=1)
-    fig.update_layout(title=title, xaxis_rangeslider_visible=False, height=900, margin=dict(t=30, l=10, r=10, b=10))
+    
+    # 专业的深色图表布局
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=20, color='white')),
+        xaxis_rangeslider_visible=False, 
+        height=900, 
+        margin=dict(t=40, l=20, r=20, b=20),
+        paper_bgcolor='#0e1117', # 与背景融合
+        plot_bgcolor='#0e1117',
+        font=dict(color='#c9d1d9'),
+        grid=dict(rows=1, columns=1),
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=True, gridcolor='#30363d')
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
@@ -337,11 +441,12 @@ def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
 # ==========================================
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 
+# --- 登录 ---
 if not st.session_state["logged_in"]:
-    st.markdown("<br><br><h1 style='text-align:center'>🔐 A股深度复盘系统 V13.5</h1>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align:center; color:#58a6ff;'>⚡ AlphaQuant AI 系统</h1>", unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
-        tab1, tab2 = st.tabs(["登录", "注册"])
+        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
@@ -349,10 +454,9 @@ if not st.session_state["logged_in"]:
                 if verify_login(u.strip(), p):
                     st.session_state["logged_in"] = True
                     st.session_state["user"] = u.strip()
-                    # 重置状态，要求重新扣费
                     st.session_state.paid_code = ""
                     st.rerun()
-                else: st.error("账号或密码错误 (管理员: ZCX001 / 123456)")
+                else: st.error("账号或密码错误")
         with tab2:
             nu = st.text_input("新账号")
             np1 = st.text_input("新密码", type="password")
@@ -365,51 +469,32 @@ if not st.session_state["logged_in"]:
 user = st.session_state["user"]
 is_admin = (user == ADMIN_USER)
 
+# --- 侧边栏 ---
 with st.sidebar:
+    st.markdown("<div class='brand-logo'>AlphaQuant PRO</div>", unsafe_allow_html=True)
+    
     if is_admin:
-        st.success(f"👑 管理员: {user}")
-        
-        # ✅✅✅ 修复点：管理员后台展示全员列表 ✅✅✅
-        with st.expander("👮‍♂️ 积分管理后台 (全员)", expanded=True):
+        st.success(f"👑 管理员在线")
+        with st.expander("👮‍♂️ 用户积分管理", expanded=True):
             df_u = load_users()
-            # 1. 顶部展示统计
-            st.caption(f"总用户数: {len(df_u)}")
-            
-            # 2. 展示干净的表格 (去除密码列)
-            view_df = df_u[["username", "quota"]].copy()
-            view_df.columns = ["用户", "剩余积分"]
-            st.dataframe(view_df, use_container_width=True, hide_index=True)
-            
-            # 3. 修改功能
-            st.divider()
+            st.dataframe(df_u[["username","quota"]], hide_index=True, use_container_width=True)
             u_list = [x for x in df_u["username"] if x != ADMIN_USER]
             if u_list:
-                target = st.selectbox("🔧 修改指定用户", ["请选择"] + u_list)
-                if target != "请选择":
-                    curr_q = df_u[df_u["username"]==target]["quota"].iloc[0]
-                    new_q = st.number_input("设置新积分", value=int(curr_q), step=10)
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("💾 保存", use_container_width=True):
-                            update_user_quota(target, new_q)
-                            st.success("已保存")
-                            time.sleep(0.5); st.rerun()
-                    with col2:
-                        if st.button("❌ 删除", type="primary", use_container_width=True):
-                            delete_user(target)
-                            st.warning("已删除")
-                            time.sleep(0.5); st.rerun()
-            else:
-                st.info("暂无普通用户")
-                
+                target = st.selectbox("修改用户", u_list)
+                val = st.number_input("设置积分", value=50, step=10)
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("💾 保存"):
+                        update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
+                with c2:
+                    if st.button("❌ 删除"):
+                        delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
     else:
         st.info(f"👤 用户: {user}")
         df_u = load_users()
-        try:
-            q = df_u[df_u["username"]==user]["quota"].iloc[0]
+        try: q = df_u[df_u["username"]==user]["quota"].iloc[0]
         except: q = 0
-        st.metric("剩余积分", q)
+        st.metric("剩余算力 (积分)", q, delta="AI 引擎就绪")
 
     st.divider()
     try: def_tok = st.secrets["TUSHARE_TOKEN"]
@@ -419,7 +504,6 @@ with st.sidebar:
     if "code" not in st.session_state: st.session_state.code = "600519"
     new_code = st.text_input("股票代码", st.session_state.code)
     
-    # 🔒 换股自动上锁
     if "paid_code" not in st.session_state: st.session_state.paid_code = ""
     if new_code != st.session_state.code:
         st.session_state.code = new_code
@@ -428,43 +512,44 @@ with st.sidebar:
     
     name = get_name(st.session_state.code, token)
     
-    days = st.radio("窗口 (天)", [7, 30, 60, 90, 180, 250, 360], index=2, horizontal=True)
-    adjust = st.selectbox("复权", ["qfq", "hfq", ""], 0)
+    days = st.radio("分析周期 (天)", [7, 30, 60, 90, 180, 250, 360], index=2, horizontal=True)
+    adjust = st.selectbox("复权模式", ["qfq", "hfq", ""], 0)
     
     st.divider()
+    st.caption("AI 辅助线")
     show_gann = st.checkbox("江恩角度线", True)
     show_fib = st.checkbox("斐波那契回撤", True)
-    show_chanlun = st.checkbox("缠论分型", True)
+    show_chanlun = st.checkbox("缠论分型结构", True)
     st.divider()
-    if st.button("🚪 退出登录"): st.session_state["logged_in"] = False; st.rerun()
+    if st.button("🚪 安全退出"): st.session_state["logged_in"] = False; st.rerun()
 
+# --- 主界面 ---
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
-# 🔒 付费墙逻辑
+# 付费墙
 is_paid = (st.session_state.code == st.session_state.paid_code)
 
 if not is_paid:
-    st.warning("🔒 当前股票数据未解锁")
-    if st.button(f"🔍 支付 1 积分并分析 {st.session_state.code}", type="primary", use_container_width=True):
+    st.warning("🔒 深度数据已锁定")
+    if st.button(f"🔍 消耗 1 算力解锁分析", type="primary", use_container_width=True):
         if consume_quota(user):
             st.session_state.paid_code = st.session_state.code
+            with st.spinner("AI 神经网络正在计算趋势..."):
+                time.sleep(1.5) # 假装思考，增加价值感
             st.rerun()
-        else:
-            st.error("❌ 积分不足！请联系管理员 ZCX001 充值。")
+        else: st.error("❌ 算力不足，请联系管理员充值")
     st.stop()
 
 with c2:
-    if st.button("🔄 刷新 (不扣分)"):
-        st.cache_data.clear()
-        st.rerun()
+    if st.button("🔄 实时刷新"): st.cache_data.clear(); st.rerun()
 
-with st.spinner("🚀 AI 正在深度分析..."):
+with st.spinner("正在从交易所获取实时数据..."):
     df = get_data(st.session_state.code, token, days, adjust) 
     funda = get_fundamentals(st.session_state.code, token)
 
 if df.empty:
-    st.warning("⚠️ 暂无数据，请检查代码或 Token")
+    st.error("⚠️ 数据获取失败，请检查代码或等待开盘")
 else:
     df = calc_full_indicators(df)
     df = detect_patterns(df)
@@ -475,28 +560,29 @@ else:
     else: st.error(f"### {trend_txt}")
     
     plot_df = df.tail(days).copy() 
-    
     latest = df.iloc[-1]
+    
+    # 仪表盘
     k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("价格", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
-    k2.metric("PE (市盈率)", funda['pe'])
-    k3.metric("RSI (强弱)", f"{latest['RSI']:.1f}")
-    k4.metric("ADX (力度)", f"{latest['ADX']:.1f}")
+    k1.metric("现价", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
+    k2.metric("PE (TTM)", funda['pe'])
+    k3.metric("RSI 强弱", f"{latest['RSI']:.1f}")
+    k4.metric("ADX 趋势", f"{latest['ADX']:.1f}")
     k5.metric("量比", f"{latest['VolRatio']:.2f}")
     
-    plot_full_chart(plot_df, f"{name} 深度技术分析", show_gann, show_fib, show_chanlun)
+    plot_full_chart(plot_df, f"{name} 机构级分析图表", show_gann, show_fib, show_chanlun)
     
     res = analyze_signals(df)
-    st.subheader(f"🤖 AI 决策建议: {res['action']} (评分: {res['score']})")
+    st.subheader(f"🤖 AlphaQuant 决策: {res['action']} (置信度: {res['score']})")
     
     s1, s2, s3 = st.columns(3)
-    if res['color'] == 'success': s1.success(f"建议仓位: 高 (50%~80%)")
-    elif res['color'] == 'warning': s1.warning(f"建议仓位: 中 (20%~50%)")
-    else: s1.error(f"建议仓位: 低/空仓 (0%~20%)")
+    if res['color'] == 'success': s1.success(f"建议仓位: 激进 (50%~80%)")
+    elif res['color'] == 'warning': s1.warning(f"建议仓位: 稳健 (20%~50%)")
+    else: s1.error(f"建议仓位: 防守 (0%~20%)")
     
-    s2.info(f"🛡️ 止损位: {res['sl']:.2f} (2ATR)")
-    s3.info(f"💰 止盈位: {res['tp']:.2f} (3ATR)")
-    st.caption(f"📍 关键点位监测 | 支撑: **{res['sup']:.2f}** | 压力: **{res['res']:.2f}**")
+    s2.info(f"🛡️ 智能止损: {res['sl']:.2f}")
+    s3.info(f"💰 目标止盈: {res['tp']:.2f}")
+    st.caption(f"📍 关键点位 | 支撑: **{res['sup']:.2f}** | 压力: **{res['res']:.2f}**")
     
-    with st.expander("🔍 点击查看详细评分逻辑", expanded=True):
+    with st.expander("🔍 查看 AI 详细逻辑报告", expanded=True):
         for r in res['reasons']: st.write(r)

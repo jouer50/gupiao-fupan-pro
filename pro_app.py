@@ -60,7 +60,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v17_6_fix.csv"
+DB_FILE = "users_v17_7_final.csv"
 
 # Optional deps
 try:
@@ -124,6 +124,7 @@ def register_user(u, p):
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
+    # 新用户默认0分
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
@@ -219,68 +220,38 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
-    
-    # ✅ 修复点：明确定义全名变量，防止 NameError
-    close = df['close']
-    high = df['high']
-    low = df['low']
-    volume = df['volume']
-    
-    for n in [5,10,20,60,120,250]: df[f'MA{n}'] = close.rolling(n).mean()
-    
-    mid = df['MA20']
-    std = close.rolling(20).std()
-    df['Upper'] = mid + 2*std
-    df['Lower'] = mid - 2*std
-    
-    exp1 = close.ewm(span=12, adjust=False).mean()
-    exp2 = close.ewm(span=26, adjust=False).mean()
-    df['DIF'] = exp1 - exp2
-    df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
-    df['HIST'] = 2 * (df['DIF'] - df['DEA'])
-    
-    delta = close.diff()
-    up = delta.clip(lower=0)
-    down = -1*delta.clip(upper=0)
-    rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
+    c = df['close']; h = df['high']; l = df['low']; v = df['volume']
+    for n in [5,10,20,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
+    mid = df['MA20']; std = c.rolling(20).std()
+    df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
+    e12 = c.ewm(span=12).mean(); e26 = c.ewm(span=26).mean()
+    df['DIF'] = e12 - e26; df['DEA'] = df['DIF'].ewm(span=9).mean(); df['HIST'] = 2*(df['DIF']-df['DEA'])
+    delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
+    rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
     df['RSI'] = 100 - (100/(1+rs))
-    
-    low9 = low.rolling(9).min()
-    high9 = high.rolling(9).max()
-    rsv = (close - low9) / (high9 - low9 + 1e-9) * 100
-    df['K'] = rsv.ewm(com=2).mean()
-    df['D'] = df['K'].ewm(com=2).mean()
-    df['J'] = 3 * df['K'] - 2 * df['D']
-    
-    tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
+    l9 = l.rolling(9).min(); h9 = h.rolling(9).max()
+    rsv = (c - l9)/(h9 - l9 + 1e-9)*100
+    df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3*df['K']-2*df['D']
+    tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
-    
-    dm_p = np.where((high.diff() > low.diff().abs()) & (high.diff()>0), high.diff(), 0)
-    dm_m = np.where((low.diff().abs() > high.diff()) & (low.diff()<0), low.diff().abs(), 0)
+    dp = np.where((h.diff()>l.diff().abs()) & (h.diff()>0), h.diff(), 0)
+    dm = np.where((l.diff().abs()>h.diff()) & (l.diff()<0), l.diff().abs(), 0)
     tr14 = tr.rolling(14).sum()
-    di_p = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
-    di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
-    df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
-    
-    # ✅ 修复点：Ichimoku 之前使用了 h/l 简写，现在统一用 high/low
-    p_high = high.rolling(9).max()
-    p_low = low.rolling(9).min()
+    dip = 100*pd.Series(dp).rolling(14).sum()/(tr14+1e-9)
+    dim = 100*pd.Series(dm).rolling(14).sum()/(tr14+1e-9)
+    df['ADX'] = (abs(dip-dim)/(dip+dim+1e-9)*100).rolling(14).mean()
+    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
-    
-    p_high26 = high.rolling(26).max()
-    p_low26 = low.rolling(26).min()
+    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
     df['Kijun'] = (p_high26 + p_low26) / 2
-    
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
-    df['SpanB'] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-    
-    df['VolRatio'] = volume / (volume.rolling(5).mean() + 1e-9)
-    
+    df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
+    df['VolRatio'] = v / (v.rolling(5).mean()+1e-9)
     return df.fillna(0)
 
 def detect_patterns(df):
-    df['Fractal_Top'] = (df['high'].shift(1)<df['high']) & (df['high'].shift(-1)<df['high'])
-    df['Fractal_Bot'] = (df['low'].shift(1)>df['low']) & (df['low'].shift(-1)>df['low'])
+    df['F_Top'] = (df['high'].shift(1)<df['high']) & (df['high'].shift(-1)<df['high'])
+    df['F_Bot'] = (df['low'].shift(1)>df['low']) & (df['low'].shift(-1)>df['low'])
     return df
 
 def get_drawing_lines(df):
@@ -419,10 +390,15 @@ if not st.session_state["logged_in"]:
                 else: st.error(msg)
     st.stop()
 
-# --- 主界面 ---
+# --- 主界面变量初始化 (核心修复点) ---
 user = st.session_state["user"]
 is_admin = (user == ADMIN_USER)
 
+# 在侧边栏之前，先定义好全局变量
+if "code" not in st.session_state: st.session_state.code = "600519"
+if "paid_code" not in st.session_state: st.session_state.paid_code = ""
+
+# --- 侧边栏 ---
 with st.sidebar:
     if is_admin:
         st.success("👑 管理员模式")
@@ -454,10 +430,8 @@ with st.sidebar:
     except: dt=""
     token = st.text_input("Token", value=dt, type="password")
     
-    if "code" not in st.session_state: st.session_state.code = "600519"
     new_c = st.text_input("代码", st.session_state.code)
     
-    if "paid_code" not in st.session_state: st.session_state.paid_code = ""
     if new_c != st.session_state.code:
         st.session_state.code = new_c
         st.session_state.paid_code = ""
@@ -467,12 +441,14 @@ with st.sidebar:
     adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
     
     st.divider()
-    gann = st.checkbox("江恩", True)
-    fib = st.checkbox("Fib", True)
-    chan = st.checkbox("缠论", True)
+    gann = st.checkbox("江恩", True); fib = st.checkbox("Fib", True); chan = st.checkbox("缠论", True)
     
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
+
+# --- 主界面渲染 ---
+# 确保 get_name 在 sidebar 外部调用
+name = get_name(st.session_state.code, token)
 
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
@@ -486,7 +462,8 @@ if st.session_state.code != st.session_state.paid_code:
         else: st.error("积分不足，请充值")
     st.stop()
 
-if st.button("刷新"): st.cache_data.clear(); st.rerun()
+with c2:
+    if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
 with st.spinner("AI 正在生成深度研报..."):
     df = get_data(st.session_state.code, token, days, adjust)

@@ -9,13 +9,13 @@ import string
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import traceback
+from datetime import datetime, timedelta
 
 # ✅ 0. 依赖库检查
 try:
     import yfinance as yf
 except ImportError:
     st.error("🚨 严重错误：缺少 `yfinance` 库")
-    st.info("请在 GitHub 仓库的 requirements.txt 文件中添加一行：yfinance")
     st.stop()
 
 # ==========================================
@@ -39,11 +39,8 @@ apple_css = """
     div[data-testid="metric-container"] {background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
     .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
-    .report-title {color: #0071e3; font-weight: bold; font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #f5f5f7; padding-bottom: 5px;}
-    .tech-term {font-weight: bold; color: #1d1d1f; background-color: #f5f5f7; padding: 2px 6px; border-radius: 4px;}
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
-    .position-box {padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 16px; margin-top: 5px;}
     .captcha-box {background-color: #e5e5ea; color: #1d1d1f; font-family: monospace; font-weight: bold; font-size: 24px; text-align: center; padding: 10px; border-radius: 8px; letter-spacing: 8px; text-decoration: line-through; user-select: none;}
 </style>
 """
@@ -52,7 +49,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v26_4.csv"
+DB_FILE = "users_v28.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -64,7 +61,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 核心工具函数 (含安全格式化)
+# 2. 核心工具函数
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -74,25 +71,19 @@ def init_db():
         df_keys = pd.DataFrame(columns=["key", "points", "status"])
         df_keys.to_csv(KEYS_FILE, index=False)
 
-# ✅ 核心修复：终极安全格式化
 def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
     try:
         if value is None: return default
-        # 处理 pandas Series/DataFrame 此时可能传进来的情况
         if isinstance(value, (pd.Series, pd.DataFrame)):
             if value.empty: return default
-            value = value.iloc[0] # 取第一个值
-            
-        # 字符串清洗
+            value = value.iloc[0]
         if isinstance(value, str):
             if value.strip() in ["", "N/A", "nan", "NaN"]: return default
             value = float(value.replace(',', ''))
-            
         f_val = float(value)
         if np.isnan(f_val) or np.isinf(f_val): return default
         return fmt.format(f_val) + suffix
-    except:
-        return default
+    except: return default
 
 def generate_captcha():
     code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
@@ -100,9 +91,7 @@ def generate_captcha():
     return code
 
 def verify_captcha(user_input):
-    if 'captcha_correct' not in st.session_state: 
-        generate_captcha()
-        return False
+    if 'captcha_correct' not in st.session_state: generate_captcha(); return False
     return user_input.strip().upper() == st.session_state['captcha_correct']
 
 def load_users():
@@ -182,7 +171,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 智能股票逻辑
+# 3. 股票与指标逻辑 (含模拟数据生成)
 # ==========================================
 def is_cn_stock(code):
     return code.isdigit() and len(code) == 6
@@ -195,16 +184,30 @@ def process_ticker(code):
     if code.isdigit() and len(code) < 6: return f"{code.zfill(4)}.HK"
     return code
 
+# 模拟数据生成 (演示模式)
+def generate_mock_data(days=365):
+    dates = pd.date_range(end=datetime.today(), periods=days)
+    close = [100]
+    for _ in range(days-1):
+        change = np.random.normal(0, 2)
+        close.append(close[-1] + change)
+    
+    df = pd.DataFrame({'date': dates, 'close': close})
+    df['open'] = df['close'] * np.random.uniform(0.98, 1.02, days)
+    df['high'] = df[['open', 'close']].max(axis=1) * np.random.uniform(1.0, 1.03, days)
+    df['low'] = df[['open', 'close']].min(axis=1) * np.random.uniform(0.97, 1.0, days)
+    df['volume'] = np.random.randint(10000, 1000000, days)
+    df['pct_change'] = df['close'].pct_change() * 100
+    return df
+
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     code = process_ticker(code)
     if not is_cn_stock(code):
         try:
-            if proxy: 
-                os.environ["HTTP_PROXY"] = proxy
-                os.environ["HTTPS_PROXY"] = proxy
+            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
             t = yf.Ticker(code)
-            return t.info.get('shortName') or t.info.get('longName') or code
+            return t.info.get('shortName') or code
         except: return code
     if token and ts:
         try:
@@ -213,13 +216,6 @@ def get_name(code, token, proxy=None):
             df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-    if bs:
-        try:
-            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(code))
-            if rs.error_code == '0':
-                row = rs.get_row_data(); name = row[1]; bs.logout(); return name
-            bs.logout()
-        except: pass
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
@@ -227,22 +223,16 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     fetch_days = 1500 
     raw_df = pd.DataFrame()
     
+    # 🌍 美股/港股
     if not is_cn_stock(code):
         try:
-            if proxy: 
-                os.environ["HTTP_PROXY"] = proxy
-                os.environ["HTTPS_PROXY"] = proxy
-            
+            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
-            
             if not yf_df.empty:
-                if isinstance(yf_df.columns, pd.MultiIndex):
-                    yf_df.columns = yf_df.columns.get_level_values(0)
-                
+                if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
                 yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
                 yf_df = yf_df.loc[:, ~yf_df.columns.duplicated()]
                 yf_df.reset_index(inplace=True)
-                
                 rename_map = {}
                 for c in yf_df.columns:
                     if 'date' in c: rename_map[c] = 'date'
@@ -251,19 +241,16 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                     elif 'high' in c: rename_map[c] = 'high'
                     elif 'low' in c: rename_map[c] = 'low'
                     elif 'volume' in c: rename_map[c] = 'volume'
-                
                 yf_df.rename(columns=rename_map, inplace=True)
-                
                 req_cols = ['date','open','high','low','close']
                 if all(c in yf_df.columns for c in req_cols):
                     if 'volume' not in yf_df.columns: yf_df['volume'] = 0
                     raw_df = yf_df[['date','open','high','low','close','volume']].copy()
-                    for c in ['open','high','low','close','volume']:
-                        raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
+                    for c in ['open','high','low','close','volume']: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
-        except Exception as e:
-            st.error(f"全球数据源错误: {e}")
+        except: pass
             
+    # 🇨🇳 A股
     else:
         if token and ts:
             try:
@@ -288,22 +275,23 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
             except: pass
             
         if raw_df.empty and bs:
-            bs.login()
-            e = pd.Timestamp.today().strftime('%Y-%m-%d')
-            s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y-%m-%d')
-            flag = "2" if adjust=='qfq' else "1" if adjust=='hfq' else "3"
-            rs = bs.query_history_k_data_plus(_to_bs_code(code), "date,open,high,low,close,volume,pctChg", start_date=s, end_date=e, frequency="d", adjustflag=flag)
-            data = rs.get_data(); bs.logout()
-            if not data.empty:
-                df = data.rename(columns={'pctChg':'pct_change'})
-                df['date'] = pd.to_datetime(df['date'])
-                for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
-                raw_df = df.sort_values('date').reset_index(drop=True)
+            try:
+                bs.login()
+                e = pd.Timestamp.today().strftime('%Y-%m-%d')
+                s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y-%m-%d')
+                flag = "2" if adjust=='qfq' else "1" if adjust=='hfq' else "3"
+                rs = bs.query_history_k_data_plus(_to_bs_code(code), "date,open,high,low,close,volume,pctChg", start_date=s, end_date=e, frequency="d", adjustflag=flag)
+                data = rs.get_data(); bs.logout()
+                if not data.empty:
+                    df = data.rename(columns={'pctChg':'pct_change'})
+                    df['date'] = pd.to_datetime(df['date'])
+                    for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
+                    raw_df = df.sort_values('date').reset_index(drop=True)
+            except: pass
 
     if raw_df.empty: return raw_df
 
     if timeframe == '日线': return raw_df
-    
     rule = 'W' if timeframe == '周线' else 'M'
     raw_df.set_index('date', inplace=True)
     agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
@@ -316,26 +304,20 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
 def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
     code = process_ticker(code)
-    
-    # ✅ 修复点：使用 safe_fmt 转换数据
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
             i = t.info
-            pe = i.get('trailingPE')
-            pb = i.get('priceToBook')
-            mk = i.get('marketCap')
-            
+            pe = i.get('trailingPE'); pb = i.get('priceToBook'); mk = i.get('marketCap')
             res['pe'] = safe_fmt(pe)
             res['pb'] = safe_fmt(pb)
             res['mv'] = f"{mk/100000000:.2f}亿" if mk else "-"
         except: pass
         return res
 
-    if token:
+    if token and ts:
         try:
-            ts.set_token(token)
-            pro = ts.pro_api()
+            pro = ts.pro_api(token)
             df = pro.daily_basic(ts_code=_to_ts_code(code), fields='pe_ttm,pb,total_mv')
             if not df.empty:
                 r = df.iloc[-1]
@@ -349,10 +331,6 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
-    # 强转数值
-    for col in ['close','high','low','volume']:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-        
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
@@ -529,7 +507,7 @@ def plot_chart(df, name, flags):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 路由逻辑
+# 4. 执行入口 (Logic)
 # ==========================================
 init_db()
 
@@ -683,62 +661,74 @@ try:
         df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
         funda = get_fundamentals(st.session_state.code, token)
 
+    # 🚨 模拟数据兜底：如果真实数据为空，生成模拟数据 (Demo Mode)
+    is_demo = False
     if df is None or df.empty:
-        st.warning("⚠️ 暂无数据。可能原因：\n1. 代码错误 (A股6位数字, 美股字母)\n2. 网络连接失败 (请在左侧填代理)\n3. 刚开盘无数据")
-    else:
-        df = calc_full_indicators(df)
-        df = detect_patterns(df)
+        st.warning(f"⚠️ 无法获取 {st.session_state.code} 的真实数据 (网络或代码错误)。")
+        st.info("💡 已自动切换至【演示模式】，展示模拟数据供您体验功能。")
+        df = generate_mock_data(days=365)
+        is_demo = True
+
+    df = calc_full_indicators(df)
+    df = detect_patterns(df)
+    
+    trend_txt, trend_col = main_uptrend_check(df)
+    bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
+    tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
+    st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
+    
+    l = df.iloc[-1]
+    k1,k2,k3,k4,k5 = st.columns(5)
+    # ✅ 修复：使用 safe_fmt
+    k1.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
+    k2.metric("PE", funda['pe'])
+    k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
+    k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
+    k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
+    
+    plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
+    
+    report_html = generate_deep_report(df, name)
+    st.markdown(report_html, unsafe_allow_html=True)
+    
+    score, act, col, sl, tp, pos = analyze_score(df)
+    st.subheader(f"🤖 最终建议: {act} (评分 {score})")
+    
+    s1,s2,s3 = st.columns(3)
+    if col == 'success': s1.success(f"仓位: {pos}")
+    elif col == 'warning': s1.warning(f"仓位: {pos}")
+    else: s1.error(f"仓位: {pos}")
+    
+    s2.info(f"🛡️ 止损: {sl:.2f}"); s3.info(f"💰 止盈: {tp:.2f}")
+    st.caption(f"📍 支撑: **{l['low']:.2f}** | 压力: **{l['high']:.2f}**")
+    
+    st.divider()
+    with st.expander("📚 新手必读：如何看懂回测报告？"):
+        st.markdown("""
+        **1. 什么是历史回测？**
+        AI 模拟在过去一段时间，如果完全按照本系统的策略买卖，您的账户表现会如何。
         
-        trend_txt, trend_col = main_uptrend_check(df)
-        bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
-        tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
-        st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
+        **2. 核心指标解读：**
+        * **💰 总收益率**：策略在这段时间内赚了多少钱。正数越大约好。
+        * **🏆 胜率**：交易获胜的次数占比。一般 >50% 说明策略有效，>70% 为极品策略。
+        * **📉 交易次数**：策略是否活跃。次数过少（如<5次）可能具有偶然性，仅供参考。
         
-        l = df.iloc[-1]
-        k1,k2,k3,k4,k5 = st.columns(5)
-        # ✅ 修复：使用 safe_fmt
-        k1.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
-        k2.metric("PE", funda['pe'])
-        k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
-        k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
-        k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
+        **3. 价值所在：**
+        拒绝“凭感觉”炒股，用真实历史数据验证策略的有效性，让你买入更安心！
+        """)
         
-        plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
-        
-        report_html = generate_deep_report(df, name)
-        st.markdown(report_html, unsafe_allow_html=True)
-        
-        score, act, col, sl, tp, pos = analyze_score(df)
-        st.subheader(f"🤖 最终建议: {act} (评分 {score})")
-        
-        s1,s2,s3 = st.columns(3)
-        if col == 'success': s1.success(f"仓位: {pos}")
-        elif col == 'warning': s1.warning(f"仓位: {pos}")
-        else: s1.error(f"仓位: {pos}")
-        
-        s2.info(f"🛡️ 止损: {sl:.2f}"); s3.info(f"💰 止盈: {tp:.2f}")
-        st.caption(f"📍 支撑: **{l['low']:.2f}** | 压力: **{l['high']:.2f}**")
-        
-        st.divider()
-        with st.expander("📚 新手必读：如何看懂回测报告？"):
-            st.markdown("""
-            **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。
-            **2. 总收益率**：策略跑出来的净利润率。
-            **3. 胜率**：赚钱次数占比。>50% 为有效。
-            """)
-            
-        st.subheader("⚖️ 历史回测报告 (Trend Following)")
-        ret, win, buys, sells, equity = run_backtest(df)
-        
-        b1, b2, b3 = st.columns(3)
-        b1.metric("总收益率", f"{ret:.2f}%", delta_color="normal" if ret>0 else "inverse")
-        b2.metric("胜率", f"{win:.1f}%")
-        b3.metric("交易次数", f"{len(buys)} 次")
-        
-        fig_bt = go.Figure()
-        fig_bt.add_trace(go.Scatter(y=equity, mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2)))
-        fig_bt.update_layout(height=300, margin=dict(t=10,b=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'))
-        st.plotly_chart(fig_bt, use_container_width=True)
+    st.subheader("⚖️ 历史回测报告 (Trend Following)")
+    ret, win, buys, sells, equity = run_backtest(df)
+    
+    b1, b2, b3 = st.columns(3)
+    b1.metric("总收益率", f"{ret:.2f}%", delta_color="normal" if ret>0 else "inverse")
+    b2.metric("胜率", f"{win:.1f}%")
+    b3.metric("交易次数", f"{len(buys)} 次")
+    
+    fig_bt = go.Figure()
+    fig_bt.add_trace(go.Scatter(y=equity, mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2)))
+    fig_bt.update_layout(height=300, margin=dict(t=10,b=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'))
+    st.plotly_chart(fig_bt, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ 系统发生错误: {e}")

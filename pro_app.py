@@ -60,7 +60,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v20_1_ui.csv"
+DB_FILE = "users_v20_2_fix.csv"
 
 # Optional deps
 try:
@@ -221,62 +221,36 @@ def calc_full_indicators(df):
     if df.empty: return df
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
-    # 均线
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
-    
-    # BOLL
-    mid = df['MA20']
-    std = c.rolling(20).std()
-    df['Upper'] = mid + 2*std
-    df['Lower'] = mid - 2*std
-    
-    # MACD
-    ema12 = c.ewm(span=12, adjust=False).mean()
-    ema26 = c.ewm(span=26, adjust=False).mean()
-    df['DIF'] = ema12 - ema26
+    mid = df['MA20']; std = c.rolling(20).std()
+    df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
+    exp1 = c.ewm(span=12, adjust=False).mean()
+    exp2 = c.ewm(span=26, adjust=False).mean()
+    df['DIF'] = exp1 - exp2
     df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
     df['HIST'] = 2 * (df['DIF'] - df['DEA'])
-    
-    # RSI
-    delta = c.diff()
-    up = delta.clip(lower=0)
-    down = -1*delta.clip(upper=0)
-    rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
+    delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
+    rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
     df['RSI'] = 100 - (100/(1+rs))
-    
-    # KDJ
-    low9 = l.rolling(9).min()
-    high9 = h.rolling(9).max()
-    rsv = (c - low9) / (high9 - low9 + 1e-9) * 100
-    df['K'] = rsv.ewm(com=2).mean()
-    df['D'] = df['K'].ewm(com=2).mean()
-    df['J'] = 3 * df['K'] - 2 * df['D']
-    
-    # ATR & ADX
+    low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
+    rsv = (c - low9)/(high9 - low9 + 1e-9) * 100
+    df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3 * df['K'] - 2 * df['D']
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
-    
     dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
     dm_m = np.where((l.diff().abs() > h.diff()) & (l.diff()<0), l.diff().abs(), 0)
     tr14 = tr.rolling(14).sum()
     di_plus = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
     di_minus = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
     df['ADX'] = (abs(di_plus - di_minus)/(di_plus + di_minus + 1e-9) * 100).rolling(14).mean()
-    
-    # Ichimoku
-    p_high = h.rolling(9).max()
-    p_low = l.rolling(9).min()
+    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
-    p_high26 = h.rolling(26).max()
-    p_low26 = l.rolling(26).min()
+    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
     df['Kijun'] = (p_high26 + p_low26) / 2
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
     df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
-    
     df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
-    
     df[['K','D','J','DIF','DEA','HIST','RSI','ADX']] = df[['K','D','J','DIF','DEA','HIST','RSI','ADX']].fillna(50)
-    
     return df
 
 def detect_patterns(df):
@@ -361,30 +335,27 @@ def main_uptrend_check(df):
     if is_cloud: return "📈 震荡上行", "warning"
     return "📉 主跌浪 (回避)", "error"
 
-# ✅ 核心修复：添加技术指标开关参数
 def plot_chart(df, name, flags):
-    # flags 是一个字典，包含所有开关状态
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
     
-    # 1. K线 (始终显示)
+    # 1. K线
     fig.add_trace(go.Candlestick(
         x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], 
         name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'
     ), 1, 1)
     
-    # 2. 均线 (MA Switch)
+    # 2. 均线 (Switch)
     if flags.get('ma'):
         ma_colors = {'MA5':'#333333', 'MA10':'#ffcc00', 'MA20':'#cc33ff', 'MA30':'#2196f3', 'MA60':'#4caf50'}
         for ma_name, ma_color in ma_colors.items():
             if ma_name in df.columns:
                 fig.add_trace(go.Scatter(x=df['date'], y=df[ma_name], name=ma_name, line=dict(width=1.2, color=ma_color)), 1, 1)
-            
-    # 3. BOLL (BOLL Switch)
+    
+    # 3. BOLL (Switch)
     if flags.get('boll'):
         fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=1, dash='dash', color='rgba(33, 150, 243, 0.3)'), name='布林上轨'), 1, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], line=dict(width=1, dash='dash', color='rgba(33, 150, 243, 0.3)'), name='布林下轨', fill='tonexty', fillcolor='rgba(33, 150, 243, 0.05)'), 1, 1)
     
-    # 画线工具
     ga, fi = get_drawing_lines(df)
     if flags.get('gann'):
         for k,v in ga.items(): 
@@ -393,23 +364,24 @@ def plot_chart(df, name, flags):
         for k,v in fi.items(): fig.add_hline(y=v, line_dash='dash', line_color='#ff9800', row=1, col=1, annotation_text=f"Fib {k}")
     if flags.get('chan'):
         tops=df[df['F_Top']]; bots=df[df['F_Bot']]
-        fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='顶分型'), 1, 1)
-        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='底分型'), 1, 1)
+        fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='缠论顶分型'), 1, 1)
+        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='缠论底分型'), 1, 1)
 
-    # 副图指标
+    # ✅ 修复点：确保颜色变量在判断之前定义
+    colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
+
     if flags.get('vol'):
-        colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
         fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='成交量'), 2, 1)
     
     if flags.get('macd'):
         fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors, name='MACD柱'), 3, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='#0071e3', width=1), name='DIF'), 3, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='#ff9800', width=1), name='DEA'), 3, 1)
+        fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='#0071e3', width=1), name='DIF快线'), 3, 1)
+        fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='#ff9800', width=1), name='DEA慢线'), 3, 1)
     
     if flags.get('kdj'):
-        fig.add_trace(go.Scatter(x=df['date'], y=df['K'], line=dict(color='#0071e3', width=1), name='K'), 4, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D'), 4, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#af52de', width=1), name='J'), 4, 1)
+        fig.add_trace(go.Scatter(x=df['date'], y=df['K'], line=dict(color='#0071e3', width=1), name='K线'), 4, 1)
+        fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D线'), 4, 1)
+        fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#af52de', width=1), name='J线'), 4, 1)
     
     fig.update_layout(height=900, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', 
                       font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), 
@@ -494,14 +466,14 @@ with st.sidebar:
     
     st.divider()
     st.markdown("### 🛠️ 指标开关")
-    # 收集开关状态
+    # ✅ 修复：江恩线默认关闭 (False)
     flags = {
         'ma': st.checkbox("MA 均线", True),
         'boll': st.checkbox("BOLL 布林带", True),
         'vol': st.checkbox("成交量", True),
         'macd': st.checkbox("MACD", True),
         'kdj': st.checkbox("KDJ", True),
-        'gann': st.checkbox("江恩线", True),
+        'gann': st.checkbox("江恩线", False), # Default OFF
         'fib': st.checkbox("斐波那契", True),
         'chan': st.checkbox("缠论分型", True)
     }
@@ -549,7 +521,6 @@ else:
     k4.metric("ADX", f"{l['ADX']:.1f}")
     k5.metric("量比", f"{l['VolRatio']:.2f}")
     
-    # ✅ 修复：传递 flags 字典到绘图函数
     plot_chart(df.tail(days), f"{name} 分析图", flags)
     
     report_html = generate_deep_report(df, name)

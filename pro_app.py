@@ -8,6 +8,7 @@ import random
 import string
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import traceback
 
 # ✅ 0. 依赖库检查
 try:
@@ -51,7 +52,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v26_3.csv"
+DB_FILE = "users_v26_4.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -63,7 +64,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 核心工具函数
+# 2. 核心工具函数 (含安全格式化)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -73,13 +74,25 @@ def init_db():
         df_keys = pd.DataFrame(columns=["key", "points", "status"])
         df_keys.to_csv(KEYS_FILE, index=False)
 
-def safe_fmt(value, fmt="{:.2f}", default="-"):
+# ✅ 核心修复：终极安全格式化
+def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
     try:
-        if value is None or value == "" or value == "N/A": return default
+        if value is None: return default
+        # 处理 pandas Series/DataFrame 此时可能传进来的情况
+        if isinstance(value, (pd.Series, pd.DataFrame)):
+            if value.empty: return default
+            value = value.iloc[0] # 取第一个值
+            
+        # 字符串清洗
+        if isinstance(value, str):
+            if value.strip() in ["", "N/A", "nan", "NaN"]: return default
+            value = float(value.replace(',', ''))
+            
         f_val = float(value)
-        if np.isnan(f_val): return default
-        return fmt.format(f_val)
-    except: return default
+        if np.isnan(f_val) or np.isinf(f_val): return default
+        return fmt.format(f_val) + suffix
+    except:
+        return default
 
 def generate_captcha():
     code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
@@ -87,7 +100,9 @@ def generate_captcha():
     return code
 
 def verify_captcha(user_input):
-    if 'captcha_correct' not in st.session_state: generate_captcha(); return False
+    if 'captcha_correct' not in st.session_state: 
+        generate_captcha()
+        return False
     return user_input.strip().upper() == st.session_state['captcha_correct']
 
 def load_users():
@@ -167,7 +182,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 股票与指标逻辑
+# 3. 智能股票逻辑
 # ==========================================
 def is_cn_stock(code):
     return code.isdigit() and len(code) == 6
@@ -302,6 +317,7 @@ def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
     code = process_ticker(code)
     
+    # ✅ 修复点：使用 safe_fmt 转换数据
     if not is_cn_stock(code):
         try:
             t = yf.Ticker(code)
@@ -333,16 +349,12 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
+    # 强转数值
+    for col in ['close','high','low','volume']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+    c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
-    # 🚨 核心防御：强制提取 Series
-    try:
-        c = df['close'].squeeze() if isinstance(df['close'], pd.DataFrame) else df['close']
-        h = df['high'].squeeze() if isinstance(df['high'], pd.DataFrame) else df['high']
-        l = df['low'].squeeze() if isinstance(df['low'], pd.DataFrame) else df['low']
-        v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
-    except:
-        c = df['close']; h = df['high']; l = df['low']; v = df['volume']
-
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     mid = df['MA20']; std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
@@ -665,63 +677,69 @@ if st.session_state.code != st.session_state.paid_code:
 with c2:
     if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
-with st.spinner("AI 正在生成深度研报..."):
-    df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
-    funda = get_fundamentals(st.session_state.code, token)
+# ✅ 核心逻辑 (异常捕获)
+try:
+    with st.spinner("AI 正在生成深度研报..."):
+        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
+        funda = get_fundamentals(st.session_state.code, token)
 
-if df is None or df.empty:
-    st.warning("⚠️ 暂无数据。可能原因：\n1. 代码错误 (A股6位数字, 美股字母)\n2. 网络连接失败 (请在左侧填代理)\n3. 刚开盘无数据")
-else:
-    df = calc_full_indicators(df)
-    df = detect_patterns(df)
-    
-    trend_txt, trend_col = main_uptrend_check(df)
-    bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
-    tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
-    st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
-    
-    l = df.iloc[-1]
-    k1,k2,k3,k4,k5 = st.columns(5)
-    k1.metric("价格", f"{l['close']:.2f}", f"{l['pct_change']:.2f}%")
-    k2.metric("PE", funda['pe'])
-    # ✅ 修复：使用 safe_fmt
-    k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
-    k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
-    k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
-    
-    plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
-    
-    report_html = generate_deep_report(df, name)
-    st.markdown(report_html, unsafe_allow_html=True)
-    
-    score, act, col, sl, tp, pos = analyze_score(df)
-    st.subheader(f"🤖 最终建议: {act} (评分 {score})")
-    
-    s1,s2,s3 = st.columns(3)
-    if col == 'success': s1.success(f"仓位: {pos}")
-    elif col == 'warning': s1.warning(f"仓位: {pos}")
-    else: s1.error(f"仓位: {pos}")
-    
-    s2.info(f"🛡️ 止损: {sl:.2f}"); s3.info(f"💰 止盈: {tp:.2f}")
-    st.caption(f"📍 支撑: **{l['low']:.2f}** | 压力: **{l['high']:.2f}**")
-    
-    st.divider()
-    with st.expander("📚 新手必读：如何看懂回测报告？"):
-        st.markdown("""
-        **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。
-        **2. 总收益率**：策略跑出来的净利润率。
-        **3. 胜率**：赚钱次数占比。>50% 为有效。
-        """)
+    if df is None or df.empty:
+        st.warning("⚠️ 暂无数据。可能原因：\n1. 代码错误 (A股6位数字, 美股字母)\n2. 网络连接失败 (请在左侧填代理)\n3. 刚开盘无数据")
+    else:
+        df = calc_full_indicators(df)
+        df = detect_patterns(df)
         
-    st.subheader("⚖️ 历史回测报告 (Trend Following)")
-    ret, win, buys, sells, equity = run_backtest(df)
-    
-    b1, b2, b3 = st.columns(3)
-    b1.metric("总收益率", f"{ret:.2f}%", delta_color="normal" if ret>0 else "inverse")
-    b2.metric("胜率", f"{win:.1f}%")
-    b3.metric("交易次数", f"{len(buys)} 次")
-    
-    fig_bt = go.Figure()
-    fig_bt.add_trace(go.Scatter(y=equity, mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2)))
-    fig_bt.update_layout(height=300, margin=dict(t=10,b=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'))
-    st.plotly_chart(fig_bt, use_container_width=True)
+        trend_txt, trend_col = main_uptrend_check(df)
+        bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
+        tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
+        st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
+        
+        l = df.iloc[-1]
+        k1,k2,k3,k4,k5 = st.columns(5)
+        # ✅ 修复：使用 safe_fmt
+        k1.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
+        k2.metric("PE", funda['pe'])
+        k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
+        k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
+        k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
+        
+        plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
+        
+        report_html = generate_deep_report(df, name)
+        st.markdown(report_html, unsafe_allow_html=True)
+        
+        score, act, col, sl, tp, pos = analyze_score(df)
+        st.subheader(f"🤖 最终建议: {act} (评分 {score})")
+        
+        s1,s2,s3 = st.columns(3)
+        if col == 'success': s1.success(f"仓位: {pos}")
+        elif col == 'warning': s1.warning(f"仓位: {pos}")
+        else: s1.error(f"仓位: {pos}")
+        
+        s2.info(f"🛡️ 止损: {sl:.2f}"); s3.info(f"💰 止盈: {tp:.2f}")
+        st.caption(f"📍 支撑: **{l['low']:.2f}** | 压力: **{l['high']:.2f}**")
+        
+        st.divider()
+        with st.expander("📚 新手必读：如何看懂回测报告？"):
+            st.markdown("""
+            **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。
+            **2. 总收益率**：策略跑出来的净利润率。
+            **3. 胜率**：赚钱次数占比。>50% 为有效。
+            """)
+            
+        st.subheader("⚖️ 历史回测报告 (Trend Following)")
+        ret, win, buys, sells, equity = run_backtest(df)
+        
+        b1, b2, b3 = st.columns(3)
+        b1.metric("总收益率", f"{ret:.2f}%", delta_color="normal" if ret>0 else "inverse")
+        b2.metric("胜率", f"{win:.1f}%")
+        b3.metric("交易次数", f"{len(buys)} 次")
+        
+        fig_bt = go.Figure()
+        fig_bt.add_trace(go.Scatter(y=equity, mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2)))
+        fig_bt.update_layout(height=300, margin=dict(t=10,b=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'))
+        st.plotly_chart(fig_bt, use_container_width=True)
+
+except Exception as e:
+    st.error(f"❌ 系统发生错误: {e}")
+    # st.code(traceback.format_exc()) # 调试用

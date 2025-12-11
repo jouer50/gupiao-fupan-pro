@@ -40,9 +40,8 @@ apple_css = """
     }
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
     
-    /* 深度研报样式 */
     .report-box {
-        background-color: #ffffff; border-radius: 12px; padding: 20px; margin-top: 15px;
+        background-color: #ffffff; border-radius: 12px; padding: 20px;
         border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     }
     .report-title {color: #0071e3; font-weight: bold; font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #f5f5f7; padding-bottom: 5px;}
@@ -56,6 +55,21 @@ apple_css = """
     .position-box {
         padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 16px; margin-top: 5px;
     }
+    
+    /* 验证码样式 */
+    .captcha-box {
+        background-color: #e5e5ea; 
+        color: #1d1d1f;
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        font-size: 24px;
+        text-align: center;
+        padding: 10px;
+        border-radius: 8px;
+        letter-spacing: 8px;
+        text-decoration: line-through; /* 简单的干扰线效果 */
+        user-select: none;
+    }
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -63,7 +77,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v23_final.csv"
+DB_FILE = "users_v24_secure.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -75,7 +89,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 数据库逻辑 (含卡密)
+# 2. 数据库与验证码逻辑
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -99,6 +113,20 @@ def load_keys():
 
 def save_keys(df): df.to_csv(KEYS_FILE, index=False)
 
+# --- 验证码生成器 ---
+def generate_captcha():
+    # 生成4位随机大写字母+数字
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    st.session_state['captcha_correct'] = code
+    return code
+
+def verify_captcha(user_input):
+    if 'captcha_correct' not in st.session_state:
+        generate_captcha()
+        return False
+    return user_input.strip().upper() == st.session_state['captcha_correct']
+
+# --- 卡密系统 ---
 def generate_key(points):
     key = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
     df = load_keys()
@@ -164,7 +192,7 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 股票与指标逻辑 (含多周期 & 回测)
+# 3. 股票与指标逻辑
 # ==========================================
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
 def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
@@ -189,7 +217,6 @@ def get_name(code, token):
 def get_data_and_resample(code, token, timeframe, adjust):
     fetch_days = 800 
     raw_df = pd.DataFrame()
-    
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -211,7 +238,6 @@ def get_data_and_resample(code, token, timeframe, adjust):
                 for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
                 raw_df = df.sort_values('date').reset_index(drop=True)
         except: pass
-        
     if raw_df.empty and bs:
         bs.login()
         e = pd.Timestamp.today().strftime('%Y-%m-%d')
@@ -224,18 +250,14 @@ def get_data_and_resample(code, token, timeframe, adjust):
             df['date'] = pd.to_datetime(df['date'])
             for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
             raw_df = df.sort_values('date').reset_index(drop=True)
-            
     if raw_df.empty: return raw_df
-
     if timeframe == '日线': return raw_df
-    
     rule = 'W' if timeframe == '周线' else 'M'
     raw_df.set_index('date', inplace=True)
     agg_dict = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
     resampled = raw_df.resample(rule).agg(agg_dict).dropna()
     resampled['pct_change'] = resampled['close'].pct_change() * 100
     resampled.reset_index(inplace=True)
-    
     return resampled
 
 @st.cache_data(ttl=3600)
@@ -256,7 +278,6 @@ def get_fundamentals(code, token):
 def calc_full_indicators(df):
     if df.empty: return df
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
-    
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     mid = df['MA20']; std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
@@ -320,11 +341,8 @@ def run_backtest(df):
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
     return ret, win_rate, buy_signals, sell_signals, equity
 
-# ✅ 满血复活：深度研报生成器
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
-    
-    # 1. 缠论
     chan_trend = "底分型构造中" if curr['F_Bot'] else "顶分型构造中" if curr['F_Top'] else "中继形态"
     chan_logic = f"""
     <div class="report-box">
@@ -334,14 +352,11 @@ def generate_deep_report(df, name):
         <br>• <b>笔的延伸</b>：当前价格处于一笔走势的{ "延续阶段" if not (curr['F_Top'] or curr['F_Bot']) else "转折关口" }。
     </div>
     """
-    
-    # 2. 江恩
     gann, fib = get_drawing_lines(df)
     try:
         fib_near = min(fib.items(), key=lambda x: abs(x[1]-curr['close']))
         fib_txt = f"股价正逼近斐波那契 <b>{fib_near[0]}</b> 关键位 ({fib_near[1]:.2f})。"
     except: fib_txt = "数据不足，无法计算位置。"
-    
     gann_logic = f"""
     <div class="report-box" style="margin-top:10px;">
         <div class="report-title">🌌 江恩与斐波那契时空矩阵</div>
@@ -349,8 +364,6 @@ def generate_deep_report(df, name):
         <br>• <b>斐波那契回撤</b>：{fib_txt}
     </div>
     """
-    
-    # 3. 动能指标
     macd_state = "金叉共振" if curr['DIF']>curr['DEA'] else "死叉调整"
     vol_state = "放量" if curr['VolRatio']>1.2 else "缩量" if curr['VolRatio']<0.8 else "温和"
     ind_logic = f"""
@@ -446,8 +459,19 @@ if not st.session_state["logged_in"]:
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
+            # 验证码 UI
+            if 'captcha_correct' not in st.session_state: generate_captcha()
+            c_code, c_show = st.columns([2,1])
+            with c_code: cap_in = st.text_input("验证码", placeholder="不区分大小写")
+            with c_show:
+                st.markdown(f"<div class='captcha-box'>{st.session_state['captcha_correct']}</div>", unsafe_allow_html=True)
+                if st.button("🔄"): generate_captcha(); st.rerun()
+            
             if st.button("登录系统"):
-                if verify_login(u.strip(), p):
+                if not verify_captcha(cap_in):
+                    st.error("验证码错误")
+                    generate_captcha()
+                elif verify_login(u.strip(), p):
                     st.session_state["logged_in"] = True
                     st.session_state["user"] = u.strip()
                     st.session_state["paid_code"] = ""
@@ -456,10 +480,26 @@ if not st.session_state["logged_in"]:
         with tab2:
             nu = st.text_input("新用户")
             np1 = st.text_input("设置密码", type="password")
+            
+            # 注册验证码
+            if 'reg_captcha_correct' not in st.session_state: 
+                st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+            
+            rc_code, rc_show = st.columns([2,1])
+            with rc_code: rcap_in = st.text_input("注册验证码")
+            with rc_show:
+                st.markdown(f"<div class='captcha-box'>{st.session_state['reg_captcha_correct']}</div>", unsafe_allow_html=True)
+                if st.button("🔄", key="reg_ref"): 
+                    st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+                    st.rerun()
+
             if st.button("立即注册"):
-                suc, msg = register_user(nu.strip(), np1)
-                if suc: st.success(msg)
-                else: st.error(msg)
+                if rcap_in.upper() != st.session_state['reg_captcha_correct']:
+                    st.error("验证码错误")
+                else:
+                    suc, msg = register_user(nu.strip(), np1)
+                    if suc: st.success(msg)
+                    else: st.error(msg)
     st.stop()
 
 # --- 主界面 ---
@@ -598,19 +638,15 @@ else:
     
     st.divider()
     
-    # ✅ 核心升级：新手说明书 (Expandable)
     with st.expander("📚 新手必读：如何看懂回测报告？"):
         st.markdown("""
         **1. 什么是历史回测？**
-        就像“时光机”。AI 模拟如果你在一年前就开始用这个策略炒股，到现在能赚多少钱。
+        AI 模拟在过去一段时间，如果完全按照本系统的策略买卖，您的账户表现会如何。
         
         **2. 核心指标解读：**
-        * **💰 总收益率**：资产增值了多少。如果显示 **+50%**，说明10万本金变成了15万。
-        * **🏆 胜率**：赢的次数占比。**>50%** 说明策略有效，**>70%** 是极品策略。
-        * **📉 交易次数**：策略的活跃度。次数太少可能只是运气好，次数多且胜率高才可靠。
-        
-        **3. 价值所在：**
-        拒绝“凭感觉”炒股，用真实历史数据验证策略的有效性，让你买入更安心！
+        * **💰 总收益率**：策略在这段时间内赚了多少钱。正数越大约好。
+        * **🏆 胜率**：交易获胜的次数占比。一般 >50% 说明策略有效，>70% 为极品策略。
+        * **📉 交易次数**：策略是否活跃。次数过少（如<5次）可能具有偶然性，仅供参考。
         """)
         
     st.subheader("⚖️ 历史回测报告 (Trend Following)")

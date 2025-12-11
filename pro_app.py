@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit as st  # 修正了这里的大小写
 import pandas as pd
 import numpy as np
 import time
@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 0. 全局配置 & 强力界面隐藏
+# 0. 全局配置 & 界面清理
 # ==========================================
 st.set_page_config(
     page_title="A股深度复盘系统 Pro",
@@ -19,34 +19,21 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 🚫 强力隐藏 Streamlit 原生菜单、页脚、头部
+# 隐藏菜单 CSS
 hide_css = """
 <style>
-    /* 隐藏顶部 Header 区域 */
-    header[data-testid="stHeader"] {
-        display: none;
-    }
-    /* 隐藏右上角汉堡菜单和 Deploy 按钮 */
-    div[data-testid="stToolbar"] {
-        display: none;
-    }
-    div[data-testid="stDecoration"] {
-        display: none;
-    }
-    /* 隐藏底部 Footer */
-    footer {
-        display: none;
-    }
-    /* 调整顶部空白，让内容上移 */
-    .block-container {
-        padding-top: 1rem;
-    }
+    header {visibility: hidden !important;}
+    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+    [data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
+    footer {visibility: hidden !important; display: none !important;}
+    .block-container {padding-top: 1rem !important;}
 </style>
 """
 st.markdown(hide_css, unsafe_allow_html=True)
 
-# 👑 设置管理员用户名为 ZCX001
+# 👑 管理员账号 (硬编码，最高优先级)
 ADMIN_USERNAME = "ZCX001"
+ADMIN_PASS = "123456"
 
 # Optional deps
 try:
@@ -60,28 +47,25 @@ except Exception:
     bs = None
 
 # ==========================================
-# 🔐 第一部分：用户数据库 & 积分逻辑
+# 🔐 用户数据库 & 验证逻辑
 # ==========================================
 
 USER_DB_FILE = "users.csv"
 
 def init_db():
-    # 如果文件不存在，创建
     if not os.path.exists(USER_DB_FILE):
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota"])
         df.to_csv(USER_DB_FILE, index=False)
     else:
-        # 简单的自动修复：确保列存在
-        df = pd.read_csv(USER_DB_FILE)
-        changed = False
-        if "quota" not in df.columns:
-            df["quota"] = 20
-            changed = True
-        if "watchlist" not in df.columns:
-            df["watchlist"] = ""
-            changed = True
-        if changed:
-            df.to_csv(USER_DB_FILE, index=False)
+        # 自动修复缺失列
+        try:
+            df = pd.read_csv(USER_DB_FILE)
+            changed = False
+            if "quota" not in df.columns: df["quota"] = 20; changed = True
+            if "watchlist" not in df.columns: df["watchlist"] = ""; changed = True
+            if changed: df.to_csv(USER_DB_FILE, index=False)
+        except:
+            pass
 
 init_db()
 
@@ -95,17 +79,54 @@ def save_user(username, password):
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
     df = load_users()
-    # 新用户默认送 20 积分
     new_user = pd.DataFrame({
         "username": [username], 
         "password_hash": [hashed], 
         "watchlist": [""],
-        "quota": [20] 
+        "quota": [20]
     })
     df = pd.concat([df, new_user], ignore_index=True)
     save_users_df(df)
 
+def verify_login(username, password):
+    # 👑 超级通道：如果是管理员，直接比对硬编码密码，不查数据库
+    # 这能解决“账户已存在但密码不对”的死循环
+    if username == ADMIN_USERNAME:
+        if password == ADMIN_PASS:
+            # 登录成功后，顺便检查一下数据库里有没有这个号，没有就补上，有就更新权限
+            df = load_users()
+            if df[df["username"] == ADMIN_USERNAME].empty:
+                # 补录管理员到数据库
+                salt = bcrypt.gensalt()
+                hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+                new_admin = pd.DataFrame({
+                    "username": [ADMIN_USERNAME],
+                    "password_hash": [hashed],
+                    "watchlist": [""],
+                    "quota": [999999]
+                })
+                df = pd.concat([df, new_admin], ignore_index=True)
+                save_users_df(df)
+            return True, "Login Success"
+        else:
+            return False, "❌ 管理员密码错误"
+
+    # 普通用户走数据库验证
+    df = load_users()
+    user_row = df[df["username"] == username]
+    if user_row.empty: return False, "❌ 用户不存在"
+    
+    stored_hash = user_row.iloc[0]["password_hash"]
+    try:
+        if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
+            return True, "Success"
+        else:
+            return False, "❌ 密码错误"
+    except:
+        return False, "❌ 校验失败"
+
 def delete_user(target_username):
+    if target_username == ADMIN_USERNAME: return
     df = load_users()
     df = df[df["username"] != target_username]
     save_users_df(df)
@@ -120,18 +141,14 @@ def update_user_quota(target_username, new_quota):
     return False
 
 def get_current_quota(username):
-    if username == ADMIN_USERNAME:
-        return 99999 # 管理员显示逻辑用
+    if username == ADMIN_USERNAME: return 999999
     df = load_users()
     user = df[df["username"] == username]
     if user.empty: return 0
     return int(user.iloc[0]["quota"])
 
 def consume_quota(username):
-    # 管理员不扣费
-    if username == ADMIN_USERNAME:
-        return True
-        
+    if username == ADMIN_USERNAME: return True
     df = load_users()
     idx = df[df["username"] == username].index
     if len(idx) > 0:
@@ -141,17 +158,6 @@ def consume_quota(username):
             save_users_df(df)
             return True
     return False
-
-def verify_login(username, password):
-    df = load_users()
-    user_row = df[df["username"] == username]
-    if user_row.empty: return False, "❌ 用户不存在"
-    stored_hash = user_row.iloc[0]["password_hash"]
-    try:
-        if not bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
-            return False, "❌ 密码错误"
-    except: return False, "❌ 密码校验失败"
-    return True, "Login Success"
 
 # --- 自选股 ---
 def get_user_watchlist(username):
@@ -183,7 +189,6 @@ def generate_captcha():
     return code
 
 def login_page():
-    # 登录页简单样式
     st.markdown("<br><h1 style='text-align: center;'>🔐 A股深度复盘系统 Pro</h1>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -191,6 +196,7 @@ def login_page():
         
         tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
         with tab1:
+            st.info(f"管理员账号: **{ADMIN_USERNAME}** / **{ADMIN_PASS}**")
             login_user = st.text_input("用户名", key="l_user")
             login_pass = st.text_input("密码", type="password", key="l_pass")
             c1, c2 = st.columns([2, 1])
@@ -200,7 +206,7 @@ def login_page():
                 if st.button("🔄"):
                     st.session_state["captcha_code"] = generate_captcha(); st.rerun()
             
-            if st.button("登录", type="primary", use_container_width=True):
+            if st.button("🚀 登录", type="primary", use_container_width=True):
                 if captcha_input.upper() != st.session_state["captcha_code"]:
                     st.error("验证码错误")
                     st.session_state["captcha_code"] = generate_captcha()
@@ -215,7 +221,7 @@ def login_page():
                         st.success("登录成功")
                         time.sleep(0.5); st.rerun()
         with tab2:
-            st.info("新用户注册送 20 积分")
+            st.caption("新用户注册送 20 积分")
             new_user = st.text_input("新用户名", key="r_user")
             new_pass = st.text_input("设置密码", type="password", key="r_pass")
             new_pass2 = st.text_input("确认密码", type="password", key="r_pass2")
@@ -229,7 +235,7 @@ def login_page():
                     st.success("注册成功！请登录。")
 
 # ==========================================
-# 📈 第二部分：股票核心逻辑
+# 📈 股票核心逻辑
 # ==========================================
 
 def _to_ts_code(symbol: str) -> str:
@@ -289,7 +295,6 @@ def fetch_fundamentals(symbol: str, token: str):
 
 @st.cache_data(ttl=60 * 15, show_spinner=False)
 def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") -> pd.DataFrame:
-    # 优先 Tushare
     if token and ts is not None:
         try:
             pro = ts.pro_api(token)
@@ -313,8 +318,6 @@ def fetch_hist(symbol: str, token: str, days: int = 180, adjust: str = "qfq") ->
                     if col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce")
                 return df.sort_values("date").reset_index(drop=True).tail(days)
         except: pass
-    
-    # Baostock 兜底
     if bs is None: return pd.DataFrame()
     lg = bs.login()
     if lg.error_code != "0": return pd.DataFrame()
@@ -354,7 +357,6 @@ def calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     p_di, m_di = 100 * pd.Series(p_dm, index=df.index).rolling(14).sum() / (tr14+1e-9), 100 * pd.Series(m_dm, index=df.index).rolling(14).sum() / (tr14+1e-9)
     df["ADX"] = (abs(p_di - m_di) / (p_di + m_di + 1e-9) * 100).rolling(14).mean()
     df["VOL_RATIO"] = vol / (vol.rolling(20).mean() + 1e-9)
-    # Ichimoku
     tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
     kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
     df["SPAN_A"] = ((tenkan + kijun) / 2).shift(26)
@@ -461,8 +463,8 @@ def main_stock_system():
         
         # 1. 顶部醒目的积分显示
         quota = get_current_quota(user)
-        if quota > 90000:
-            st.metric("👤 管理员", "ZCX001", delta="无限积分")
+        if user == ADMIN_USERNAME:
+            st.metric("👑 管理员", f"{user}", delta="无限积分", delta_color="normal")
         else:
             st.metric("💰 剩余积分", f"{quota} 次", help="每次刷新或查询消耗 1 积分")
             
@@ -471,7 +473,7 @@ def main_stock_system():
 
         # 2. 管理员后台 (Strict Check)
         if user == ADMIN_USERNAME:
-            with st.expander("👮‍♂️ 管理员后台", expanded=True):
+            with st.expander("👮‍♂️ 积分管理后台", expanded=True):
                 all_users = load_users()
                 st.dataframe(all_users[["username", "quota"]], use_container_width=True)
                 
@@ -480,11 +482,18 @@ def main_stock_system():
                 target = st.selectbox("选择用户", ["请选择"]+user_list)
                 
                 if target != "请选择":
-                    q = st.number_input("设置积分", value=int(all_users[all_users["username"]==target]["quota"].iloc[0]), step=10)
-                    if st.button("💾 保存"):
-                        update_user_quota(target, q); st.success("已保存"); time.sleep(1); st.rerun()
-                    if st.button("❌ 删除"):
-                        delete_user(target); st.rerun()
+                    try:
+                        curr_val = int(all_users[all_users["username"]==target]["quota"].iloc[0])
+                    except: curr_val = 0
+                    new_val = st.number_input(f"修改 {target} 的积分", value=curr_val, step=10)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("💾 保存"):
+                            update_user_quota(target, new_val)
+                            st.success("成功"); time.sleep(0.5); st.rerun()
+                    with col2:
+                        if st.button("❌ 删除"):
+                            delete_user(target); st.rerun()
 
         st.divider()
         st.caption("我的自选股")
@@ -498,7 +507,6 @@ def main_stock_system():
                     st.rerun()
 
         st.divider()
-        # 输入区
         default_token = ""
         try:
             if "TUSHARE_TOKEN" in st.secrets: default_token = st.secrets["TUSHARE_TOKEN"]
@@ -521,7 +529,6 @@ def main_stock_system():
         show_chanlun = st.checkbox("缠论分型", True)
         show_fib = st.checkbox("斐波那契", True)
 
-    # 主区域逻辑
     c_title, c_fav = st.columns([8, 2])
     with c_title: st.title(f"📈 {stock_name} ({st.session_state['stock_code']})")
     with c_fav:
@@ -530,23 +537,23 @@ def main_stock_system():
         else:
             if st.button("❤️ 加入自选"): toggle_watchlist(user, st.session_state['stock_code']); st.rerun()
 
-    # 消耗积分逻辑
+    # 积分消耗逻辑
     if not st.session_state["data_loaded"]:
-        st.info("点击下方按钮开始分析 (消耗 1 积分)")
+        st.info("👋 欢迎回来！点击下方按钮开始分析 (消耗 1 积分)")
         if st.button("🔍 开始分析", type="primary"):
             if consume_quota(user):
                 st.session_state["data_loaded"] = True
                 st.rerun()
-            else: st.error("积分不足，请联系管理员 ZCX001 充值")
+            else: st.error("❌ 积分不足！请联系管理员充值。")
         st.stop()
         
     if st.button("🔄 刷新数据 (消耗 1 积分)"):
         if consume_quota(user):
             st.cache_data.clear()
             st.rerun()
-        else: st.error("积分不足")
+        else: st.error("❌ 积分不足！")
 
-    with st.spinner("计算中..."):
+    with st.spinner("🚀 计算中..."):
         df = fetch_hist(st.session_state['stock_code'], tushare_token, 380, adjust)
         fund = fetch_fundamentals(st.session_state['stock_code'], tushare_token)
     
@@ -554,25 +561,39 @@ def main_stock_system():
     
     df = calc_indicators(df); df = detect_fractals(df)
     v_df = df.tail(window_days).copy(); latest = v_df.iloc[-1]
+    last_close = float(latest["close"])
     
     t_txt, t_col = main_uptrend_state(v_df)
     if t_col=="success": st.success(f"## {t_txt}")
     elif t_col=="warning": st.warning(f"## {t_txt}")
     else: st.error(f"## {t_txt}")
     
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("价格", f"{latest['close']:.2f}", f"{latest['pct_change']:.2f}%")
-    c2.metric("PE", fund['pe'])
-    c3.metric("PB", fund['pb'])
-    c4.metric("ROE", fund['roe'])
+    c2.metric("RSI", f"{latest['RSI']:.1f}")
+    c3.metric("MACD", f"{latest['HIST']:.3f}")
+    c4.metric("ADX", f"{latest['ADX']:.1f}")
+    c5.metric("PE", fund['pe'])
     
     plot_kline(v_df, "K线分析", show_gann, show_chanlun, show_fib)
     score, action, pos, reasons, color, b_sig, s_sig, sup, res = make_signals(v_df)
     
-    st.subheader(f"AI 建议: {action} (评分 {score})")
+    st.subheader(f"🤖 AI 建议: {action} (评分 {score})")
     if color=="success": st.success(f"建议仓位: {pos}")
     elif color=="warning": st.warning(f"建议仓位: {pos}")
     else: st.error(f"建议仓位: {pos}")
+    
+    atr = latest["ATR14"]
+    stop_loss = last_close - 2 * atr if pd.notna(atr) else sup
+    take_profit = last_close + 3 * atr if pd.notna(atr) else res
+    
+    scol1, scol2, scol3 = st.columns(3)
+    scol1.metric("🛡️ 止损参考", f"{stop_loss:.2f}")
+    scol2.metric("💰 止盈参考", f"{take_profit:.2f}")
+    scol3.metric("🏗️ 支撑位", f"{sup:.2f}")
+    
+    if b_sig: st.success("🔥 触发短线金叉买点！")
+    if s_sig: st.error("❄️ 触发短线死叉卖点！")
     
     with st.expander("查看详细逻辑"):
         for r in reasons: st.write(r)

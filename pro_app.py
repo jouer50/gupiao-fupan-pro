@@ -60,7 +60,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v17_5.csv"
+DB_FILE = "users_v17_6_fix.csv"
 
 # Optional deps
 try:
@@ -219,38 +219,68 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
-    c = df['close']; h = df['high']; l = df['low']; v = df['volume']
-    for n in [5,10,20,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
-    mid = df['MA20']; std = c.rolling(20).std()
-    df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
-    e12 = c.ewm(span=12).mean(); e26 = c.ewm(span=26).mean()
-    df['DIF'] = e12 - e26; df['DEA'] = df['DIF'].ewm(span=9).mean(); df['HIST'] = 2*(df['DIF']-df['DEA'])
-    delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
-    rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
+    
+    # ✅ 修复点：明确定义全名变量，防止 NameError
+    close = df['close']
+    high = df['high']
+    low = df['low']
+    volume = df['volume']
+    
+    for n in [5,10,20,60,120,250]: df[f'MA{n}'] = close.rolling(n).mean()
+    
+    mid = df['MA20']
+    std = close.rolling(20).std()
+    df['Upper'] = mid + 2*std
+    df['Lower'] = mid - 2*std
+    
+    exp1 = close.ewm(span=12, adjust=False).mean()
+    exp2 = close.ewm(span=26, adjust=False).mean()
+    df['DIF'] = exp1 - exp2
+    df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
+    df['HIST'] = 2 * (df['DIF'] - df['DEA'])
+    
+    delta = close.diff()
+    up = delta.clip(lower=0)
+    down = -1*delta.clip(upper=0)
+    rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
     df['RSI'] = 100 - (100/(1+rs))
-    l9 = l.rolling(9).min(); h9 = h.rolling(9).max()
-    rsv = (c - l9)/(h9 - l9 + 1e-9)*100
-    df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3*df['K']-2*df['D']
-    tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
+    
+    low9 = low.rolling(9).min()
+    high9 = high.rolling(9).max()
+    rsv = (close - low9) / (high9 - low9 + 1e-9) * 100
+    df['K'] = rsv.ewm(com=2).mean()
+    df['D'] = df['K'].ewm(com=2).mean()
+    df['J'] = 3 * df['K'] - 2 * df['D']
+    
+    tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
-    dp = np.where((h.diff()>l.diff().abs()) & (h.diff()>0), h.diff(), 0)
-    dm = np.where((l.diff().abs()>h.diff()) & (l.diff()<0), l.diff().abs(), 0)
+    
+    dm_p = np.where((high.diff() > low.diff().abs()) & (high.diff()>0), high.diff(), 0)
+    dm_m = np.where((low.diff().abs() > high.diff()) & (low.diff()<0), low.diff().abs(), 0)
     tr14 = tr.rolling(14).sum()
-    dip = 100*pd.Series(dp).rolling(14).sum()/(tr14+1e-9)
-    dim = 100*pd.Series(dm).rolling(14).sum()/(tr14+1e-9)
-    df['ADX'] = (abs(dip-dim)/(dip+dim+1e-9)*100).rolling(14).mean()
-    p_high = high.rolling(9).max(); p_low = low.rolling(9).min()
+    di_p = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
+    di_m = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
+    df['ADX'] = (abs(di_p - di_m)/(di_p + di_m + 1e-9) * 100).rolling(14).mean()
+    
+    # ✅ 修复点：Ichimoku 之前使用了 h/l 简写，现在统一用 high/low
+    p_high = high.rolling(9).max()
+    p_low = low.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
-    p_high26 = high.rolling(26).max(); p_low26 = low.rolling(26).min()
+    
+    p_high26 = high.rolling(26).max()
+    p_low26 = low.rolling(26).min()
     df['Kijun'] = (p_high26 + p_low26) / 2
+    
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
     df['SpanB'] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
-    df['VolRatio'] = v / (v.rolling(5).mean()+1e-9)
+    
+    df['VolRatio'] = volume / (volume.rolling(5).mean() + 1e-9)
+    
     return df.fillna(0)
 
 def detect_patterns(df):
-    df['F_Top'] = (df['high'].shift(1)<df['high']) & (df['high'].shift(-1)<df['high'])
-    df['F_Bot'] = (df['low'].shift(1)>df['low']) & (df['low'].shift(-1)>df['low'])
+    df['Fractal_Top'] = (df['high'].shift(1)<df['high']) & (df['high'].shift(-1)<df['high'])
+    df['Fractal_Bot'] = (df['low'].shift(1)>df['low']) & (df['low'].shift(-1)>df['low'])
     return df
 
 def get_drawing_lines(df):
@@ -262,7 +292,7 @@ def get_drawing_lines(df):
     gann = {k: sp + days*step*r for k,r in [('1x1',1),('1x2',0.5),('2x1',2)]}
     rec = df.tail(120)
     h = rec['high'].max(); l = rec['low'].min(); d = h-l
-    fib = {k: h-d*v for k,v in {'0.236':0.236,'0.382':0.382,'0.5':0.5,'0.618':0.618}.items()}
+    fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
 def generate_deep_report(df, name):
@@ -437,7 +467,6 @@ with st.sidebar:
     adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
     
     st.divider()
-    # ✅ 修复点：变量名对齐
     gann = st.checkbox("江恩", True)
     fib = st.checkbox("Fib", True)
     chan = st.checkbox("缠论", True)
@@ -445,12 +474,9 @@ with st.sidebar:
     st.divider()
     if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
 
-# 核心内容区 (放到侧边栏外)
-name = get_name(st.session_state.code, token)
-c1, c2 = st.columns([3,1])
-with c1: st.title(f"{name} ({st.session_state.code})")
+c1, c2 = st.columns([3, 1])
+with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
-# 付费墙
 if st.session_state.code != st.session_state.paid_code:
     st.info("🔒 深度研报需解锁")
     if st.button("🔍 支付 1 积分查看", type="primary"):
@@ -460,11 +486,9 @@ if st.session_state.code != st.session_state.paid_code:
         else: st.error("积分不足，请充值")
     st.stop()
 
-with c2:
-    if st.button("刷新"): st.cache_data.clear(); st.rerun()
+if st.button("刷新"): st.cache_data.clear(); st.rerun()
 
 with st.spinner("AI 正在生成深度研报..."):
-    # ✅ 修复点：传递正确的变量 adjust
     df = get_data(st.session_state.code, token, days, adjust)
     funda = get_fundamentals(st.session_state.code, token)
 
@@ -474,13 +498,11 @@ else:
     df = calc_full_indicators(df)
     df = detect_patterns(df)
     
-    # 趋势横幅
     trend_txt, trend_col = main_uptrend_check(df)
     bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
     tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
     st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
     
-    # 核心指标
     l = df.iloc[-1]
     k1,k2,k3,k4,k5 = st.columns(5)
     k1.metric("价格", f"{l['close']:.2f}", f"{l['pct_change']:.2f}%")
@@ -489,14 +511,11 @@ else:
     k4.metric("ADX", f"{l['ADX']:.1f}")
     k5.metric("量比", f"{l['VolRatio']:.2f}")
     
-    # 图表 (修复：传入正确变量名)
     plot_chart(df.tail(days), f"{name} 分析图", gann, fib, chan)
     
-    # 研报
     report_html = generate_deep_report(df, name)
     st.markdown(report_html, unsafe_allow_html=True)
     
-    # 结论
     score, act, col, sl, tp, pos = analyze_score(df)
     st.subheader(f"🤖 最终建议: {act} (评分 {score})")
     

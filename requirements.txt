@@ -7,3 +7,4 @@ baostock
 bcrypt
 openpyxl
 lxml
+yfinance

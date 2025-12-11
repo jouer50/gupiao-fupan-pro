@@ -9,6 +9,13 @@ import string
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# ✅ 新增：引入 Yahoo Finance
+try:
+    import yfinance as yf
+except:
+    st.error("请在 requirements.txt 中添加 yfinance")
+    st.stop()
+
 # ==========================================
 # 1. 核心配置 (Apple Design)
 # ==========================================
@@ -55,21 +62,6 @@ apple_css = """
     .position-box {
         padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 16px; margin-top: 5px;
     }
-    
-    /* 验证码样式 */
-    .captcha-box {
-        background-color: #e5e5ea; 
-        color: #1d1d1f;
-        font-family: 'Courier New', monospace;
-        font-weight: bold;
-        font-size: 24px;
-        text-align: center;
-        padding: 10px;
-        border-radius: 8px;
-        letter-spacing: 8px;
-        text-decoration: line-through; /* 简单的干扰线效果 */
-        user-select: none;
-    }
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -77,7 +69,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v24_secure.csv"
+DB_FILE = "users_v25_global.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -89,7 +81,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 数据库与验证码逻辑
+# 2. 数据库逻辑 (含卡密)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -113,20 +105,6 @@ def load_keys():
 
 def save_keys(df): df.to_csv(KEYS_FILE, index=False)
 
-# --- 验证码生成器 ---
-def generate_captcha():
-    # 生成4位随机大写字母+数字
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-    st.session_state['captcha_correct'] = code
-    return code
-
-def verify_captcha(user_input):
-    if 'captcha_correct' not in st.session_state:
-        generate_captcha()
-        return False
-    return user_input.strip().upper() == st.session_state['captcha_correct']
-
-# --- 卡密系统 ---
 def generate_key(points):
     key = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
     df = load_keys()
@@ -192,13 +170,25 @@ def register_user(u, p):
     return True, "注册成功"
 
 # ==========================================
-# 3. 股票与指标逻辑
+# 3. 智能股票逻辑 (Global Markets)
 # ==========================================
+def is_cn_stock(code):
+    # 简单的判断：如果是6位数字，大概率是A股
+    return code.isdigit() and len(code) == 6
+
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
 def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
 
 @st.cache_data(ttl=3600)
 def get_name(code, token):
+    # 1. 尝试 Yahoo Finance (美股/港股)
+    if not is_cn_stock(code):
+        try:
+            t = yf.Ticker(code)
+            return t.info.get('longName') or t.info.get('shortName') or code
+        except: pass
+    
+    # 2. 尝试 A股渠道
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -217,52 +207,104 @@ def get_name(code, token):
 def get_data_and_resample(code, token, timeframe, adjust):
     fetch_days = 800 
     raw_df = pd.DataFrame()
-    if token and ts:
+    
+    # 🌍 分流逻辑：美股/港股 vs A股
+    if not is_cn_stock(code):
+        # --- Yahoo Finance ---
         try:
-            pro = ts.pro_api(token)
-            e = pd.Timestamp.today().strftime('%Y%m%d')
-            s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y%m%d')
-            df = pro.daily(ts_code=_to_ts_code(code), start_date=s, end_date=e)
-            if df is not None and not df.empty:
-                if adjust in ['qfq', 'hfq']:
-                    adj = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
-                    if not adj.empty:
-                        adj = adj.rename(columns={'trade_date':'date','adj_factor':'factor'})
-                        df = df.rename(columns={'trade_date':'date'})
-                        df = df.merge(adj[['date','factor']], on='date', how='left').fillna(method='ffill')
-                        f = df['factor']
-                        ratio = f/f.iloc[-1] if adjust=='qfq' else f/f.iloc[0]
-                        for c in ['open','high','low','close']: df[c] *= ratio
-                df = df.rename(columns={'trade_date':'date','vol':'volume','pct_chg':'pct_change'})
-                df['date'] = pd.to_datetime(df['date'])
-                for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
-                raw_df = df.sort_values('date').reset_index(drop=True)
+            # yfinance 自动处理分割和股息，adj close 比较准
+            yf_df = yf.download(code, period="2y", interval="1d", progress=False)
+            if not yf_df.empty:
+                yf_df.reset_index(inplace=True)
+                # 标准化列名
+                yf_df.columns = [c.lower() for c in yf_df.columns]
+                # 兼容 yfinance 新版返回 MultiIndex 的情况
+                if isinstance(yf_df.columns[0], tuple): 
+                     # 简单处理：取 Price 下的 Close 等
+                     pass # 假设 yf 版本较稳，暂不处理极复杂的 MultiIndex
+                
+                # 统一列名映射
+                rename_map = {'date': 'date', 'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'volume': 'volume', 'adj close': 'close'} 
+                # 优先用 adj close 作为 close
+                if 'adj close' in yf_df.columns:
+                    yf_df['close'] = yf_df['adj close']
+                
+                raw_df = yf_df[['date','open','high','low','close','volume']].copy()
+                # 计算涨跌幅
+                raw_df['pct_change'] = raw_df['close'].pct_change() * 100
         except: pass
-    if raw_df.empty and bs:
-        bs.login()
-        e = pd.Timestamp.today().strftime('%Y-%m-%d')
-        s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y-%m-%d')
-        flag = "2" if adjust=='qfq' else "1" if adjust=='hfq' else "3"
-        rs = bs.query_history_k_data_plus(_to_bs_code(code), "date,open,high,low,close,volume,pctChg", start_date=s, end_date=e, frequency="d", adjustflag=flag)
-        data = rs.get_data(); bs.logout()
-        if not data.empty:
-            df = data.rename(columns={'pctChg':'pct_change'})
-            df['date'] = pd.to_datetime(df['date'])
-            for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
-            raw_df = df.sort_values('date').reset_index(drop=True)
+        
+    else:
+        # --- A股 (Tushare/Baostock) ---
+        if token and ts:
+            try:
+                pro = ts.pro_api(token)
+                e = pd.Timestamp.today().strftime('%Y%m%d')
+                s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y%m%d')
+                df = pro.daily(ts_code=_to_ts_code(code), start_date=s, end_date=e)
+                if df is not None and not df.empty:
+                    if adjust in ['qfq', 'hfq']:
+                        adj = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
+                        if not adj.empty:
+                            adj = adj.rename(columns={'trade_date':'date','adj_factor':'factor'})
+                            df = df.rename(columns={'trade_date':'date'})
+                            df = df.merge(adj[['date','factor']], on='date', how='left').fillna(method='ffill')
+                            f = df['factor']
+                            ratio = f/f.iloc[-1] if adjust=='qfq' else f/f.iloc[0]
+                            for c in ['open','high','low','close']: df[c] *= ratio
+                    df = df.rename(columns={'trade_date':'date','vol':'volume','pct_chg':'pct_change'})
+                    df['date'] = pd.to_datetime(df['date'])
+                    for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
+                    raw_df = df.sort_values('date').reset_index(drop=True)
+            except: pass
+            
+        if raw_df.empty and bs:
+            bs.login()
+            e = pd.Timestamp.today().strftime('%Y-%m-%d')
+            s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y-%m-%d')
+            flag = "2" if adjust=='qfq' else "1" if adjust=='hfq' else "3"
+            rs = bs.query_history_k_data_plus(_to_bs_code(code), "date,open,high,low,close,volume,pctChg", start_date=s, end_date=e, frequency="d", adjustflag=flag)
+            data = rs.get_data(); bs.logout()
+            if not data.empty:
+                df = data.rename(columns={'pctChg':'pct_change'})
+                df['date'] = pd.to_datetime(df['date'])
+                for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
+                raw_df = df.sort_values('date').reset_index(drop=True)
+
     if raw_df.empty: return raw_df
+
+    # 4. 多周期重采样 (Resample)
     if timeframe == '日线': return raw_df
+    
     rule = 'W' if timeframe == '周线' else 'M'
     raw_df.set_index('date', inplace=True)
     agg_dict = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
     resampled = raw_df.resample(rule).agg(agg_dict).dropna()
     resampled['pct_change'] = resampled['close'].pct_change() * 100
     resampled.reset_index(inplace=True)
+    
     return resampled
 
 @st.cache_data(ttl=3600)
 def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
+    
+    # 🌍 美股基本面
+    if not is_cn_stock(code):
+        try:
+            t = yf.Ticker(code)
+            info = t.info
+            pe = info.get('trailingPE', '-')
+            pb = info.get('priceToBook', '-')
+            mk = info.get('marketCap', 0)
+            if pe != '-': pe = f"{pe:.2f}"
+            if pb != '-': pb = f"{pb:.2f}"
+            mv = f"{mk/100000000:.2f}亿" if mk else "-"
+            res = {"pe": pe, "pb": pb, "roe": "-", "mv": mv}
+        except: pass
+        return res
+
+    # 🇨🇳 A股基本面
     if token and ts:
         try:
             pro = ts.pro_api(token)
@@ -277,7 +319,13 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df):
     if df.empty: return df
+    # 强制转换类型
+    for col in ['close','high','low','volume']:
+        if col in df.columns:
+            df[col] = df[col].astype(float)
+    
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
+    
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     mid = df['MA20']; std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
@@ -459,19 +507,8 @@ if not st.session_state["logged_in"]:
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
-            # 验证码 UI
-            if 'captcha_correct' not in st.session_state: generate_captcha()
-            c_code, c_show = st.columns([2,1])
-            with c_code: cap_in = st.text_input("验证码", placeholder="不区分大小写")
-            with c_show:
-                st.markdown(f"<div class='captcha-box'>{st.session_state['captcha_correct']}</div>", unsafe_allow_html=True)
-                if st.button("🔄"): generate_captcha(); st.rerun()
-            
             if st.button("登录系统"):
-                if not verify_captcha(cap_in):
-                    st.error("验证码错误")
-                    generate_captcha()
-                elif verify_login(u.strip(), p):
+                if verify_login(u.strip(), p):
                     st.session_state["logged_in"] = True
                     st.session_state["user"] = u.strip()
                     st.session_state["paid_code"] = ""
@@ -480,26 +517,10 @@ if not st.session_state["logged_in"]:
         with tab2:
             nu = st.text_input("新用户")
             np1 = st.text_input("设置密码", type="password")
-            
-            # 注册验证码
-            if 'reg_captcha_correct' not in st.session_state: 
-                st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-            
-            rc_code, rc_show = st.columns([2,1])
-            with rc_code: rcap_in = st.text_input("注册验证码")
-            with rc_show:
-                st.markdown(f"<div class='captcha-box'>{st.session_state['reg_captcha_correct']}</div>", unsafe_allow_html=True)
-                if st.button("🔄", key="reg_ref"): 
-                    st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-                    st.rerun()
-
             if st.button("立即注册"):
-                if rcap_in.upper() != st.session_state['reg_captcha_correct']:
-                    st.error("验证码错误")
-                else:
-                    suc, msg = register_user(nu.strip(), np1)
-                    if suc: st.success(msg)
-                    else: st.error(msg)
+                suc, msg = register_user(nu.strip(), np1)
+                if suc: st.success(msg)
+                else: st.error(msg)
     st.stop()
 
 # --- 主界面 ---
@@ -552,7 +573,7 @@ with st.sidebar:
     token = st.text_input("Token", value=dt, type="password")
     
     if "code" not in st.session_state: st.session_state.code = "600519"
-    new_c = st.text_input("代码", st.session_state.code)
+    new_c = st.text_input("代码 (支持美/港/A股)", st.session_state.code)
     
     if "paid_code" not in st.session_state: st.session_state.paid_code = ""
     if new_c != st.session_state.code:

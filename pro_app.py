@@ -8,94 +8,31 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 1. 商业级配置 & 定制化 CSS (整容核心)
+# 1. 商业级配置 & 界面美化
 # ==========================================
 st.set_page_config(
-    page_title="AlphaQuant AI | 极速复盘", # 改个听起来很贵的名字
+    page_title="AlphaQuant AI",
     layout="wide",
     page_icon="⚡",
     initial_sidebar_state="expanded"
 )
 
-# 🎨 华尔街暗黑风 CSS (让界面看起来像专业终端)
+# 华尔街暗黑风 CSS
 premium_css = """
 <style>
-    /* 全局背景色调整 */
-    .stApp {
-        background-color: #0e1117;
-    }
-    
-    /* 侧边栏美化 */
-    [data-testid="stSidebar"] {
-        background-color: #161b22;
-        border-right: 1px solid #30363d;
-    }
-    
-    /* 隐藏 Streamlit 原生元素 */
+    .stApp {background-color: #0e1117;}
+    [data-testid="stSidebar"] {background-color: #161b22; border-right: 1px solid #30363d;}
     header {visibility: hidden !important; height: 0px !important;}
     footer {visibility: hidden !important; display: none !important;}
     .stDeployButton {display: none !important;}
     [data-testid="stToolbar"] {display: none !important;}
     [data-testid="stDecoration"] {display: none !important;}
-    
-    /* 顶部留白移除 */
-    .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 2rem !important;
-    }
-    
-    /* 指标卡片 (Metric) 美化 - 像交易面板 */
-    [data-testid="stMetricValue"] {
-        font-family: "Roboto Mono", monospace;
-        font-size: 1.8rem !important;
-        color: #e6edf3;
-    }
-    [data-testid="stMetricLabel"] {
-        color: #8b949e;
-        font-size: 0.9rem !important;
-    }
-    
-    /* 按钮美化 - 渐变色 */
-    div.stButton > button {
-        background: linear-gradient(45deg, #238636, #2ea043);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        font-weight: bold;
-        transition: all 0.3s;
-    }
-    div.stButton > button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 4px 12px rgba(46, 160, 67, 0.4);
-    }
-    
-    /* 文本输入框美化 */
-    .stTextInput input {
-        background-color: #0d1117;
-        color: #c9d1d9;
-        border: 1px solid #30363d;
-        border-radius: 6px;
-    }
-    
-    /* 成功/警告/错误 提示框样式微调 */
-    .stAlert {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        color: #c9d1d9;
-    }
-    
-    /* 自定义 Logo 区域 */
-    .brand-logo {
-        font-size: 1.5rem;
-        font-weight: 800;
-        background: -webkit-linear-gradient(eee, #333);
-        -webkit-background-clip: text;
-        color: #58a6ff;
-        margin-bottom: 20px;
-        text-align: center;
-        border-bottom: 1px solid #30363d;
-        padding-bottom: 10px;
-    }
+    .block-container {padding-top: 1.5rem !important;}
+    [data-testid="stMetricValue"] {font-family: "Roboto Mono", monospace; font-size: 1.8rem !important; color: #e6edf3;}
+    [data-testid="stMetricLabel"] {color: #8b949e; font-size: 0.9rem !important;}
+    div.stButton > button {background: linear-gradient(45deg, #238636, #2ea043); color: white; border: none; border-radius: 6px; font-weight: bold;}
+    div.stButton > button:hover {transform: scale(1.02); box-shadow: 0 4px 12px rgba(46, 160, 67, 0.4);}
+    .brand-logo {font-size: 1.5rem; font-weight: 800; background: -webkit-linear-gradient(eee, #333); -webkit-background-clip: text; color: #58a6ff; margin-bottom: 20px; text-align: center; border-bottom: 1px solid #30363d; padding-bottom: 10px;}
 </style>
 """
 st.markdown(premium_css, unsafe_allow_html=True)
@@ -103,7 +40,8 @@ st.markdown(premium_css, unsafe_allow_html=True)
 # 👑 管理员账号
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v11_pro.csv" # 升级文件
+# 💾 固定文件名，方便维护
+DB_FILE = "users.csv" 
 
 # Optional deps
 try:
@@ -116,7 +54,7 @@ except Exception:
     bs = None
 
 # ==========================================
-# 2. 数据库逻辑
+# 2. 数据库逻辑 (含备份/恢复)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -374,66 +312,31 @@ def main_uptrend_check(df):
 
 def plot_full_chart(df, title, show_gann, show_fib, show_chanlun):
     if df.empty: return
-    
-    # 商业级图表配置
-    fig = make_subplots(
-        rows=4, cols=1, 
-        shared_xaxes=True, 
-        vertical_spacing=0.03, 
-        row_heights=[0.55, 0.1, 0.15, 0.2]
-    )
-    
-    # 主图 K 线
-    fig.add_trace(go.Candlestick(
-        x=df['date'], open=df['open'], high=df['high'],
-        low=df['low'], close=df['close'], name='K线'
-    ), row=1, col=1)
-    
-    # 均线
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.55, 0.1, 0.15, 0.2])
+    fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'), row=1, col=1)
     for m, c in zip(['MA5','MA20','MA60'], ['#39ff14', '#ffff00', '#ff073a']):
         fig.add_trace(go.Scatter(x=df['date'], y=df[m], name=m, line=dict(width=1, color=c)), row=1, col=1)
     
-    # 画线工具
     gann, fib = get_drawing_lines(df)
     if show_gann:
         for k, v in gann.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(dash='dot', width=1, color='gray'), name=f'Gann {k}'), row=1, col=1)
     if show_fib:
         for k, v in fib.items(): fig.add_hline(y=v, line_dash="dash", line_color="orange", annotation_text=f"Fib {k}", row=1, col=1)
-            
-    # 缠论
     if show_chanlun:
-        tops = df[df['Fractal_Top']]
-        bots = df[df['Fractal_Bot']]
+        tops = df[df['Fractal_Top']]; bots = df[df['Fractal_Bot']]
         fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#00ff00', marker_size=8, name='顶'), row=1, col=1)
         fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#ff0000', marker_size=8, name='底'), row=1, col=1)
 
-    # 成交量
     colors = ['#ff073a' if c>=o else '#39ff14' for c,o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), row=2, col=1)
-    
-    # MACD
     fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors, name='MACD'), row=3, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='white', width=1), name='DIF'), row=3, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='yellow', width=1), name='DEA'), row=3, col=1)
-    
-    # KDJ
     fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K'), row=4, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D'), row=4, col=1)
     fig.add_trace(go.Scatter(x=df['date'], y=df['J'], name='J'), row=4, col=1)
     
-    # 专业的深色图表布局
-    fig.update_layout(
-        title=dict(text=title, font=dict(size=20, color='white')),
-        xaxis_rangeslider_visible=False, 
-        height=900, 
-        margin=dict(t=40, l=20, r=20, b=20),
-        paper_bgcolor='#0e1117', # 与背景融合
-        plot_bgcolor='#0e1117',
-        font=dict(color='#c9d1d9'),
-        grid=dict(rows=1, columns=1),
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor='#30363d')
-    )
+    fig.update_layout(title=dict(text=title, font=dict(size=20, color='white')), xaxis_rangeslider_visible=False, height=900, margin=dict(t=40, l=20, r=20, b=20), paper_bgcolor='#0e1117', plot_bgcolor='#0e1117', font=dict(color='#c9d1d9'), grid=dict(rows=1, columns=1), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#30363d'))
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
@@ -477,6 +380,20 @@ with st.sidebar:
         st.success(f"👑 管理员在线")
         with st.expander("👮‍♂️ 用户积分管理", expanded=True):
             df_u = load_users()
+            
+            # 1. 备份下载
+            csv = df_u.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 备份数据库", data=csv, file_name="users_backup.csv", mime="text/csv")
+            
+            # 2. 数据恢复
+            uploaded_file = st.file_uploader("📤 恢复数据库 (慎用)", type="csv")
+            if uploaded_file is not None:
+                try:
+                    df_new = pd.read_csv(uploaded_file)
+                    df_new.to_csv(DB_FILE, index=False)
+                    st.success("恢复成功！请刷新")
+                except: st.error("文件格式错误")
+
             st.dataframe(df_u[["username","quota"]], hide_index=True, use_container_width=True)
             u_list = [x for x in df_u["username"] if x != ADMIN_USER]
             if u_list:
@@ -536,7 +453,7 @@ if not is_paid:
         if consume_quota(user):
             st.session_state.paid_code = st.session_state.code
             with st.spinner("AI 神经网络正在计算趋势..."):
-                time.sleep(1.5) # 假装思考，增加价值感
+                time.sleep(1.5)
             st.rerun()
         else: st.error("❌ 算力不足，请联系管理员充值")
     st.stop()

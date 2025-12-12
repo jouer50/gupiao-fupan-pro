@@ -58,6 +58,10 @@ apple_css = """
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
     
+    .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
+    .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
+    .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
+    
     /* 品牌标题样式 */
     .brand-title {
         font-size: 32px; 
@@ -87,7 +91,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v40.csv"
+DB_FILE = "users_v41.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -211,8 +215,35 @@ def delete_user(target):
     df = df[df["username"] != target]
     save_users(df)
 
+# ✅ V41 新增：更新用户自选股
+def update_watchlist(username, code, action="add"):
+    df = load_users()
+    idx = df[df["username"] == username].index[0]
+    current_wl = str(df.loc[idx, "watchlist"])
+    if current_wl == "nan": current_wl = ""
+    
+    codes = [c.strip() for c in current_wl.split(",") if c.strip()]
+    
+    if action == "add":
+        if code not in codes: codes.append(code)
+    elif action == "remove":
+        if code in codes: codes.remove(code)
+        
+    df.loc[idx, "watchlist"] = ",".join(codes)
+    save_users(df)
+    return ",".join(codes)
+
+def get_user_watchlist(username):
+    df = load_users()
+    if username == ADMIN_USER: return []
+    row = df[df["username"] == username]
+    if row.empty: return []
+    wl_str = str(row.iloc[0]["watchlist"])
+    if wl_str == "nan": return []
+    return [c.strip() for c in wl_str.split(",") if c.strip()]
+
 # ==========================================
-# 3. 股票逻辑 (名称终极修复)
+# 3. 股票逻辑
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -240,7 +271,6 @@ def generate_mock_data(days=365):
 def get_name(code, token, proxy=None):
     clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
     
-    # 1. 静态超级字典
     QUICK_MAP = {
         '600519': '贵州茅台', '000858': '五粮液', '601318': '中国平安', '600036': '招商银行',
         '300750': '宁德时代', '002594': '比亚迪', '601888': '中国中免', '600276': '恒瑞医药',
@@ -249,7 +279,6 @@ def get_name(code, token, proxy=None):
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
 
-    # 2. 新浪财经接口 (A股最稳)
     if clean_code.isdigit() and len(clean_code) == 6:
         prefixes = ['sh', 'sz', 'bj']
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
@@ -263,11 +292,9 @@ def get_name(code, token, proxy=None):
                         parts = content.split('="')
                         if len(parts) > 1:
                             data_str = parts[1]
-                            if len(data_str) > 1:
-                                return data_str.split(',')[0]
+                            if len(data_str) > 1: return data_str.split(',')[0]
             except: continue
         
-        # 3. 东方财富接口
         try:
             url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
             req = urllib.request.Request(url_east, headers=headers)
@@ -277,14 +304,12 @@ def get_name(code, token, proxy=None):
                     return data["QuotationCodeTable"]["Data"][0]["Name"]
         except: pass
 
-    # 4. Yahoo Finance
     try:
         if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
         t = yf.Ticker(code)
         return t.info.get('shortName') or t.info.get('longName') or code
     except: pass
     
-    # 5. Tushare
     if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
@@ -392,7 +417,8 @@ def get_fundamentals(code, token):
         except: pass
     return res
 
-def calc_full_indicators(df):
+# ✅ V41 核心升级：接收自定义参数
+def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
     try:
         c = df['close'].squeeze() if isinstance(df['close'], pd.DataFrame) else df['close']
@@ -401,8 +427,11 @@ def calc_full_indicators(df):
         v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
     except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
 
-    for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
-    mid = df['MA20']; std = c.rolling(20).std()
+    # 使用用户自定义均线
+    df['MA_Short'] = c.rolling(ma_s).mean()
+    df['MA_Long'] = c.rolling(ma_l).mean()
+    
+    mid = c.rolling(20).mean(); std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
     e12 = c.ewm(span=12, adjust=False).mean(); e26 = c.ewm(span=26, adjust=False).mean()
     df['DIF'] = e12 - e26; df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean(); df['HIST'] = 2 * (df['DIF'] - df['DEA'])
@@ -419,12 +448,6 @@ def calc_full_indicators(df):
     di_plus = 100 * pd.Series(dm_p).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
     di_minus = 100 * pd.Series(dm_m).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
     df['ADX'] = (abs(di_plus - di_minus)/(di_plus + di_minus + 1e-9) * 100).rolling(14).mean()
-    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
-    df['Tenkan'] = (p_high + p_low) / 2
-    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
-    df['Kijun'] = (p_high26 + p_low26) / 2
-    df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
-    df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
     df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
     df[['K','D','J','DIF','DEA','HIST','RSI','ADX']] = df[['K','D','J','DIF','DEA','HIST','RSI','ADX']].fillna(50)
     return df
@@ -446,27 +469,43 @@ def get_drawing_lines(df):
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
+# ✅ V41 核心升级：接受自定义参数 + 最大回撤计算
 def run_backtest(df):
-    if df is None or len(df) < 50: return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    needed = ['MA5', 'MA20', 'close', 'date']
-    if not all(c in df.columns for c in needed): return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    
+    # 使用自定义列
+    needed = ['MA_Short', 'MA_Long', 'close', 'date']
+    if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
-    if len(df_bt) < 20: return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
 
     capital = 100000; position = 0
     buy_signals = []; sell_signals = []; equity = [capital]; dates = [df_bt.iloc[0]['date']]
     
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        if prev['MA5'] <= prev['MA20'] and curr['MA5'] > curr['MA20'] and position == 0:
+        
+        # 策略：金叉买入，死叉卖出
+        if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
-        elif prev['MA5'] >= prev['MA20'] and curr['MA5'] < curr['MA20'] and position > 0:
+        elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
             capital = position * price; position = 0; sell_signals.append(date)
-        equity.append(capital + (position * price)); dates.append(date)
+        
+        current_val = capital + (position * price)
+        equity.append(current_val)
+        dates.append(date)
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
-    return ret, win_rate, buy_signals, sell_signals, pd.DataFrame({'date': dates, 'equity': equity})
+    
+    # 计算最大回撤
+    eq_series = pd.Series(equity)
+    cummax = eq_series.cummax()
+    drawdown = (eq_series - cummax) / cummax
+    max_dd = drawdown.min() * 100
+    
+    eq_df = pd.DataFrame({'date': dates, 'equity': equity})
+    return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
@@ -498,8 +537,8 @@ def generate_deep_report(df, name):
         <div class="report-title">📊 核心动能指标解析</div>
         <ul>
             <li><span class="tech-term">MACD</span>：当前 <b>{macd_state}</b>。DIF={safe_fmt(curr['DIF'])}, DEA={safe_fmt(curr['DEA'])}。</li>
-            <li><span class="tech-term">MA均线</span>：MA5({safe_fmt(curr['MA5'])}) {"大于" if curr['MA5']>curr['MA20'] else "小于"} MA20({safe_fmt(curr['MA20'])}).</li>
-            <li><span class="tech-term">BOLL</span>：股价运行于 { "中轨上方" if curr['close']>curr['MA20'] else "中轨下方" }。</li>
+            <li><span class="tech-term">MA均线</span>：MA短期({safe_fmt(curr['MA_Short'])}) {"大于" if curr['MA_Short']>curr['MA_Long'] else "小于"} MA长期({safe_fmt(curr['MA_Long'])}).</li>
+            <li><span class="tech-term">BOLL</span>：股价运行于 { "中轨上方" if curr['close']>curr['MA_Long'] else "中轨下方" }。</li>
             <li><span class="tech-term">VOL量能</span>：今日 <b>{vol_state}</b> (量比 {safe_fmt(curr['VolRatio'])})。</li>
         </ul>
     </div>
@@ -508,9 +547,9 @@ def generate_deep_report(df, name):
 
 def analyze_score(df):
     c = df.iloc[-1]; score=0; reasons=[]
-    if c['MA5']>c['MA20']: score+=2; reasons.append("MA5金叉MA20")
+    if c['MA_Short']>c['MA_Long']: score+=2; reasons.append("均线金叉")
     else: score-=2
-    if c['close']>c['MA60']: score+=1; reasons.append("站上60日线")
+    if c['close']>c['MA_Long']: score+=1; reasons.append("站上长期均线")
     if c['DIF']>c['DEA']: score+=1; reasons.append("MACD多头")
     if c['RSI']<20: score+=2; reasons.append("RSI超卖")
     if c['VolRatio']>1.5: score+=1; reasons.append("放量攻击")
@@ -525,23 +564,24 @@ def analyze_score(df):
 
 def main_uptrend_check(df):
     curr = df.iloc[-1]
-    is_bull = curr['MA5'] > curr['MA20'] > curr['MA60']
+    is_bull = curr['MA_Short'] > curr['MA_Long']
     is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB'])
     if is_bull and is_cloud and curr['ADX'] > 20: return "🚀 主升浪 (强趋势)", "success"
     if is_cloud: return "📈 震荡上行", "warning"
     return "📉 主跌浪 (回避)", "error"
 
-def plot_chart(df, name, flags):
+def plot_chart(df, name, flags, ma_s, ma_l):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'), 1, 1)
+    
     if flags.get('ma'):
-        ma_colors = {'MA5':'#333333', 'MA10':'#ffcc00', 'MA20':'#cc33ff', 'MA30':'#2196f3', 'MA60':'#4caf50'}
-        for ma_name, ma_color in ma_colors.items():
-            if ma_name in df.columns:
-                fig.add_trace(go.Scatter(x=df['date'], y=df[ma_name], name=ma_name, line=dict(width=1.2, color=ma_color)), 1, 1)
+        fig.add_trace(go.Scatter(x=df['date'], y=df['MA_Short'], name=f'MA{ma_s}', line=dict(width=1.2, color='#333333')), 1, 1)
+        fig.add_trace(go.Scatter(x=df['date'], y=df['MA_Long'], name=f'MA{ma_l}', line=dict(width=1.2, color='#ffcc00')), 1, 1)
+            
     if flags.get('boll'):
         fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=1, dash='dash', color='rgba(33, 150, 243, 0.3)'), name='布林上轨'), 1, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], line=dict(width=1, dash='dash', color='rgba(33, 150, 243, 0.3)'), name='布林下轨', fill='tonexty', fillcolor='rgba(33, 150, 243, 0.05)'), 1, 1)
+    
     ga, fi = get_drawing_lines(df)
     if flags.get('gann'):
         for k,v in ga.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(width=0.8, dash='dot', color='rgba(128,128,128,0.3)'), name=f'江恩 {k}', showlegend=False), 1, 1)
@@ -562,6 +602,7 @@ def plot_chart(df, name, flags):
         fig.add_trace(go.Scatter(x=df['date'], y=df['K'], line=dict(color='#0071e3', width=1), name='K线'), 4, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D线'), 4, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#af52de', width=1), name='J线'), 4, 1)
+    
     fig.update_layout(height=900, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=1.02))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -589,6 +630,22 @@ with st.sidebar:
             st.cache_data.clear()
             st.success("已清除！正在重新获取...")
             time.sleep(1); st.rerun()
+            
+        # ✅ 新增：我的自选股
+        if not is_admin:
+            with st.expander("⭐ 我的自选股", expanded=False):
+                current_wl = get_user_watchlist(user)
+                if not current_wl: st.caption("暂无自选，请在上方添加")
+                else:
+                    for c in current_wl:
+                        c1, c2 = st.columns([3, 1])
+                        if c1.button(f"{c}", key=f"wl_{c}"):
+                            st.session_state.code = c
+                            st.session_state.paid_code = ""
+                            st.rerun()
+                        if c2.button("✖️", key=f"del_{c}"):
+                            update_watchlist(user, c, "remove")
+                            st.rerun()
 
         if is_admin:
             st.success("👑 管理员模式")
@@ -612,11 +669,12 @@ with st.sidebar:
                     with c1:
                         if st.button("更新"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
                     with c2:
-                        if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
+                        chk = st.checkbox("确认删除")
+                        if st.button("删除") and chk: delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
 
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据", csv, "backup.csv", "text/csv")
-                uploaded_file = st.file_uploader("恢复用户数据 (users.csv)", type="csv", key="restore_users")
+                uploaded_file = st.file_uploader("恢复用户数据", type="csv", key="restore_users")
                 if uploaded_file is not None:
                     try:
                         df_restore = pd.read_csv(uploaded_file)
@@ -665,9 +723,12 @@ with st.sidebar:
                     
                     # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
+                        # 模拟延迟
+                        with st.spinner("正在验证支付结果..."):
+                            time.sleep(1.5)
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")
-                        st.code(new_key, language="text")
+                        st.markdown(f"<div class='auto-key-box'><div class='key-text'>{new_key}</div></div>", unsafe_allow_html=True)
                         st.warning("请立即复制上方卡密，并在右侧【卡密兑换】中激活")
                 
                 with tab_key:
@@ -685,12 +746,26 @@ with st.sidebar:
         
         new_c = st.text_input("代码 (支持美/港/A股)", st.session_state.code)
         if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
+        
+        # ✅ 新增：添加自选按钮
+        if not is_admin:
+            if st.button("⭐ 加入自选股"):
+                wl = update_watchlist(user, st.session_state.code, "add")
+                st.success(f"已加入！当前自选: {wl}")
+                time.sleep(1); st.rerun()
             
         timeframe = st.selectbox("K线周期", ["日线", "周线", "月线"])
         days = st.radio("显示范围", [30,60,120,250,500], 2, horizontal=True)
         adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
         
         st.divider()
+        
+        # ✅ V41 新增：策略实验室
+        with st.expander("🎛️ 策略实验室", expanded=False):
+            st.caption("调整均线参数，优化回测结果")
+            ma_short = st.slider("短期均线 (Fast)", 2, 20, 5)
+            ma_long = st.slider("长期均线 (Slow)", 10, 120, 20)
+        
         st.markdown("### 🛠️ 指标开关")
         flags = {
             'ma': st.checkbox("MA 均线", True),
@@ -702,8 +777,8 @@ with st.sidebar:
             'fib': st.checkbox("斐波那契", True),
             'chan': st.checkbox("缠论分型", True)
         }
-        
         st.divider()
+        st.caption("免责声明：本系统仅供量化研究，不构成投资建议。市场有风险，投资需谨慎。")
         if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
     else:
         st.info("请先登录系统")
@@ -768,7 +843,8 @@ if not is_demo:
 
 try:
     funda = get_fundamentals(st.session_state.code, token)
-    df = calc_full_indicators(df)
+    # ✅ 使用自定义均线参数
+    df = calc_full_indicators(df, ma_short, ma_long)
     df = detect_patterns(df)
     
     trend_txt, trend_col = main_uptrend_check(df)
@@ -784,7 +860,7 @@ try:
     k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
     k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
     
-    plot_chart(df.tail(days), f"{name} {timeframe}分析", flags)
+    plot_chart(df.tail(days), f"{name} {timeframe}分析", flags, ma_short, ma_long)
     
     report_html = generate_deep_report(df, name)
     st.markdown(report_html, unsafe_allow_html=True)
@@ -812,14 +888,14 @@ try:
         """)
         
     st.subheader("⚖️ 历史回测报告 (Trend Following)")
-    ret, win, buys, sells, eq_df = run_backtest(df)
+    # ✅ 传递自定义参数给回测
+    ret, win, max_dd, buys, sells, eq_df = run_backtest(df)
     
     b1, b2, b3 = st.columns(3)
     b1.metric("总收益率", f"{ret:.2f}%", delta_color="normal" if ret>0 else "inverse")
     b2.metric("胜率", f"{win:.1f}%")
-    b3.metric("交易次数", f"{len(buys)} 次")
+    b3.metric("最大回撤", f"{max_dd:.2f}%", delta_color="inverse") # 回撤越小越好
     
-    # ✅ 修复：如果数据太少回测为空，显示提示而不是报错
     if not eq_df.empty:
         fig_bt = go.Figure()
         fig_bt.add_trace(go.Scatter(x=eq_df['date'], y=eq_df['equity'], mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2), fill='tozeroy', fillcolor='rgba(0, 113, 227, 0.1)'))

@@ -38,6 +38,7 @@ apple_css = """
     .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     
+    /* 侧边栏按钮 */
     .stDeployButton {display: none !important;} 
     footer {display: none !important;}
     
@@ -53,18 +54,9 @@ apple_css = """
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
     .captcha-box {background-color: #e5e5ea; color: #1d1d1f; font-family: monospace; font-weight: bold; font-size: 24px; text-align: center; padding: 10px; border-radius: 8px; letter-spacing: 8px; text-decoration: line-through; user-select: none;}
-    
-    /* 支付卡片 */
-    .pay-card {border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; transition: 0.3s;}
-    .pay-card:hover {border-color: #0071e3; background-color: #f0f8ff;}
-    .pay-price {font-size: 20px; font-weight: bold; color: #0071e3;}
-    
-    /* 自动发卡区域 */
-    .auto-key-box {
-        background-color: #e8f5e9; border: 1px dashed #4caf50; padding: 15px; border-radius: 10px;
-        text-align: center; margin-top: 15px; animation: fadeIn 0.5s;
-    }
-    .key-text {font-family: monospace; font-size: 18px; font-weight: bold; color: #2e7d32; letter-spacing: 1px;}
+    .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
+    .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
+    .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -72,7 +64,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v32.csv"
+DB_FILE = "users_v32_1.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -84,7 +76,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 数据库与工具函数
+# 2. 数据库与工具函数 (已补全)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -128,6 +120,28 @@ def load_keys():
     except: return pd.DataFrame(columns=["key", "points", "status", "created_at"])
 
 def save_keys(df): df.to_csv(KEYS_FILE, index=False)
+
+# ✅ 修复：补全 batch_generate_keys 函数
+def batch_generate_keys(points, count):
+    df = load_keys()
+    new_keys = []
+    
+    for _ in range(count):
+        # 生成格式：VIP-面值-随机码
+        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        key = f"VIP-{points}-{suffix}"
+        
+        new_row = {
+            "key": key, 
+            "points": points, 
+            "status": "unused",
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+        new_keys.append(new_row)
+    
+    df = pd.concat([df, pd.DataFrame(new_keys)], ignore_index=True)
+    save_keys(df)
+    return len(new_keys)
 
 def generate_key(points):
     key = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
@@ -554,15 +568,19 @@ with st.sidebar:
             except: q = 0
             st.metric("剩余积分", q)
             
-            with st.expander("💎 会员中心", expanded=True):
+            with st.expander("💳 充值中心"):
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
                     st.write("##### 1. 选择套餐")
-                    pay_opt = st.radio("充值面额", [20, 50, 100], horizontal=True)
+                    c1, c2, c3 = st.columns(3)
+                    with c1: st.markdown("<div class='buy-card'><div class='buy-price'>20</div><div style='font-size:12px'>体验包</div></div>", unsafe_allow_html=True)
+                    with c2: st.markdown("<div class='buy-card'><div class='buy-price'>50</div><div style='font-size:12px'>进阶包</div></div>", unsafe_allow_html=True)
+                    with c3: st.markdown("<div class='buy-card'><div class='buy-price'>100</div><div style='font-size:12px'>豪华包</div></div>", unsafe_allow_html=True)
+                    
+                    pay_opt = st.radio("确认充值面额", [20, 50, 100], horizontal=True)
                     st.info("💡 支付后请联系管理员获取卡密")
-                    # 请替换 alipay.png 为您的真实收款码图片
                     if os.path.exists("alipay.png"):
-                        st.image("alipay.png", width=200)
+                        st.image("alipay.png", caption="请使用支付宝扫码", width=200)
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     

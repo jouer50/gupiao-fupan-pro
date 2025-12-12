@@ -91,7 +91,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v42.csv"
+DB_FILE = "users_v43.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -242,7 +242,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (无代理版)
+# 3. 股票逻辑 (名称终极修复)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -267,7 +267,7 @@ def generate_mock_data(days=365):
     return df
 
 @st.cache_data(ttl=3600)
-def get_name(code, token):
+def get_name(code, token, proxy=None):
     clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
     
     # 1. 静态超级字典
@@ -279,7 +279,7 @@ def get_name(code, token):
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
 
-    # 2. 新浪财经接口 (A股最稳)
+    # 2. 新浪财经接口
     if clean_code.isdigit() and len(clean_code) == 6:
         prefixes = ['sh', 'sz', 'bj']
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
@@ -308,6 +308,7 @@ def get_name(code, token):
 
     # 3. Yahoo Finance
     try:
+        if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
         t = yf.Ticker(code)
         return t.info.get('shortName') or t.info.get('longName') or code
     except: pass
@@ -322,12 +323,13 @@ def get_name(code, token):
 
     return code
 
-def get_data_and_resample(code, token, timeframe, adjust):
+def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
     fetch_days = 1500 
     raw_df = pd.DataFrame()
     if not is_cn_stock(code):
         try:
+            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
             if not yf_df.empty:
                 if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
@@ -479,6 +481,8 @@ def get_drawing_lines(df):
 
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    
+    # ✅ 修复：检查自定义均线列
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
     if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
@@ -489,20 +493,25 @@ def run_backtest(df):
     
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
+        
+        # ✅ 修复：使用自定义均线进行回测
         if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
             capital = position * price; position = 0; sell_signals.append(date)
+        
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
+    
     eq_series = pd.Series(equity)
     cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax
     max_dd = drawdown.min() * 100
+    
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
@@ -610,7 +619,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置
+# ✅ 修复：侧边栏前置，防止退出后消失
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
@@ -629,22 +638,6 @@ with st.sidebar:
             st.cache_data.clear()
             st.success("已清除！正在重新获取...")
             time.sleep(1); st.rerun()
-            
-        # ✅ 新增：我的自选股
-        if not is_admin:
-            with st.expander("⭐ 我的自选股", expanded=False):
-                current_wl = get_user_watchlist(user)
-                if not current_wl: st.caption("暂无自选，请在上方添加")
-                else:
-                    for c in current_wl:
-                        c1, c2 = st.columns([3, 1])
-                        if c1.button(f"{c}", key=f"wl_{c}"):
-                            st.session_state.code = c
-                            st.session_state.paid_code = ""
-                            st.rerun()
-                        if c2.button("✖️", key=f"del_{c}"):
-                            update_watchlist(user, c, "remove")
-                            st.rerun()
 
         if is_admin:
             st.success("👑 管理员模式")
@@ -734,10 +727,10 @@ with st.sidebar:
                         else: st.error(msg)
         
         st.divider()
-        # ✅ V42 移除代理
+        # 🗑️ V42 移除代理
         try: dt = st.secrets["TUSHARE_TOKEN"]
         except: dt=""
-        token = st.text_input("Token", value=dt, type="password")
+        token = st.text_input("Token (可选)", value=dt, type="password")
         
         # ✅ V42 搜索前置
         new_c = st.text_input("🔍 股票代码 (美/港/A股)", st.session_state.code)
@@ -745,6 +738,20 @@ with st.sidebar:
         
         # ✅ 新增：添加自选按钮
         if not is_admin:
+            with st.expander("⭐ 我的自选股", expanded=False):
+                current_wl = get_user_watchlist(user)
+                if not current_wl: st.caption("暂无自选，请在上方添加")
+                else:
+                    for c in current_wl:
+                        c1, c2 = st.columns([3, 1])
+                        if c1.button(f"{c}", key=f"wl_{c}"):
+                            st.session_state.code = c
+                            st.session_state.paid_code = ""
+                            st.rerun()
+                        if c2.button("✖️", key=f"del_{c}"):
+                            update_watchlist(user, c, "remove")
+                            st.rerun()
+            
             if st.button("⭐ 加入自选股"):
                 wl = update_watchlist(user, st.session_state.code, "add")
                 st.success(f"已加入！当前自选: {wl}")
@@ -807,7 +814,7 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # --- 主内容区 ---
-name = get_name(st.session_state.code, token)
+name = get_name(st.session_state.code, token, proxy)
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
@@ -831,7 +838,7 @@ if st.session_state.code != st.session_state.paid_code:
 if not is_demo:
     loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
     with st.spinner(random.choice(loading_tips)):
-        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust)
+        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
         if df.empty:
             st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
             df = generate_mock_data(days)

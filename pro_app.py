@@ -38,7 +38,6 @@ apple_css = """
     .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     
-    /* 侧边栏按钮 */
     .stDeployButton {display: none !important;} 
     footer {display: none !important;}
     
@@ -64,7 +63,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v33.csv"
+DB_FILE = "users_v33_restore.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -544,24 +543,33 @@ with st.sidebar:
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据", csv, "backup.csv", "text/csv")
+                # ✅ 修复：重新加入数据恢复功能
+                uploaded_file = st.file_uploader("恢复用户数据 (users.csv)", type="csv", key="restore_users")
+                if uploaded_file is not None:
+                    try:
+                        df_restore = pd.read_csv(uploaded_file)
+                        required = ["username", "password_hash", "watchlist", "quota"]
+                        if all(col in df_restore.columns for col in required):
+                            df_restore.to_csv(DB_FILE, index=False)
+                            st.success("✅ 用户数据恢复成功！")
+                            time.sleep(1)
+                            st.rerun()
+                        else: st.error("❌ 文件格式错误")
+                    except Exception as e: st.error(f"❌ 恢复失败: {e}")
                 
             with st.expander("卡密管理"):
                 df_k = load_keys()
-                # ✅ 修复：默认只显示未使用的卡密
-                show_all = st.checkbox("显示已使用卡密", False)
-                if not show_all:
-                    display_df = df_k[df_k['status'] == 'unused']
-                else:
-                    display_df = df_k
+                # 默认只显示未使用
+                show_all = st.checkbox("显示已使用", False)
+                if not show_all: display_df = df_k[df_k['status'] == 'unused']
+                else: display_df = df_k
                 st.dataframe(display_df, hide_index=True, use_container_width=True)
                 
-                # ✅ 修复：一键清理按钮
-                if st.button("🗑️ 一键清理已使用卡密"):
+                if st.button("🗑️ 清理已用卡密"):
                     clean_df = df_k[df_k['status'] == 'unused']
                     save_keys(clean_df)
-                    st.success("已清理所有失效卡密！")
-                    time.sleep(1)
-                    st.rerun()
+                    st.success("已清理！")
+                    time.sleep(1); st.rerun()
 
                 unused_k = df_k[df_k['status']=='unused']
                 csv_k = unused_k.to_csv(index=False).encode('utf-8')
@@ -589,7 +597,6 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
-                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")

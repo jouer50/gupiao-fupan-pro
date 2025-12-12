@@ -63,7 +63,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v34.csv"
+DB_FILE = "users_v36.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -173,6 +173,7 @@ def consume_quota(u):
         return True
     return False
 
+# ✅ 核心修复：管理员手动修改积分
 def update_user_quota(target, new_q):
     df = load_users()
     idx = df[df["username"] == target].index
@@ -182,6 +183,7 @@ def update_user_quota(target, new_q):
         return True
     return False
 
+# ✅ 核心修复：管理员删除用户
 def delete_user(target):
     df = load_users()
     df = df[df["username"] != target]
@@ -513,7 +515,7 @@ def plot_chart(df, name, flags):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 执行入口
+# 4. 执行入口 (Logic)
 # ==========================================
 init_db()
 
@@ -537,9 +539,20 @@ with st.sidebar:
             with st.expander("用户管理"):
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
+                # ✅ 新增：手动修改积分
+                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
+                if u_list:
+                    target = st.selectbox("选择用户", u_list)
+                    val = st.number_input("新积分", value=0, step=10)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("更新"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
+                    with c2:
+                        # ✅ 新增：删除用户
+                        if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
+
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据", csv, "backup.csv", "text/csv")
-                # ✅ 修复：重新加入数据恢复功能
                 uploaded_file = st.file_uploader("恢复用户数据 (users.csv)", type="csv", key="restore_users")
                 if uploaded_file is not None:
                     try:
@@ -555,7 +568,6 @@ with st.sidebar:
                 
             with st.expander("卡密管理"):
                 df_k = load_keys()
-                # 默认只显示未使用
                 show_all = st.checkbox("显示已使用", False)
                 if not show_all: display_df = df_k[df_k['status'] == 'unused']
                 else: display_df = df_k
@@ -593,7 +605,6 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
-                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")
@@ -647,7 +658,6 @@ if not st.session_state.get('logged_in'):
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
-            # 移除了验证码
             if st.button("登录系统"):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")

@@ -25,10 +25,10 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro | AlphaQuant",
+    page_title="AlphaQuant Pro",
     layout="wide",
     page_icon="📈",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto" # 手机端自动收起侧边栏
 )
 
 # 初始化 Session
@@ -36,62 +36,108 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-apple_css = """
+# 🔥 V44 移动端核心 CSS 适配
+mobile_css = """
 <style>
-    .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
-    [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
-    
-    .stDeployButton {display: none !important;} 
-    footer {display: none !important;}
-    
-    .block-container {padding-top: 2rem !important;}
-    
-    div.stButton > button {background-color: #0071e3; color: white; border-radius: 8px; border: none; padding: 0.6rem 1rem; font-weight: 500; width: 100%; transition: 0.2s;}
-    div.stButton > button:hover {background-color: #0077ed; box-shadow: 0 4px 12px rgba(0,113,227,0.3);}
-    div.stButton > button[kind="secondary"] {background-color: #e5e5ea; color: #1d1d1f; border: 1px solid #d2d2d7;}
-    div.stButton > button[kind="secondary"]:hover {background-color: #d1d1d6;}
-    
-    div[data-testid="metric-container"] {background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
-    [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
-    
-    .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
-    .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
-    .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
-    
-    .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
-    .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
-    .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
-    
-    /* 品牌标题样式 */
-    .brand-title {
-        font-size: 32px; 
-        font-weight: 900; 
+    /* 全局字体与背景 */
+    .stApp {
+        background-color: #f5f5f7; 
         color: #1d1d1f; 
-        margin-bottom: 5px;
-        letter-spacing: -0.5px;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
     }
-    .brand-en {
-        font-size: 22px; 
+    
+    /* 隐藏 Streamlit 原生杂项 */
+    header {visibility: hidden;}
+    footer {display: none !important;}
+    .stDeployButton {display: none !important;}
+    [data-testid="stDecoration"] {display: none !important;} /* 隐藏顶部彩条 */
+
+    /* 手机端布局优化 */
+    .block-container {
+        padding-top: 1rem !important; 
+        padding-left: 0.8rem !important; 
+        padding-right: 0.8rem !important;
+    }
+
+    /* 按钮：大拇指友好型 (更大、圆角) */
+    div.stButton > button {
+        background-color: #0071e3; 
+        color: white; 
+        border-radius: 12px; 
+        border: none; 
+        padding: 0.8rem 1rem; /* 增加点击区域 */
+        font-weight: 600; 
+        width: 100%; 
+        font-size: 16px;
+        box-shadow: 0 2px 5px rgba(0,113,227,0.2);
+    }
+    div.stButton > button:active {transform: scale(0.98);}
+    
+    /* 次级按钮 (灰色) */
+    div.stButton > button[kind="secondary"] {
+        background-color: #f2f2f7; 
         color: #0071e3; 
-        font-weight: 800; 
-        margin-bottom: 20px; 
-        letter-spacing: 0.5px;
-        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        border: none;
     }
-    .brand-slogan {
-        font-size: 14px; 
-        color: #86868b; 
-        font-weight: 400;
-        margin-bottom: 30px;
+
+    /* 指标卡片 (Metrics) - 强制手机端网格布局 */
+    [data-testid="metric-container"] {
+        background-color: #ffffff; 
+        border: none; 
+        border-radius: 12px; 
+        padding: 12px; 
+        box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    [data-testid="stMetricLabel"] {font-size: 13px !important; color: #86868b;}
+    [data-testid="stMetricValue"] {font-size: 20px !important; font-weight: 700 !important; color: #1d1d1f;}
+    [data-testid="stMetricDelta"] {font-size: 12px !important;}
+
+    /* 研报盒子 */
+    .report-box {
+        background-color: #ffffff; 
+        border-radius: 16px; 
+        padding: 20px; 
+        font-size: 15px; 
+        line-height: 1.6; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+        margin-bottom: 15px;
+    }
+
+    /* 趋势横幅 */
+    .trend-banner {
+        padding: 15px; 
+        border-radius: 12px; 
+        margin-bottom: 20px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: space-between; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+    .trend-title {font-size: 18px; font-weight: 800; margin: 0;}
+
+    /* 品牌标题 */
+    .brand-title {font-size: 28px; font-weight: 900; color: #1d1d1f; margin-bottom: 5px; letter-spacing: -0.5px;}
+    .brand-en {font-size: 18px; color: #0071e3; font-weight: 700; margin-bottom: 10px;}
+    .brand-slogan {font-size: 13px; color: #86868b; margin-bottom: 20px;}
+
+    /* 输入框优化 */
+    .stTextInput > div > div > input {
+        border-radius: 10px; 
+        padding: 10px; 
+        font-size: 16px; /* 防止iOS放大 */
     }
 </style>
 """
-st.markdown(apple_css, unsafe_allow_html=True)
+st.markdown(mobile_css, unsafe_allow_html=True)
 
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v43.csv"
+DB_FILE = "users_v44.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -220,14 +266,11 @@ def update_watchlist(username, code, action="add"):
     idx = df[df["username"] == username].index[0]
     current_wl = str(df.loc[idx, "watchlist"])
     if current_wl == "nan": current_wl = ""
-    
     codes = [c.strip() for c in current_wl.split(",") if c.strip()]
-    
     if action == "add":
         if code not in codes: codes.append(code)
     elif action == "remove":
         if code in codes: codes.remove(code)
-        
     df.loc[idx, "watchlist"] = ",".join(codes)
     save_users(df)
     return ",".join(codes)
@@ -242,7 +285,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (无代理版)
+# 3. 股票逻辑 (移动端优化)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -269,8 +312,6 @@ def generate_mock_data(days=365):
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
-    
-    # 1. 静态超级字典
     QUICK_MAP = {
         '600519': '贵州茅台', '000858': '五粮液', '601318': '中国平安', '600036': '招商银行',
         '300750': '宁德时代', '002594': '比亚迪', '601888': '中国中免', '600276': '恒瑞医药',
@@ -278,50 +319,28 @@ def get_name(code, token, proxy=None):
         'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 'BABA': 'Alibaba'
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
-
-    # 2. 新浪财经接口 (A股最稳)
-    if clean_code.isdigit() and len(clean_code) == 6:
-        prefixes = ['sh', 'sz', 'bj']
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
-        for prefix in prefixes:
-            try:
-                url = f"http://hq.sinajs.cn/list={prefix}{clean_code}"
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=1) as response:
-                    content = response.read().decode('gbk', errors='ignore')
-                    if '="' in content:
-                        parts = content.split('="')
-                        if len(parts) > 1:
-                            data_str = parts[1]
-                            if len(data_str) > 1:
-                                return data_str.split(',')[0]
-            except: continue
-        
-        # 3. 东方财富接口
-        try:
-            url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
-            req = urllib.request.Request(url_east, headers=headers)
-            with urllib.request.urlopen(req, timeout=1) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                if data and "QuotationCodeTable" in data and data["QuotationCodeTable"]["Data"]:
-                    return data["QuotationCodeTable"]["Data"][0]["Name"]
-        except: pass
-
-    # 4. Yahoo Finance
-    try:
-        if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
-        t = yf.Ticker(code)
-        return t.info.get('shortName') or t.info.get('longName') or code
-    except: pass
     
-    # 5. Tushare
-    if token and ts:
+    if is_cn_stock(clean_code) and token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
 
+    if is_cn_stock(clean_code) and bs:
+        try:
+            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
+            if rs.error_code == '0':
+                data = rs.get_row_data()
+                if len(data)>1: bs.logout(); return data[1]
+            bs.logout()
+        except: pass
+
+    try:
+        t = yf.Ticker(code)
+        return t.info.get('shortName') or t.info.get('longName') or code
+    except: pass
+    
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
@@ -330,7 +349,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     raw_df = pd.DataFrame()
     if not is_cn_stock(code):
         try:
-            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
             if not yf_df.empty:
                 if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
@@ -483,7 +501,6 @@ def get_drawing_lines(df):
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     
-    # ✅ 修复：检查自定义均线列
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
     if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
@@ -495,7 +512,6 @@ def run_backtest(df):
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
         
-        # ✅ 修复：使用自定义均线进行回测
         if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
@@ -581,6 +597,9 @@ def main_uptrend_check(df):
 
 def plot_chart(df, name, flags, ma_s, ma_l):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
+    # 🔥 V44 手机端触控优化：关闭 dragmode 防止误触
+    fig.update_layout(dragmode=False)
+    
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'), 1, 1)
     
     if flags.get('ma'):
@@ -612,7 +631,8 @@ def plot_chart(df, name, flags, ma_s, ma_l):
         fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D线'), 4, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#af52de', width=1), name='J线'), 4, 1)
     
-    fig.update_layout(height=900, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=1.02))
+    # 🔥 V44 移动端布局优化：Legend 底部显示，高度自适应
+    fig.update_layout(height=500, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=-0.2))
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
@@ -722,7 +742,6 @@ with st.sidebar:
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
                     st.write("##### 1. 选择充值套餐")
-                    # ✅ V40.2 优化：使用 Radio Button 替代大卡片
                     pay_opt = st.radio("点击选择面额 (元)", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
                     
                     st.info("💡 支付后请点击下方按钮获取卡密")
@@ -731,7 +750,6 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
-                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")
@@ -746,14 +764,14 @@ with st.sidebar:
                         else: st.error(msg)
         
         st.divider()
-        # ✅ V42 移除代理，保留 Token 默认隐藏
+        # V42 移除代理，保留 Token 默认隐藏
         token = "" # 默认空，自动使用内置 key
         
-        # ✅ V42 搜索前置
+        # V42 搜索前置
         new_c = st.text_input("🔍 股票代码 (美/港/A股)", st.session_state.code)
         if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
         
-        # ✅ 新增：添加自选按钮
+        # 新增：添加自选按钮
         if not is_admin:
             if st.button("⭐ 加入自选股"):
                 wl = update_watchlist(user, st.session_state.code, "add")
@@ -766,7 +784,7 @@ with st.sidebar:
         
         st.divider()
         
-        # ✅ V41 新增：策略实验室
+        # V41 新增：策略实验室
         with st.expander("🎛️ 策略实验室", expanded=False):
             st.caption("调整均线参数，优化回测结果")
             ma_short = st.slider("短期均线 (Fast)", 2, 20, 5)
@@ -859,13 +877,17 @@ try:
     tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
     st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
     
-    l = df.iloc[-1]
-    k1,k2,k3,k4,k5 = st.columns(5)
-    k1.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
-    k2.metric("PE", funda['pe'])
-    k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
-    k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
-    k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
+    # 🔥 V44 移动端优化：使用 columns 2-3 列布局，而不是 5 列
+    # Streamlit 的 columns 在手机端会自动垂直堆叠，或者我们可以手动分组
+    col1, col2 = st.columns(2)
+    with col1:
+        l = df.iloc[-1]
+        st.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
+        st.metric("RSI (14)", safe_fmt(l['RSI'], "{:.1f}"))
+        st.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
+    with col2:
+        st.metric("PE (TTM)", funda['pe'])
+        st.metric("ADX (趋势)", safe_fmt(l['ADX'], "{:.1f}"))
     
     plot_chart(df.tail(days), f"{name} {timeframe}分析", flags, ma_short, ma_long)
     

@@ -62,10 +62,28 @@ apple_css = """
     .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
     .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
     
-    /* 品牌标题样式 */
-    .brand-title {font-size: 24px; font-weight: 800; color: #1d1d1f; margin-bottom: 2px;}
-    .brand-en {font-size: 14px; color: #0071e3; font-weight: 600; margin-bottom: 15px; letter-spacing: 0.5px;}
-    .brand-slogan {font-size: 12px; color: #86868b; font-weight: 400;}
+    /* 核心优化：品牌标题样式 */
+    .brand-title {
+        font-size: 32px; 
+        font-weight: 900; 
+        color: #1d1d1f; 
+        margin-bottom: 5px;
+        letter-spacing: -0.5px;
+    }
+    .brand-en {
+        font-size: 22px; 
+        color: #0071e3; 
+        font-weight: 800; 
+        margin-bottom: 20px; 
+        letter-spacing: 0.5px;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .brand-slogan {
+        font-size: 14px; 
+        color: #86868b; 
+        font-weight: 400;
+        margin-bottom: 30px;
+    }
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -73,7 +91,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v39.csv"
+DB_FILE = "users_v40.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -198,7 +216,7 @@ def delete_user(target):
     save_users(df)
 
 # ==========================================
-# 3. 股票逻辑
+# 3. 股票逻辑 (名称终极修复)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -224,46 +242,60 @@ def generate_mock_data(days=365):
 
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
-    code = process_ticker(code)
-    # 1. 本地超级字典
+    clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
+    
+    # 1. 静态超级字典
     QUICK_MAP = {
         '600519': '贵州茅台', '000858': '五粮液', '601318': '中国平安', '600036': '招商银行',
         '300750': '宁德时代', '002594': '比亚迪', '601888': '中国中免', '600276': '恒瑞医药',
         '601857': '中国石油', '601088': '中国神华', '601988': '中国银行', '601398': '工商银行',
         'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 'BABA': 'Alibaba'
     }
-    # 模糊匹配
-    clean_code = code.replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
-    if code in QUICK_MAP: return QUICK_MAP[code]
 
-    # 2. Tushare (Token)
-    if is_cn_stock(clean_code) and token and ts:
+    # 2. 新浪财经接口
+    if clean_code.isdigit() and len(clean_code) == 6:
+        prefixes = ['sh', 'sz', 'bj']
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
+        for prefix in prefixes:
+            try:
+                url = f"http://hq.sinajs.cn/list={prefix}{clean_code}"
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=1) as response:
+                    content = response.read().decode('gbk', errors='ignore')
+                    if '="' in content:
+                        parts = content.split('="')
+                        if len(parts) > 1:
+                            data_str = parts[1]
+                            if len(data_str) > 1:
+                                return data_str.split(',')[0]
+            except: continue
+        
+        # 3. 东方财富
+        try:
+            url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
+            req = urllib.request.Request(url_east, headers=headers)
+            with urllib.request.urlopen(req, timeout=1) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                if data and "QuotationCodeTable" in data and data["QuotationCodeTable"]["Data"]:
+                    return data["QuotationCodeTable"]["Data"][0]["Name"]
+        except: pass
+
+    # 4. Yahoo Finance
+    try:
+        if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
+        t = yf.Ticker(code)
+        return t.info.get('shortName') or t.info.get('longName') or code
+    except: pass
+    
+    # 5. Tushare
+    if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-        
-    # 3. Baostock
-    if is_cn_stock(clean_code) and bs:
-        try:
-            bs.login()
-            rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
-            if rs.error_code == '0':
-                data = rs.get_row_data()
-                if len(data)>1:
-                    bs.logout(); return data[1]
-            bs.logout()
-        except: pass
 
-    # 4. Yahoo
-    if not is_cn_stock(code):
-        try:
-            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
-            return yf.Ticker(code).info.get('shortName', code)
-        except: pass
-    
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
@@ -639,6 +671,7 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
+                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")

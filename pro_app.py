@@ -19,7 +19,7 @@ except ImportError:
     st.stop()
 
 # ==========================================
-# 1. 核心配置 & 初始化
+# 1. 核心配置
 # ==========================================
 st.set_page_config(
     page_title="AlphaQuant Pro",
@@ -28,7 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 初始化 Session State (放在最前面，防止报错)
+# 初始化 Session
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
@@ -37,12 +37,19 @@ apple_css = """
 <style>
     .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
-    header, footer, .stDeployButton, [data-testid="stToolbar"], [data-testid="stDecoration"] {display: none !important;}
-    .block-container {padding-top: 1.5rem !important;}
+    
+    /* ✅ 修复：不再隐藏 Header，找回侧边栏开关按钮 */
+    .stDeployButton {display: none !important;} 
+    footer {display: none !important;}
+    
+    .block-container {padding-top: 2rem !important;}
+    
     div.stButton > button {background-color: #0071e3; color: white; border-radius: 8px; border: none; padding: 0.6rem 1rem; font-weight: 500; width: 100%; transition: 0.2s;}
     div.stButton > button:hover {background-color: #0077ed; box-shadow: 0 4px 12px rgba(0,113,227,0.3);}
+    
     div[data-testid="metric-container"] {background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
+    
     .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
@@ -57,7 +64,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v31_1.csv"
+DB_FILE = "users_v31_2.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -199,6 +206,8 @@ def generate_mock_data(days=365):
     df['low'] = df[['open', 'close']].min(axis=1) * np.random.uniform(0.97, 1.0, days)
     df['volume'] = np.random.randint(1000000, 50000000, days)
     df['pct_change'] = df['close'].pct_change() * 100
+    df['MA5'] = df['close'].rolling(5).mean()
+    df['MA20'] = df['close'].rolling(20).mean()
     return df
 
 @st.cache_data(ttl=3600)
@@ -377,26 +386,30 @@ def get_drawing_lines(df):
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
-# ✅ 修复：回测函数增加数据量熔断机制
+# ✅ 修复：回测数据不足时熔断，防止报错
 def run_backtest(df):
-    # 如果数据不够（比如刚上市或被清洗掉太多），直接返回空结果
-    if df is None or len(df) < 50:
-        return 0.0, 0.0, [], [], pd.DataFrame({'date': [], 'equity': []})
-
-    capital = 100000; position = 0; df = df.copy().dropna()
+    # 只针对回测需要的列去除空值
+    if df is None: return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     
-    # 再次检查 dropna 后的长度
-    if len(df) < 50:
-        return 0.0, 0.0, [], [], pd.DataFrame({'date': [], 'equity': []})
+    needed_cols = ['MA5', 'MA20', 'close', 'date']
+    if not all(col in df.columns for col in needed_cols):
+        return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
 
+    # 仅删除核心指标为空的行 (保留最近的数据)
+    df_bt = df.dropna(subset=needed_cols).copy().reset_index(drop=True)
+    
+    # 再次检查行数
+    if len(df_bt) < 20:
+        return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+
+    capital = 100000; position = 0
     buy_signals = []; sell_signals = []; equity = [capital]
-    dates = [df.iloc[0]['date']] # 初始日期
+    dates = [df_bt.iloc[0]['date']]
     
-    for i in range(1, len(df)):
-        curr = df.iloc[i]; prev = df.iloc[i-1]; price = curr['close']
+    for i in range(1, len(df_bt)):
+        curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']
         date = curr['date']
         
-        # 策略逻辑
         if prev['MA5'] <= prev['MA20'] and curr['MA5'] > curr['MA20'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA5'] >= prev['MA20'] and curr['MA5'] < curr['MA20'] and position > 0:
@@ -409,7 +422,6 @@ def run_backtest(df):
     final_equity = equity[-1]; ret = (final_equity - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
     
-    # 返回 DataFrame 供 Plotly 绘图
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
     return ret, win, buy_signals, sell_signals, eq_df
 
@@ -515,7 +527,8 @@ def plot_chart(df, name, flags):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置，防止退出后消失
+# ✅ 修复：先渲染侧边栏，再检查登录
+# 这样即使未登录或退出后，侧边栏 Logo 和入口依然可见，给人“软件还在”的安全感
 with st.sidebar:
     st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:20px'>AlphaQuant <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
     
@@ -551,7 +564,7 @@ with st.sidebar:
             except: q = 0
             st.metric("剩余积分", q)
             
-            with st.expander("💎 会员中心", expanded=True):
+            with st.expander("💳 充值中心"):
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
                     st.write("##### 1. 选择套餐")
@@ -598,10 +611,11 @@ with st.sidebar:
     else:
         st.info("请先登录系统")
 
-# 登录逻辑
-if not st.session_state.get('logged_in'):
+# 登录流程
+if not st.session_state['logged_in']:
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
+        st.markdown("<br><br><h1 style='text-align:center'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
         with tab1:
             u = st.text_input("账号")
@@ -633,7 +647,7 @@ if not st.session_state.get('logged_in'):
                     else: st.error(msg)
     st.stop()
 
-# --- 主内容区 ---
+# --- 内容区 ---
 name = get_name(st.session_state.code, token, proxy)
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
@@ -716,14 +730,14 @@ try:
     b2.metric("胜率", f"{win:.1f}%")
     b3.metric("交易次数", f"{len(buys)} 次")
     
-    # 绘制资金曲线
+    # ✅ 修复：如果数据太少回测为空，显示提示而不是报错
     if not eq_df.empty:
         fig_bt = go.Figure()
         fig_bt.add_trace(go.Scatter(x=eq_df['date'], y=eq_df['equity'], mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2), fill='tozeroy', fillcolor='rgba(0, 113, 227, 0.1)'))
         fig_bt.update_layout(height=300, margin=dict(t=30,b=10,l=10,r=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'))
         st.plotly_chart(fig_bt, use_container_width=True)
     else:
-        st.info("数据不足，无法生成资金曲线")
+        st.info("📉 数据量不足 (少于20个交易日)，无法生成回测曲线")
 
 except Exception as e:
     st.error(f"❌ 系统发生错误: {e}")

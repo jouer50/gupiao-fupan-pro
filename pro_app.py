@@ -19,7 +19,7 @@ except ImportError:
     st.stop()
 
 # ==========================================
-# 1. 核心配置
+# 1. 核心配置 & 初始化
 # ==========================================
 st.set_page_config(
     page_title="AlphaQuant Pro",
@@ -38,7 +38,7 @@ apple_css = """
     .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     
-    /* ✅ 修复：不再隐藏 Header，找回侧边栏开关按钮 */
+    /* 侧边栏按钮 */
     .stDeployButton {display: none !important;} 
     footer {display: none !important;}
     
@@ -64,7 +64,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v31_2.csv"
+DB_FILE = "users_v32.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -386,7 +386,7 @@ def get_drawing_lines(df):
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
-# ✅ 修复：回测数据不足时熔断，防止报错
+# ✅ 修复：回测函数增加数据量熔断机制
 def run_backtest(df):
     # 只针对回测需要的列去除空值
     if df is None: return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
@@ -410,6 +410,7 @@ def run_backtest(df):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']
         date = curr['date']
         
+        # 修复：正确引用 win_rate (之前这里变量名写错了)
         if prev['MA5'] <= prev['MA20'] and curr['MA5'] > curr['MA20'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA5'] >= prev['MA20'] and curr['MA5'] < curr['MA20'] and position > 0:
@@ -423,7 +424,7 @@ def run_backtest(df):
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
     
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
-    return ret, win, buy_signals, sell_signals, eq_df
+    return ret, win_rate, buy_signals, sell_signals, eq_df
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
@@ -527,8 +528,7 @@ def plot_chart(df, name, flags):
 # ==========================================
 init_db()
 
-# ✅ 修复：先渲染侧边栏，再检查登录
-# 这样即使未登录或退出后，侧边栏 Logo 和入口依然可见，给人“软件还在”的安全感
+# ✅ 修复：侧边栏前置，防止退出后消失
 with st.sidebar:
     st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:20px'>AlphaQuant <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
     
@@ -611,8 +611,8 @@ with st.sidebar:
     else:
         st.info("请先登录系统")
 
-# 登录流程
-if not st.session_state['logged_in']:
+# 登录逻辑
+if not st.session_state.get('logged_in'):
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
         st.markdown("<br><br><h1 style='text-align:center'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
@@ -647,7 +647,7 @@ if not st.session_state['logged_in']:
                     else: st.error(msg)
     st.stop()
 
-# --- 内容区 ---
+# --- 主内容区 ---
 name = get_name(st.session_state.code, token, proxy)
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")

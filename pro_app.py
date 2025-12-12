@@ -25,10 +25,10 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="AlphaQuant Pro",
+    page_title="阿尔法量研 Pro | AlphaQuant",
     layout="wide",
     page_icon="📈",
-    initial_sidebar_state="auto" # 手机端自动收起侧边栏
+    initial_sidebar_state="auto" # 手机自动收起，PC自动展开
 )
 
 # 初始化 Session
@@ -36,7 +36,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# 🔥 V44 移动端核心 CSS 适配
+# 🔥 V44.1 移动端 CSS 修复版
 mobile_css = """
 <style>
     /* 全局字体与背景 */
@@ -46,26 +46,39 @@ mobile_css = """
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
     }
     
-    /* 隐藏 Streamlit 原生杂项 */
-    header {visibility: hidden;}
+    /* ✅ 修复：不隐藏整个 Header，只隐藏干扰元素 */
+    /* header {visibility: hidden;}  <-- 删除了这行 */
+    
+    /* 隐藏顶部彩条 */
+    [data-testid="stDecoration"] {display: none !important;} 
+    
+    /* 隐藏 Deploy 按钮 */
+    .stDeployButton {display: none !important;} 
+    
+    /* 隐藏页脚 */
     footer {display: none !important;}
-    .stDeployButton {display: none !important;}
-    [data-testid="stDecoration"] {display: none !important;} /* 隐藏顶部彩条 */
+
+    /* 确保左上角侧边栏开关可见，并增加点击区域 */
+    [data-testid="collapsedControl"] {
+        display: block !important;
+        color: #0071e3 !important; /* 设为品牌蓝，更明显 */
+        transform: scale(1.2); /* 放大一点，方便手指点击 */
+    }
 
     /* 手机端布局优化 */
     .block-container {
-        padding-top: 1rem !important; 
+        padding-top: 3rem !important; /* 留出顶部空间给按钮 */
         padding-left: 0.8rem !important; 
         padding-right: 0.8rem !important;
     }
 
-    /* 按钮：大拇指友好型 (更大、圆角) */
+    /* 按钮：大拇指友好型 */
     div.stButton > button {
         background-color: #0071e3; 
         color: white; 
         border-radius: 12px; 
         border: none; 
-        padding: 0.8rem 1rem; /* 增加点击区域 */
+        padding: 0.8rem 1rem; 
         font-weight: 600; 
         width: 100%; 
         font-size: 16px;
@@ -73,14 +86,14 @@ mobile_css = """
     }
     div.stButton > button:active {transform: scale(0.98);}
     
-    /* 次级按钮 (灰色) */
+    /* 次级按钮 */
     div.stButton > button[kind="secondary"] {
         background-color: #f2f2f7; 
         color: #0071e3; 
         border: none;
     }
 
-    /* 指标卡片 (Metrics) - 强制手机端网格布局 */
+    /* 指标卡片 */
     [data-testid="metric-container"] {
         background-color: #ffffff; 
         border: none; 
@@ -118,7 +131,7 @@ mobile_css = """
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
     .trend-title {font-size: 18px; font-weight: 800; margin: 0;}
-
+    
     /* 品牌标题 */
     .brand-title {font-size: 28px; font-weight: 900; color: #1d1d1f; margin-bottom: 5px; letter-spacing: -0.5px;}
     .brand-en {font-size: 18px; color: #0071e3; font-weight: 700; margin-bottom: 10px;}
@@ -128,7 +141,7 @@ mobile_css = """
     .stTextInput > div > div > input {
         border-radius: 10px; 
         padding: 10px; 
-        font-size: 16px; /* 防止iOS放大 */
+        font-size: 16px; 
     }
 </style>
 """
@@ -285,7 +298,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (移动端优化)
+# 3. 股票逻辑
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -597,7 +610,7 @@ def main_uptrend_check(df):
 
 def plot_chart(df, name, flags, ma_s, ma_l):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
-    # 🔥 V44 手机端触控优化：关闭 dragmode 防止误触
+    # ✅ V44 移动端触控优化
     fig.update_layout(dragmode=False)
     
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'), 1, 1)
@@ -631,7 +644,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
         fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D线'), 4, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#af52de', width=1), name='J线'), 4, 1)
     
-    # 🔥 V44 移动端布局优化：Legend 底部显示，高度自适应
+    # 🔥 V44 布局优化
     fig.update_layout(height=500, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=-0.2))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -640,7 +653,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置，防止退出后消失
+# ✅ 修复：侧边栏前置
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
@@ -654,7 +667,7 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
-        # ✅ 新增：刷新名称缓存按钮 (应对网络问题)
+        # ✅ 新增：刷新名称缓存按钮
         if st.button("🔄 刷新缓存/修复名称"):
             st.cache_data.clear()
             st.success("已清除！正在重新获取...")
@@ -742,6 +755,7 @@ with st.sidebar:
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
                     st.write("##### 1. 选择充值套餐")
+                    # ✅ V40.2 优化：使用 Radio Button 替代大卡片
                     pay_opt = st.radio("点击选择面额 (元)", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
                     
                     st.info("💡 支付后请点击下方按钮获取卡密")
@@ -750,6 +764,7 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
+                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")

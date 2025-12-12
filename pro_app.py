@@ -58,10 +58,6 @@ apple_css = """
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
     
-    .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
-    .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
-    .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
-    
     /* 品牌标题样式 */
     .brand-title {
         font-size: 32px; 
@@ -574,7 +570,7 @@ def plot_chart(df, name, flags):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置
+# ✅ 修复：侧边栏前置，防止退出后消失
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
@@ -588,6 +584,7 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
+        # ✅ 新增：刷新名称缓存按钮 (应对网络问题)
         if st.button("🔄 刷新缓存/修复名称"):
             st.cache_data.clear()
             st.success("已清除！正在重新获取...")
@@ -606,6 +603,7 @@ with st.sidebar:
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
                 
+                # ✅ 新增：手动修改积分
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
                     target = st.selectbox("选择用户", u_list)
@@ -614,12 +612,11 @@ with st.sidebar:
                     with c1:
                         if st.button("更新"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
                     with c2:
-                        chk = st.checkbox("确认删除")
-                        if st.button("删除") and chk: delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
+                        if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
 
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据", csv, "backup.csv", "text/csv")
-                uploaded_file = st.file_uploader("恢复用户数据", type="csv", key="restore_users")
+                uploaded_file = st.file_uploader("恢复用户数据 (users.csv)", type="csv", key="restore_users")
                 if uploaded_file is not None:
                     try:
                         df_restore = pd.read_csv(uploaded_file)
@@ -643,6 +640,10 @@ with st.sidebar:
                     save_keys(clean_df)
                     st.success("已清理！")
                     time.sleep(1); st.rerun()
+
+                unused_k = df_k[df_k['status']=='unused']
+                csv_k = unused_k.to_csv(index=False).encode('utf-8')
+                st.download_button("导出未使用卡密", csv_k, "unused_keys.csv", "text/csv")
         else:
             st.info(f"👤 {user}")
             df_u = load_users()
@@ -653,18 +654,16 @@ with st.sidebar:
             with st.expander("💎 会员中心", expanded=True):
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
-                    st.write("##### 1. 选择套餐")
-                    c1, c2, c3 = st.columns(3)
-                    with c1: st.markdown("<div class='buy-card'><div class='buy-price'>20</div><div style='font-size:12px'>体验包</div></div>", unsafe_allow_html=True)
-                    with c2: st.markdown("<div class='buy-card'><div class='buy-price'>50</div><div style='font-size:12px'>进阶包</div></div>", unsafe_allow_html=True)
-                    with c3: st.markdown("<div class='buy-card'><div class='buy-price'>100</div><div style='font-size:12px'>豪华包</div></div>", unsafe_allow_html=True)
+                    st.write("##### 1. 选择充值套餐")
+                    pay_opt = st.radio("点击选择面额 (元)", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
                     
-                    pay_opt = st.radio("确认充值面额", [20, 50, 100], horizontal=True)
+                    st.info("💡 支付后请点击下方按钮获取卡密")
                     if os.path.exists("alipay.png"):
                         st.image("alipay.png", caption="请使用支付宝扫码", width=200)
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
+                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")
@@ -703,8 +702,8 @@ with st.sidebar:
             'fib': st.checkbox("斐波那契", True),
             'chan': st.checkbox("缠论分型", True)
         }
+        
         st.divider()
-        st.caption("免责声明：本系统仅供量化研究，不构成投资建议。市场有风险，投资需谨慎。")
         if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
     else:
         st.info("请先登录系统")
@@ -820,6 +819,7 @@ try:
     b2.metric("胜率", f"{win:.1f}%")
     b3.metric("交易次数", f"{len(buys)} 次")
     
+    # ✅ 修复：如果数据太少回测为空，显示提示而不是报错
     if not eq_df.empty:
         fig_bt = go.Figure()
         fig_bt.add_trace(go.Scatter(x=eq_df['date'], y=eq_df['equity'], mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2), fill='tozeroy', fillcolor='rgba(0, 113, 227, 0.1)'))

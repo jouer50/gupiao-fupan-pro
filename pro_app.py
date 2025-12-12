@@ -19,7 +19,7 @@ except ImportError:
     st.stop()
 
 # ==========================================
-# 1. 核心配置
+# 1. 核心配置 & 初始化
 # ==========================================
 st.set_page_config(
     page_title="AlphaQuant Pro",
@@ -38,7 +38,6 @@ apple_css = """
     .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     
-    /* 侧边栏按钮 */
     .stDeployButton {display: none !important;} 
     footer {display: none !important;}
     
@@ -64,7 +63,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v32_1.csv"
+DB_FILE = "users_v32_2.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -76,7 +75,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 数据库与工具函数 (已补全)
+# 2. 数据库与工具函数
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -121,24 +120,14 @@ def load_keys():
 
 def save_keys(df): df.to_csv(KEYS_FILE, index=False)
 
-# ✅ 修复：补全 batch_generate_keys 函数
 def batch_generate_keys(points, count):
     df = load_keys()
     new_keys = []
-    
     for _ in range(count):
-        # 生成格式：VIP-面值-随机码
         suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         key = f"VIP-{points}-{suffix}"
-        
-        new_row = {
-            "key": key, 
-            "points": points, 
-            "status": "unused",
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")
-        }
+        new_row = {"key": key, "points": points, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
         new_keys.append(new_row)
-    
     df = pd.concat([df, pd.DataFrame(new_keys)], ignore_index=True)
     save_keys(df)
     return len(new_keys)
@@ -554,7 +543,22 @@ with st.sidebar:
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据", csv, "backup.csv", "text/csv")
-                
+                # 恢复用户数据
+                uploaded_file = st.file_uploader("恢复用户数据 (users.csv)", type="csv", key="restore_users")
+                if uploaded_file is not None:
+                    try:
+                        df_restore = pd.read_csv(uploaded_file)
+                        required = ["username", "password_hash", "watchlist", "quota"]
+                        if all(col in df_restore.columns for col in required):
+                            df_restore.to_csv(DB_FILE, index=False)
+                            st.success("✅ 用户数据恢复成功！")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ 文件格式错误：缺少关键列")
+                    except Exception as e:
+                        st.error(f"❌ 恢复失败: {e}")
+
             with st.expander("卡密管理"):
                 df_k = load_keys()
                 st.dataframe(df_k, hide_index=True)
@@ -568,7 +572,7 @@ with st.sidebar:
             except: q = 0
             st.metric("剩余积分", q)
             
-            with st.expander("💳 充值中心"):
+            with st.expander("💎 会员中心", expanded=True):
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
                     st.write("##### 1. 选择套餐")

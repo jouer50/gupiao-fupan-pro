@@ -52,7 +52,7 @@ apple_css = """
     .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
-    .captcha-box {background-color: #e5e5ea; color: #1d1d1f; font-family: monospace; font-weight: bold; font-size: 24px; text-align: center; padding: 10px; border-radius: 8px; letter-spacing: 8px; text-decoration: line-through; user-select: none;}
+    
     .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
     .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
     .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
@@ -63,7 +63,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v33_2.csv"
+DB_FILE = "users_v34.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -98,15 +98,6 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
         if np.isnan(f_val) or np.isinf(f_val): return default
         return fmt.format(f_val) + suffix
     except: return default
-
-def generate_captcha():
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-    st.session_state['captcha_correct'] = code
-    return code
-
-def verify_captcha(user_input):
-    if 'captcha_correct' not in st.session_state: generate_captcha(); return False
-    return user_input.strip().upper() == st.session_state['captcha_correct']
 
 def load_users():
     try: return pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int})
@@ -143,7 +134,7 @@ def generate_key(points):
 def redeem_key(username, key_input):
     df_keys = load_keys()
     match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"] == "unused")]
-    if match.empty: return False, "❌ 卡密无效"
+    if match.empty: return False, "❌ 卡密无效或已被使用"
     points_to_add = int(match.iloc[0]["points"])
     df_keys.loc[match.index[0], "status"] = f"used_by_{username}"
     save_keys(df_keys)
@@ -197,7 +188,7 @@ def delete_user(target):
     save_users(df)
 
 # ==========================================
-# 3. 股票逻辑 (名称超级字典修复)
+# 3. 股票逻辑
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -223,64 +214,32 @@ def generate_mock_data(days=365):
 
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
-    raw_code = code.upper()
-    
-    # ✅ 1. 超级字典：硬编码热门股，确保秒显
+    code = process_ticker(code)
     QUICK_MAP = {
-        # 消费/白酒
-        '600519': '贵州茅台', '000858': '五粮液', '600887': '伊利股份', '603288': '海天味业', '000568': '泸州老窖',
-        # 科技/新能源
-        '300750': '宁德时代', '002594': '比亚迪', '601012': '隆基绿能', '002415': '海康威视', '000725': '京东方A',
-        '002352': '顺丰控股', '002475': '立讯精密', '603501': '韦尔股份', '002230': '科大讯飞', '601138': '工业富联',
-        '688981': '中芯国际', '002371': '北方华创', '603986': '兆易创新', '300014': '亿纬锂能', '002049': '紫光国微',
-        # 金融/银行
-        '601318': '中国平安', '600036': '招商银行', '600030': '中信证券', '300059': '东方财富', '000001': '平安银行',
-        '601166': '兴业银行', '600000': '浦发银行', '601398': '工商银行', '601288': '农业银行', '601988': '中国银行',
-        # 医药
-        '600276': '恒瑞医药', '300015': '爱尔眼科', '300760': '迈瑞医疗', '603259': '药明康德',
-        # 中字头
-        '601857': '中国石油', '600028': '中国石化', '600900': '长江电力', '601088': '中国神华', '601888': '中国中免',
-        '601668': '中国建筑', '601800': '中国交建', '601728': '中国电信', '600941': '中国移动',
-        # 美股
-        'AAPL': 'Apple Inc', 'TSLA': 'Tesla Inc', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 
-        'GOOGL': 'Alphabet (Google)', 'AMZN': 'Amazon', 'META': 'Meta', 'NFLX': 'Netflix',
-        'AMD': 'AMD', 'INTC': 'Intel', 'BABA': 'Alibaba', 'PDD': 'Pinduoduo', 'JD': 'JD.com',
-        # 港股
-        '0700.HK': '腾讯控股', '9988.HK': '阿里巴巴', '3690.HK': '美团', '1810.HK': '小米集团', 
-        '0981.HK': '中芯国际', '0992.HK': '联想集团', '1211.HK': '比亚迪股份'
+        '600519': '贵州茅台', '000858': '五粮液', '300750': '宁德时代', '002594': '比亚迪', 
+        '601318': '中国平安', '600036': '招商银行', '300059': '东方财富', '000001': '平安银行',
+        'AAPL': 'Apple Inc', 'TSLA': 'Tesla Inc', 'NVDA': 'NVIDIA Corp', 'MSFT': 'Microsoft',
+        '0700.HK': '腾讯控股', '9988.HK': '阿里巴巴', '3690.HK': '美团'
     }
-    
-    # 模糊匹配：尝试去除 .SH .SZ 后再查
-    clean_code = raw_code.replace('.SH', '').replace('.SZ', '').replace('SH', '').replace('SZ', '')
-    if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
-    if raw_code in QUICK_MAP: return QUICK_MAP[raw_code]
-    
-    # 2. API 兜底
-    code_yf = process_ticker(code)
-    if not is_cn_stock(clean_code):
+    if code in QUICK_MAP: return QUICK_MAP[code]
+    if not is_cn_stock(code):
         try:
             if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
-            return yf.Ticker(code_yf).info.get('shortName', code_yf)
-        except: return code_yf
-        
+            return yf.Ticker(code).info.get('shortName', code)
+        except: return code
     if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
-            df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
+            df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-        
     if bs:
         try:
-            bs.login()
-            rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
-            if rs.error_code == '0':
-                data = rs.get_row_data()
-                if len(data) > 1: return data[1]
+            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(code))
+            if rs.error_code == '0' and len(rs.get_row_data())>1: return rs.get_row_data()[1]
             bs.logout()
         except: pass
-        
-    return clean_code
+    return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
@@ -554,7 +513,7 @@ def plot_chart(df, name, flags):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 执行入口 (Logic)
+# 4. 执行入口
 # ==========================================
 init_db()
 
@@ -688,31 +647,17 @@ if not st.session_state.get('logged_in'):
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
-            if 'captcha_correct' not in st.session_state: generate_captcha()
-            c_code, c_show = st.columns([2,1])
-            with c_code: cap_in = st.text_input("验证码", placeholder="不区分大小写")
-            with c_show:
-                st.markdown(f"<div class='captcha-box'>{st.session_state['captcha_correct']}</div>", unsafe_allow_html=True)
-                if st.button("🔄"): generate_captcha(); st.rerun()
+            # 移除了验证码
             if st.button("登录系统"):
-                if not verify_captcha(cap_in): st.error("验证码错误"); generate_captcha()
-                elif verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
+                if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
             nu = st.text_input("新用户")
             np1 = st.text_input("设置密码", type="password")
-            if 'reg_captcha_correct' not in st.session_state: st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-            rc_code, rc_show = st.columns([2,1])
-            with rc_code: rcap_in = st.text_input("注册验证码")
-            with rc_show:
-                st.markdown(f"<div class='captcha-box'>{st.session_state['reg_captcha_correct']}</div>", unsafe_allow_html=True)
-                if st.button("🔄", key="reg_ref"): st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4)); st.rerun()
             if st.button("立即注册"):
-                if rcap_in.upper() != st.session_state['reg_captcha_correct']: st.error("验证码错误")
-                else:
-                    suc, msg = register_user(nu.strip(), np1)
-                    if suc: st.success(msg)
-                    else: st.error(msg)
+                suc, msg = register_user(nu.strip(), np1)
+                if suc: st.success(msg)
+                else: st.error(msg)
     st.stop()
 
 # --- 主内容区 ---

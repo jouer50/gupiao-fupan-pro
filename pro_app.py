@@ -242,7 +242,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (名称终极修复)
+# 3. 股票逻辑 (无代理版)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -279,7 +279,7 @@ def get_name(code, token, proxy=None):
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
 
-    # 2. 新浪财经接口
+    # 2. 新浪财经接口 (A股最稳)
     if clean_code.isdigit() and len(clean_code) == 6:
         prefixes = ['sh', 'sz', 'bj']
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
@@ -297,6 +297,7 @@ def get_name(code, token, proxy=None):
                                 return data_str.split(',')[0]
             except: continue
         
+        # 3. 东方财富接口
         try:
             url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
             req = urllib.request.Request(url_east, headers=headers)
@@ -306,14 +307,14 @@ def get_name(code, token, proxy=None):
                     return data["QuotationCodeTable"]["Data"][0]["Name"]
         except: pass
 
-    # 3. Yahoo Finance
+    # 4. Yahoo Finance
     try:
         if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
         t = yf.Ticker(code)
         return t.info.get('shortName') or t.info.get('longName') or code
     except: pass
     
-    # 4. Tushare
+    # 5. Tushare
     if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
@@ -638,6 +639,22 @@ with st.sidebar:
             st.cache_data.clear()
             st.success("已清除！正在重新获取...")
             time.sleep(1); st.rerun()
+            
+        # ✅ 新增：我的自选股
+        if not is_admin:
+            with st.expander("⭐ 我的自选股", expanded=False):
+                current_wl = get_user_watchlist(user)
+                if not current_wl: st.caption("暂无自选，请在上方添加")
+                else:
+                    for c in current_wl:
+                        c1, c2 = st.columns([3, 1])
+                        if c1.button(f"{c}", key=f"wl_{c}"):
+                            st.session_state.code = c
+                            st.session_state.paid_code = ""
+                            st.rerun()
+                        if c2.button("✖️", key=f"del_{c}"):
+                            update_watchlist(user, c, "remove")
+                            st.rerun()
 
         if is_admin:
             st.success("👑 管理员模式")
@@ -705,6 +722,7 @@ with st.sidebar:
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
                     st.write("##### 1. 选择充值套餐")
+                    # ✅ V40.2 优化：使用 Radio Button 替代大卡片
                     pay_opt = st.radio("点击选择面额 (元)", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
                     
                     st.info("💡 支付后请点击下方按钮获取卡密")
@@ -713,6 +731,7 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
+                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")
@@ -727,10 +746,8 @@ with st.sidebar:
                         else: st.error(msg)
         
         st.divider()
-        # 🗑️ V42 移除代理
-        try: dt = st.secrets["TUSHARE_TOKEN"]
-        except: dt=""
-        token = st.text_input("Token (可选)", value=dt, type="password")
+        # ✅ V42 移除代理，保留 Token 默认隐藏
+        token = "" # 默认空，自动使用内置 key
         
         # ✅ V42 搜索前置
         new_c = st.text_input("🔍 股票代码 (美/港/A股)", st.session_state.code)
@@ -738,20 +755,6 @@ with st.sidebar:
         
         # ✅ 新增：添加自选按钮
         if not is_admin:
-            with st.expander("⭐ 我的自选股", expanded=False):
-                current_wl = get_user_watchlist(user)
-                if not current_wl: st.caption("暂无自选，请在上方添加")
-                else:
-                    for c in current_wl:
-                        c1, c2 = st.columns([3, 1])
-                        if c1.button(f"{c}", key=f"wl_{c}"):
-                            st.session_state.code = c
-                            st.session_state.paid_code = ""
-                            st.rerun()
-                        if c2.button("✖️", key=f"del_{c}"):
-                            update_watchlist(user, c, "remove")
-                            st.rerun()
-            
             if st.button("⭐ 加入自选股"):
                 wl = update_watchlist(user, st.session_state.code, "add")
                 st.success(f"已加入！当前自选: {wl}")
@@ -814,7 +817,7 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # --- 主内容区 ---
-name = get_name(st.session_state.code, token, proxy)
+name = get_name(st.session_state.code, token, proxy=None) # ✅ 修复调用
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
@@ -838,7 +841,8 @@ if st.session_state.code != st.session_state.paid_code:
 if not is_demo:
     loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
     with st.spinner(random.choice(loading_tips)):
-        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
+        # ✅ 修复调用：移除 proxy 传参
+        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy=None)
         if df.empty:
             st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
             df = generate_mock_data(days)
@@ -891,7 +895,6 @@ try:
         """)
         
     st.subheader("⚖️ 历史回测报告 (Trend Following)")
-    # ✅ 传递自定义参数给回测
     ret, win, max_dd, buys, sells, eq_df = run_backtest(df)
     
     b1, b2, b3 = st.columns(3)

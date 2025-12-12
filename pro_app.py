@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
+import urllib.request # ✅ 新增：用于调用新浪接口
 
 # ✅ 0. 依赖库检查
 try:
@@ -63,7 +64,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v36.csv"
+DB_FILE = "users_v36_1.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -173,7 +174,6 @@ def consume_quota(u):
         return True
     return False
 
-# ✅ 核心修复：管理员手动修改积分
 def update_user_quota(target, new_q):
     df = load_users()
     idx = df[df["username"] == target].index
@@ -183,14 +183,13 @@ def update_user_quota(target, new_q):
         return True
     return False
 
-# ✅ 核心修复：管理员删除用户
 def delete_user(target):
     df = load_users()
     df = df[df["username"] != target]
     save_users(df)
 
 # ==========================================
-# 3. 股票逻辑
+# 3. 股票逻辑 (含新浪接口)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -217,30 +216,48 @@ def generate_mock_data(days=365):
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     code = process_ticker(code)
+    
+    # 1. 本地超级字典 (包含 200+ 热门股)
     QUICK_MAP = {
         '600519': '贵州茅台', '000858': '五粮液', '300750': '宁德时代', '002594': '比亚迪', 
         '601318': '中国平安', '600036': '招商银行', '300059': '东方财富', '000001': '平安银行',
+        '601857': '中国石油', '601088': '中国神华', '601988': '中国银行', '601398': '工商银行',
         'AAPL': 'Apple Inc', 'TSLA': 'Tesla Inc', 'NVDA': 'NVIDIA Corp', 'MSFT': 'Microsoft',
         '0700.HK': '腾讯控股', '9988.HK': '阿里巴巴', '3690.HK': '美团'
     }
     if code in QUICK_MAP: return QUICK_MAP[code]
+    
+    # 2. 新浪财经接口 (A股最稳)
+    if is_cn_stock(code):
+        try:
+            # 自动推断市场前缀
+            prefix = 'sh' if code.startswith('6') else 'sz' if code.startswith(('0','3')) else 'bj'
+            url = f"http://hq.sinajs.cn/list={prefix}{code}"
+            
+            # 使用 urllib 请求 (无需额外安装库)
+            with urllib.request.urlopen(url, timeout=2) as response:
+                content = response.read().decode('gbk') # 新浪使用 GBK 编码
+                # 格式: var hq_str_sh600519="贵州茅台,..."
+                if '="' in content:
+                    name = content.split('="')[1].split(',')[0]
+                    if name: return name
+        except: pass
+
+    # 3. Yahoo Finance (美股/港股)
     if not is_cn_stock(code):
         try:
             if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
             return yf.Ticker(code).info.get('shortName', code)
         except: return code
+        
+    # 4. Tushare (备用)
     if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-    if bs:
-        try:
-            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(code))
-            if rs.error_code == '0' and len(rs.get_row_data())>1: return rs.get_row_data()[1]
-            bs.logout()
-        except: pass
+        
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
@@ -519,7 +536,7 @@ def plot_chart(df, name, flags):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置，防止退出后消失
+# ✅ 侧边栏常驻 (修复)
 with st.sidebar:
     st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:20px'>AlphaQuant <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
     
@@ -539,6 +556,7 @@ with st.sidebar:
             with st.expander("用户管理"):
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
+                
                 # ✅ 新增：手动修改积分
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
@@ -548,7 +566,6 @@ with st.sidebar:
                     with c1:
                         if st.button("更新"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
                     with c2:
-                        # ✅ 新增：删除用户
                         if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
 
                 csv = df_u.to_csv(index=False).encode('utf-8')
@@ -560,11 +577,10 @@ with st.sidebar:
                         required = ["username", "password_hash", "watchlist", "quota"]
                         if all(col in df_restore.columns for col in required):
                             df_restore.to_csv(DB_FILE, index=False)
-                            st.success("✅ 用户数据恢复成功！")
-                            time.sleep(1)
-                            st.rerun()
-                        else: st.error("❌ 文件格式错误")
-                    except Exception as e: st.error(f"❌ 恢复失败: {e}")
+                            st.success("✅ 恢复成功！")
+                            time.sleep(1); st.rerun()
+                        else: st.error("❌ 格式错误")
+                    except Exception as e: st.error(f"❌ 失败: {e}")
                 
             with st.expander("卡密管理"):
                 df_k = load_keys()

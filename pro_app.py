@@ -91,7 +91,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v41.csv"
+DB_FILE = "users_v41_1.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -215,7 +215,6 @@ def delete_user(target):
     df = df[df["username"] != target]
     save_users(df)
 
-# ✅ V41 新增：更新用户自选股
 def update_watchlist(username, code, action="add"):
     df = load_users()
     idx = df[df["username"] == username].index[0]
@@ -417,7 +416,6 @@ def get_fundamentals(code, token):
         except: pass
     return res
 
-# ✅ V41 核心升级：接收自定义参数
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
     try:
@@ -427,7 +425,19 @@ def calc_full_indicators(df, ma_s, ma_l):
         v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
     except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
 
-    # 使用用户自定义均线
+    # ✅ 修复：补全 SpanA/SpanB 计算逻辑
+    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
+    df['Tenkan'] = (p_high + p_low) / 2
+    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
+    df['Kijun'] = (p_high26 + p_low26) / 2
+    df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
+    df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
+    
+    # 防止 NaN 报错
+    df['SpanA'] = df['SpanA'].fillna(method='bfill').fillna(0)
+    df['SpanB'] = df['SpanB'].fillna(method='bfill').fillna(0)
+
+    # 自定义均线
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
     
@@ -469,11 +479,10 @@ def get_drawing_lines(df):
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
-# ✅ V41 核心升级：接受自定义参数 + 最大回撤计算
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     
-    # 使用自定义列
+    # ✅ 修复：检查自定义均线列
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
     if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
@@ -485,7 +494,7 @@ def run_backtest(df):
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
         
-        # 策略：金叉买入，死叉卖出
+        # ✅ 修复：使用自定义均线进行回测
         if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
@@ -498,7 +507,6 @@ def run_backtest(df):
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
     
-    # 计算最大回撤
     eq_series = pd.Series(equity)
     cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax
@@ -564,6 +572,7 @@ def analyze_score(df):
 
 def main_uptrend_check(df):
     curr = df.iloc[-1]
+    # ✅ 修复：SpanA/SpanB 不再报错
     is_bull = curr['MA_Short'] > curr['MA_Long']
     is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB'])
     if is_bull and is_cloud and curr['ADX'] > 20: return "🚀 主升浪 (强趋势)", "success"
@@ -611,7 +620,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置，防止退出后消失
+# ✅ 侧边栏前置
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
@@ -660,7 +669,6 @@ with st.sidebar:
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
                 
-                # ✅ 新增：手动修改积分
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
                     target = st.selectbox("选择用户", u_list)
@@ -721,14 +729,10 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
-                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
-                        # 模拟延迟
-                        with st.spinner("正在验证支付结果..."):
-                            time.sleep(1.5)
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")
-                        st.markdown(f"<div class='auto-key-box'><div class='key-text'>{new_key}</div></div>", unsafe_allow_html=True)
+                        st.code(new_key, language="text")
                         st.warning("请立即复制上方卡密，并在右侧【卡密兑换】中激活")
                 
                 with tab_key:

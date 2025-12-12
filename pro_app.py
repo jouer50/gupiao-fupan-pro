@@ -19,14 +19,19 @@ except ImportError:
     st.stop()
 
 # ==========================================
-# 1. 核心配置 (Apple Design)
+# 1. 核心配置 & 初始化
 # ==========================================
 st.set_page_config(
     page_title="AlphaQuant Pro",
     layout="wide",
-    page_icon="🍎",
+    page_icon="💎",
     initial_sidebar_state="expanded"
 )
+
+# 初始化 Session State (放在最前面，防止报错)
+if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+if "code" not in st.session_state: st.session_state.code = "600519"
+if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
 apple_css = """
 <style>
@@ -34,33 +39,17 @@ apple_css = """
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     header, footer, .stDeployButton, [data-testid="stToolbar"], [data-testid="stDecoration"] {display: none !important;}
     .block-container {padding-top: 1.5rem !important;}
-    
-    div.stButton > button {
-        background-color: #0071e3; color: white; border-radius: 8px; border: none; 
-        padding: 0.6rem 1rem; font-weight: 500; width: 100%; transition: 0.2s;
-    }
+    div.stButton > button {background-color: #0071e3; color: white; border-radius: 8px; border: none; padding: 0.6rem 1rem; font-weight: 500; width: 100%; transition: 0.2s;}
     div.stButton > button:hover {background-color: #0077ed; box-shadow: 0 4px 12px rgba(0,113,227,0.3);}
-    
-    /* 价格卡片 */
-    .price-card {
-        border: 1px solid #e5e5e5; border-radius: 10px; padding: 15px; text-align: center;
-        background: linear-gradient(135deg, #ffffff 0%, #f5f5f7 100%);
-        margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    }
-    .price-tag {font-size: 20px; font-weight: 800; color: #0071e3;}
-    .price-desc {font-size: 12px; color: #666;}
-    
-    /* 研报与指标 */
-    div[data-testid="metric-container"] {
-        background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px;
-        padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    }
+    div[data-testid="metric-container"] {background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
-    
     .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
     .captcha-box {background-color: #e5e5ea; color: #1d1d1f; font-family: monospace; font-weight: bold; font-size: 24px; text-align: center; padding: 10px; border-radius: 8px; letter-spacing: 8px; text-decoration: line-through; user-select: none;}
+    .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
+    .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
+    .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -68,8 +57,8 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v31.csv"
-KEYS_FILE = "card_keys_v31.csv"
+DB_FILE = "users_v31_1.csv"
+KEYS_FILE = "card_keys.csv"
 
 # Optional deps
 try:
@@ -80,7 +69,7 @@ try:
 except: bs = None
 
 # ==========================================
-# 2. 数据库逻辑
+# 2. 数据库与工具函数
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -154,6 +143,17 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
+def register_user(u, p):
+    if u == ADMIN_USER: return False, "保留账号"
+    df = load_users()
+    if u in df["username"].values: return False, "用户已存在"
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(p.encode(), salt).decode()
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0}
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    save_users(df)
+    return True, "注册成功"
+
 def consume_quota(u):
     if u == ADMIN_USER: return True
     df = load_users()
@@ -178,39 +178,21 @@ def delete_user(target):
     df = df[df["username"] != target]
     save_users(df)
 
-def register_user(u, p):
-    if u == ADMIN_USER: return False, "保留账号"
-    df = load_users()
-    if u in df["username"].values: return False, "用户已存在"
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0}
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_users(df)
-    return True, "注册成功"
-
 # ==========================================
-# 3. 股票与指标逻辑
+# 3. 股票逻辑
 # ==========================================
-def is_cn_stock(code):
-    return code.isdigit() and len(code) == 6
-
+def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
 def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
-
 def process_ticker(code):
     code = code.strip().upper()
     if code.isdigit() and len(code) < 6: return f"{code.zfill(4)}.HK"
     return code
 
-# 模拟数据生成 (演示模式)
 def generate_mock_data(days=365):
     dates = pd.date_range(end=datetime.today(), periods=days)
     close = [150.0]
-    for _ in range(days-1):
-        change = np.random.normal(0.1, 3.0) 
-        close.append(max(10, close[-1] + change))
-    
+    for _ in range(days-1): close.append(max(10, close[-1] + np.random.normal(0.1, 3.0)))
     df = pd.DataFrame({'date': dates, 'close': close})
     df['open'] = df['close'] * np.random.uniform(0.98, 1.02, days)
     df['high'] = df[['open', 'close']].max(axis=1) * np.random.uniform(1.0, 1.03, days)
@@ -222,24 +204,16 @@ def generate_mock_data(days=365):
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     code = process_ticker(code)
-    QUICK_MAP = {
-        '600519': '贵州茅台', '000858': '五粮液', '300750': '宁德时代', '002594': '比亚迪', 
-        '601318': '中国平安', '600036': '招商银行', '300059': '东方财富', '000001': '平安银行',
-        'AAPL': 'Apple Inc', 'TSLA': 'Tesla Inc', 'NVDA': 'NVIDIA Corp', 'MSFT': 'Microsoft',
-        '0700.HK': '腾讯控股', '9988.HK': '阿里巴巴', '3690.HK': '美团'
-    }
+    QUICK_MAP = {'600519': '贵州茅台', 'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', '0700.HK': 'Tencent', 'BABA': 'Alibaba', '9988.HK': 'Alibaba HK'}
     if code in QUICK_MAP: return QUICK_MAP[code]
-
     if not is_cn_stock(code):
         try:
             if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
-            t = yf.Ticker(code)
-            return t.info.get('shortName') or t.info.get('longName') or code
+            return yf.Ticker(code).info.get('shortName', code)
         except: return code
     if token and ts:
         try:
-            ts.set_token(token)
-            pro = ts.pro_api()
+            ts.set_token(token); pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
@@ -255,8 +229,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
     fetch_days = 1500 
     raw_df = pd.DataFrame()
-    
-    # 🌍 美股/港股
     if not is_cn_stock(code):
         try:
             if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
@@ -282,8 +254,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                     for c in ['open','high','low','close','volume']: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
         except: pass
-            
-    # 🇨🇳 A股
     else:
         if token and ts:
             try:
@@ -306,7 +276,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                     for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
                     raw_df = df.sort_values('date').reset_index(drop=True)
             except: pass
-            
         if raw_df.empty and bs:
             try:
                 bs.login()
@@ -321,9 +290,7 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                     for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
                     raw_df = df.sort_values('date').reset_index(drop=True)
             except: pass
-
     if raw_df.empty: return raw_df
-
     if timeframe == '日线': return raw_df
     rule = 'W' if timeframe == '周线' else 'M'
     raw_df.set_index('date', inplace=True)
@@ -339,23 +306,19 @@ def get_fundamentals(code, token):
     code = process_ticker(code)
     if not is_cn_stock(code):
         try:
-            t = yf.Ticker(code)
-            i = t.info
-            pe = i.get('trailingPE'); pb = i.get('priceToBook'); mk = i.get('marketCap')
-            res['pe'] = safe_fmt(pe)
-            res['pb'] = safe_fmt(pb)
-            res['mv'] = f"{mk/100000000:.2f}亿" if mk else "-"
+            t = yf.Ticker(code); i = t.info
+            res['pe'] = safe_fmt(i.get('trailingPE'))
+            res['pb'] = safe_fmt(i.get('priceToBook'))
+            res['mv'] = f"{i.get('marketCap')/100000000:.2f}亿" if i.get('marketCap') else "-"
         except: pass
         return res
-
     if token and ts:
         try:
             pro = ts.pro_api(token)
             df = pro.daily_basic(ts_code=_to_ts_code(code), fields='pe_ttm,pb,total_mv')
             if not df.empty:
                 r = df.iloc[-1]
-                res['pe'] = safe_fmt(r['pe_ttm'])
-                res['pb'] = safe_fmt(r['pb'])
+                res['pe'] = safe_fmt(r['pe_ttm']); res['pb'] = safe_fmt(r['pb'])
                 res['mv'] = f"{r['total_mv']/10000:.1f}亿" if r['total_mv'] else "-"
         except: pass
     return res
@@ -367,36 +330,26 @@ def calc_full_indicators(df):
         h = df['high'].squeeze() if isinstance(df['high'], pd.DataFrame) else df['high']
         l = df['low'].squeeze() if isinstance(df['low'], pd.DataFrame) else df['low']
         v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
-    except:
-        c = df['close']; h = df['high']; l = df['low']; v = df['volume']
+    except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
 
     for n in [5,10,20,30,60,120,250]: df[f'MA{n}'] = c.rolling(n).mean()
     mid = df['MA20']; std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
-    
-    e12 = c.ewm(span=12, adjust=False).mean()
-    e26 = c.ewm(span=26, adjust=False).mean()
-    df['DIF'] = e12 - e26
-    df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
-    df['HIST'] = 2 * (df['DIF'] - df['DEA'])
-    
+    e12 = c.ewm(span=12, adjust=False).mean(); e26 = c.ewm(span=26, adjust=False).mean()
+    df['DIF'] = e12 - e26; df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean(); df['HIST'] = 2 * (df['DIF'] - df['DEA'])
     delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
     rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
     df['RSI'] = 100 - (100/(1+rs))
-    
     low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
     rsv = (c - low9)/(high9 - low9 + 1e-9) * 100
     df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3 * df['K'] - 2 * df['D']
-    
     tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
     df['ATR14'] = tr.rolling(14).mean()
     dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
     dm_m = np.where((l.diff().abs() > h.diff()) & (l.diff()<0), l.diff().abs(), 0)
-    tr14 = tr.rolling(14).sum()
-    di_plus = 100 * pd.Series(dm_p).rolling(14).sum() / (tr14+1e-9)
-    di_minus = 100 * pd.Series(dm_m).rolling(14).sum() / (tr14+1e-9)
+    di_plus = 100 * pd.Series(dm_p).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
+    di_minus = 100 * pd.Series(dm_m).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
     df['ADX'] = (abs(di_plus - di_minus)/(di_plus + di_minus + 1e-9) * 100).rolling(14).mean()
-    
     p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
     p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
@@ -424,16 +377,26 @@ def get_drawing_lines(df):
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
-# ✅ 修复：回测函数现在返回 DataFrame 和绘图数据
+# ✅ 修复：回测函数增加数据量熔断机制
 def run_backtest(df):
+    # 如果数据不够（比如刚上市或被清洗掉太多），直接返回空结果
+    if df is None or len(df) < 50:
+        return 0.0, 0.0, [], [], pd.DataFrame({'date': [], 'equity': []})
+
     capital = 100000; position = 0; df = df.copy().dropna()
+    
+    # 再次检查 dropna 后的长度
+    if len(df) < 50:
+        return 0.0, 0.0, [], [], pd.DataFrame({'date': [], 'equity': []})
+
     buy_signals = []; sell_signals = []; equity = [capital]
-    dates = [df.iloc[0]['date']] # 记录资金曲线对应的日期
+    dates = [df.iloc[0]['date']] # 初始日期
     
     for i in range(1, len(df)):
         curr = df.iloc[i]; prev = df.iloc[i-1]; price = curr['close']
         date = curr['date']
         
+        # 策略逻辑
         if prev['MA5'] <= prev['MA20'] and curr['MA5'] > curr['MA20'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA5'] >= prev['MA20'] and curr['MA5'] < curr['MA20'] and position > 0:
@@ -446,9 +409,9 @@ def run_backtest(df):
     final_equity = equity[-1]; ret = (final_equity - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
     
-    # 返回 DataFrame 方便绘图
+    # 返回 DataFrame 供 Plotly 绘图
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
-    return ret, win, buys_signals, sell_signals, eq_df
+    return ret, win, buy_signals, sell_signals, eq_df
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
@@ -552,11 +515,91 @@ def plot_chart(df, name, flags):
 # ==========================================
 init_db()
 
-# --- 登录 ---
-if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+# ✅ 修复：侧边栏前置，防止退出后消失
+with st.sidebar:
+    st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:20px'>AlphaQuant <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
+    
+    if st.session_state.get('logged_in'):
+        user = st.session_state["user"]
+        is_admin = (user == ADMIN_USER)
+        
+        if is_admin:
+            st.success("👑 管理员模式")
+            with st.expander("💳 卡密生成", expanded=True):
+                points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
+                count_gen = st.number_input("数量", 1, 50, 10)
+                if st.button("批量生成"):
+                    num = batch_generate_keys(points_gen, count_gen)
+                    st.success(f"已生成 {num} 张卡密")
+            
+            with st.expander("用户管理"):
+                df_u = load_users()
+                st.dataframe(df_u[["username","quota"]], hide_index=True)
+                csv = df_u.to_csv(index=False).encode('utf-8')
+                st.download_button("备份数据", csv, "backup.csv", "text/csv")
+                
+            with st.expander("卡密管理"):
+                df_k = load_keys()
+                st.dataframe(df_k, hide_index=True)
+                unused_k = df_k[df_k['status']=='unused']
+                csv_k = unused_k.to_csv(index=False).encode('utf-8')
+                st.download_button("导出未使用卡密", csv_k, "unused_keys.csv", "text/csv")
+        else:
+            st.info(f"👤 {user}")
+            df_u = load_users()
+            try: q = df_u[df_u["username"]==user]["quota"].iloc[0]
+            except: q = 0
+            st.metric("剩余积分", q)
+            
+            with st.expander("💎 会员中心", expanded=True):
+                tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
+                with tab_pay:
+                    st.write("##### 1. 选择套餐")
+                    c1, c2 = st.columns(2)
+                    with c1: st.markdown("<div class='buy-card'><div class='buy-price'>20</div><div>体验包</div></div>", unsafe_allow_html=True)
+                    with c2: st.markdown("<div class='buy-card'><div class='buy-price'>100</div><div>超值包</div></div>", unsafe_allow_html=True)
+                    st.info("💡 支付后请联系管理员获取卡密")
+                    # 这里可以放二维码图片 st.image("qr.png")
+                with tab_key:
+                    key_in = st.text_input("请输入卡密")
+                    if st.button("立即兑换"):
+                        suc, msg = redeem_key(user, key_in)
+                        if suc: st.success(msg); time.sleep(1); st.rerun()
+                        else: st.error(msg)
+        
+        st.divider()
+        proxy = st.text_input("网络代理 (可选)", placeholder="http://127.0.0.1:7890")
+        try: dt = st.secrets["TUSHARE_TOKEN"]
+        except: dt=""
+        token = st.text_input("Token", value=dt, type="password")
+        
+        new_c = st.text_input("代码 (支持美/港/A股)", st.session_state.code)
+        if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
+            
+        timeframe = st.selectbox("K线周期", ["日线", "周线", "月线"])
+        days = st.radio("显示范围", [30,60,120,250,500], 2, horizontal=True)
+        adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
+        
+        st.divider()
+        st.markdown("### 🛠️ 指标开关")
+        flags = {
+            'ma': st.checkbox("MA 均线", True),
+            'boll': st.checkbox("BOLL 布林带", True),
+            'vol': st.checkbox("成交量", True),
+            'macd': st.checkbox("MACD", True),
+            'kdj': st.checkbox("KDJ", True),
+            'gann': st.checkbox("江恩线", False), 
+            'fib': st.checkbox("斐波那契", True),
+            'chan': st.checkbox("缠论分型", True)
+        }
+        
+        st.divider()
+        if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
+    else:
+        st.info("请先登录系统")
 
-if not st.session_state['logged_in']:
-    st.markdown("<br><br><h1 style='text-align:center'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
+# 登录逻辑
+if not st.session_state.get('logged_in'):
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
         tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
@@ -569,14 +612,9 @@ if not st.session_state['logged_in']:
             with c_show:
                 st.markdown(f"<div class='captcha-box'>{st.session_state['captcha_correct']}</div>", unsafe_allow_html=True)
                 if st.button("🔄"): generate_captcha(); st.rerun()
-            
             if st.button("登录系统"):
                 if not verify_captcha(cap_in): st.error("验证码错误"); generate_captcha()
-                elif verify_login(u.strip(), p):
-                    st.session_state["logged_in"] = True
-                    st.session_state["user"] = u.strip()
-                    st.session_state["paid_code"] = ""
-                    st.rerun()
+                elif verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
             nu = st.text_input("新用户")
@@ -587,7 +625,6 @@ if not st.session_state['logged_in']:
             with rc_show:
                 st.markdown(f"<div class='captcha-box'>{st.session_state['reg_captcha_correct']}</div>", unsafe_allow_html=True)
                 if st.button("🔄", key="reg_ref"): st.session_state['reg_captcha_correct'] = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4)); st.rerun()
-
             if st.button("立即注册"):
                 if rcap_in.upper() != st.session_state['reg_captcha_correct']: st.error("验证码错误")
                 else:
@@ -596,114 +633,7 @@ if not st.session_state['logged_in']:
                     else: st.error(msg)
     st.stop()
 
-# --- 主程序 ---
-user = st.session_state["user"]
-is_admin = (user == ADMIN_USER)
-
-# 全局状态初始化
-if "code" not in st.session_state: st.session_state.code = "600519"
-if "paid_code" not in st.session_state: st.session_state.paid_code = ""
-
-with st.sidebar:
-    if is_admin:
-        st.success("👑 管理员模式")
-        with st.expander("💳 卡密生成", expanded=True):
-            points_gen = st.number_input("面值", 10, 1000, 100, step=10)
-            if st.button("生成卡密"):
-                key = generate_key(points_gen)
-                st.code(key, language="text")
-                st.success(f"已生成 {points_gen} 积分")
-        
-        with st.expander("用户管理"):
-            df_u = load_users()
-            st.dataframe(df_u[["username","quota"]], hide_index=True)
-            u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
-            if u_list:
-                target = st.selectbox("选择用户", u_list)
-                val = st.number_input("修改积分", value=0, step=10)
-                if st.button("更新"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
-                if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
-            
-            csv = df_u.to_csv(index=False).encode('utf-8')
-            st.download_button("备份数据", csv, "backup.csv", "text/csv")
-            uf = st.file_uploader("恢复数据", type="csv")
-            if uf: 
-                try: pd.read_csv(uf).to_csv(DB_FILE, index=False); st.success("已恢复"); time.sleep(1); st.rerun()
-                except: st.error("格式错误")
-    else:
-        st.info(f"👤 {user}")
-        df_u = load_users()
-        try: q = df_u[df_u["username"]==user]["quota"].iloc[0]
-        except: q = 0
-        st.metric("剩余积分", q)
-        
-        # 💳 支付中心 (扫码图 + 价格卡片)
-        with st.expander("💎 会员中心", expanded=True):
-            tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
-            with tab_pay:
-                st.write("##### 1. 选择套餐")
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("""
-                    <div class='price-card'>
-                        <div class='price-tag'>￥19.9</div>
-                        <div class='price-desc'>体验卡 (100积分)</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with c2:
-                    st.markdown("""
-                    <div class='price-card'>
-                        <div class='price-tag'>￥99.0</div>
-                        <div class='price-desc'>月卡 (无限次)</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                st.write("##### 2. 扫码支付 (备注用户名)")
-                # 这里放你的二维码图片链接，或者本地图片
-                st.image("https://upload.wikimedia.org/wikipedia/commons/d/d0/QR_code_for_mobile_English_Wikipedia.svg", caption="微信/支付宝扫码", width=150)
-                st.info("支付后请联系客服获取卡密")
-            
-            with tab_key:
-                key_in = st.text_input("请输入卡密")
-                if st.button("立即兑换"):
-                    suc, msg = redeem_key(user, key_in)
-                    if suc: st.success(msg); time.sleep(1); st.rerun()
-                    else: st.error(msg)
-
-    st.divider()
-    proxy = st.text_input("网络代理 (可选)", placeholder="http://127.0.0.1:7890")
-    try: dt = st.secrets["TUSHARE_TOKEN"]
-    except: dt=""
-    token = st.text_input("Token", value=dt, type="password")
-    
-    new_c = st.text_input("代码 (支持美/港/A股)", st.session_state.code)
-    
-    if new_c != st.session_state.code:
-        st.session_state.code = new_c
-        st.session_state.paid_code = ""
-        st.rerun()
-        
-    timeframe = st.selectbox("K线周期", ["日线", "周线", "月线"])
-    days = st.radio("显示范围", [30,60,120,250,500], 2, horizontal=True)
-    adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
-    
-    st.divider()
-    st.markdown("### 🛠️ 指标开关")
-    flags = {
-        'ma': st.checkbox("MA 均线", True),
-        'boll': st.checkbox("BOLL 布林带", True),
-        'vol': st.checkbox("成交量", True),
-        'macd': st.checkbox("MACD", True),
-        'kdj': st.checkbox("KDJ", True),
-        'gann': st.checkbox("江恩线", False), 
-        'fib': st.checkbox("斐波那契", True),
-        'chan': st.checkbox("缠论分型", True)
-    }
-    
-    st.divider()
-    if st.button("退出"): st.session_state["logged_in"]=False; st.rerun()
-
-# 核心内容区
+# --- 主内容区 ---
 name = get_name(st.session_state.code, token, proxy)
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
@@ -779,7 +709,6 @@ try:
         """)
         
     st.subheader("⚖️ 历史回测报告 (Trend Following)")
-    # ✅ 修复：接收正确数量的返回值
     ret, win, buys, sells, eq_df = run_backtest(df)
     
     b1, b2, b3 = st.columns(3)
@@ -787,29 +716,14 @@ try:
     b2.metric("胜率", f"{win:.1f}%")
     b3.metric("交易次数", f"{len(buys)} 次")
     
-    # ✅ 修复：使用 Plotly 绘制资金曲线
-    fig_bt = go.Figure()
-    fig_bt.add_trace(go.Scatter(
-        x=eq_df['date'], 
-        y=eq_df['equity'], 
-        mode='lines', 
-        name='资金曲线', 
-        line=dict(color='#0071e3', width=2),
-        fill='tozeroy',
-        fillcolor='rgba(0, 113, 227, 0.1)'
-    ))
-    fig_bt.update_layout(
-        height=300, 
-        margin=dict(t=30,b=10,l=10,r=10), 
-        paper_bgcolor='white', 
-        plot_bgcolor='white', 
-        title="策略净值走势", 
-        font=dict(color='#1d1d1f'),
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor='#f5f5f5')
-    )
-    st.plotly_chart(fig_bt, use_container_width=True)
+    # 绘制资金曲线
+    if not eq_df.empty:
+        fig_bt = go.Figure()
+        fig_bt.add_trace(go.Scatter(x=eq_df['date'], y=eq_df['equity'], mode='lines', name='资金曲线', line=dict(color='#0071e3', width=2), fill='tozeroy', fillcolor='rgba(0, 113, 227, 0.1)'))
+        fig_bt.update_layout(height=300, margin=dict(t=30,b=10,l=10,r=10), paper_bgcolor='white', plot_bgcolor='white', title="策略净值走势", font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'))
+        st.plotly_chart(fig_bt, use_container_width=True)
+    else:
+        st.info("数据不足，无法生成资金曲线")
 
 except Exception as e:
     st.error(f"❌ 系统发生错误: {e}")
-    # st.code(traceback.format_exc())

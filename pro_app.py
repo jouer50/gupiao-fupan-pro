@@ -12,6 +12,7 @@ import traceback
 from datetime import datetime, timedelta
 import urllib.request
 import json
+import socket
 
 # ✅ 0. 依赖库检查
 try:
@@ -66,7 +67,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v37.csv"
+DB_FILE = "users_v37_1.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -191,7 +192,7 @@ def delete_user(target):
     save_users(df)
 
 # ==========================================
-# 3. 股票逻辑 (名称终极修复)
+# 3. 股票逻辑 (名称终极修复: 双核驱动 + 伪装)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -215,7 +216,7 @@ def generate_mock_data(days=365):
     df['MA20'] = df['close'].rolling(20).mean()
     return df
 
-# 🔥 V37 核心修复：名称获取终极方案
+# 🔥 V37.1 终极版：新浪 + 东方财富 + 浏览器伪装
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
     clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
@@ -229,41 +230,45 @@ def get_name(code, token, proxy=None):
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
 
-    # 2. 新浪财经接口 (A股最稳)
-    # 自动穷举前缀，直到找到为止
+    # ✅ 伪装头 (关键!)
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+
+    # 2. 新浪财经接口 (A股) - 加上 Header 防止反爬
     if clean_code.isdigit() and len(clean_code) == 6:
-        prefixes = ['sh', 'sz', 'bj'] # 穷举前缀
+        prefixes = ['sh', 'sz', 'bj']
         for prefix in prefixes:
             try:
                 url = f"http://hq.sinajs.cn/list={prefix}{clean_code}"
-                # 使用 gb18030 兼容更多汉字
-                with urllib.request.urlopen(url, timeout=1) as response:
-                    content = response.read().decode('gb18030')
+                req = urllib.request.Request(url, headers=headers) # 加身份证
+                with urllib.request.urlopen(req, timeout=1) as response:
+                    content = response.read().decode('gbk', errors='ignore')
                     if '="' in content:
                         parts = content.split('="')
                         if len(parts) > 1:
                             data_str = parts[1]
-                            if len(data_str) > 10: # 确保不是空数据
+                            if len(data_str) > 1:
                                 name = data_str.split(',')[0]
                                 return name
             except: continue
 
-    # 3. Yahoo Finance
+        # 3. 东方财富接口 (A股备用) - JSON格式
+        try:
+            url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
+            req = urllib.request.Request(url_east, headers=headers)
+            with urllib.request.urlopen(req, timeout=1) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                if data and "QuotationCodeTable" in data and data["QuotationCodeTable"]["Data"]:
+                    return data["QuotationCodeTable"]["Data"][0]["Name"]
+        except: pass
+
+    # 4. Yahoo Finance
     try:
         if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
         t = yf.Ticker(code)
         return t.info.get('shortName') or t.info.get('longName') or code
     except: pass
     
-    # 4. Tushare
-    if token and ts:
-        try:
-            ts.set_token(token); pro = ts.pro_api()
-            df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
-            if not df.empty: return df.iloc[0]['name']
-        except: pass
-
-    return code # 实在找不到，返回代码本身
+    return code # 还没找到，就显示代码
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
@@ -541,7 +546,7 @@ def plot_chart(df, name, flags):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置，防止退出后消失
+# ✅ 侧边栏常驻
 with st.sidebar:
     st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:20px'>AlphaQuant <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
     
@@ -549,12 +554,11 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
-        # ✅ 新增：刷新名称缓存按钮 (应对网络问题)
+        # ✅ 刷新缓存按钮
         if st.button("🔄 刷新缓存/修复名称"):
             st.cache_data.clear()
-            st.success("缓存已清除，正在重新抓取数据...")
-            time.sleep(1)
-            st.rerun()
+            st.success("已清除！正在重新获取...")
+            time.sleep(1); st.rerun()
 
         if is_admin:
             st.success("👑 管理员模式")
@@ -569,7 +573,6 @@ with st.sidebar:
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
                 
-                # ✅ 新增：手动修改积分
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
                     target = st.selectbox("选择用户", u_list)

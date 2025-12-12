@@ -19,7 +19,7 @@ except ImportError:
     st.stop()
 
 # ==========================================
-# 1. 核心配置 & 初始化
+# 1. 核心配置
 # ==========================================
 st.set_page_config(
     page_title="AlphaQuant Pro",
@@ -38,7 +38,6 @@ apple_css = """
     .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     
-    /* 侧边栏按钮 */
     .stDeployButton {display: none !important;} 
     footer {display: none !important;}
     
@@ -54,9 +53,18 @@ apple_css = """
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
     .captcha-box {background-color: #e5e5ea; color: #1d1d1f; font-family: monospace; font-weight: bold; font-size: 24px; text-align: center; padding: 10px; border-radius: 8px; letter-spacing: 8px; text-decoration: line-through; user-select: none;}
-    .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
-    .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
-    .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
+    
+    /* 支付卡片 */
+    .pay-card {border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; transition: 0.3s;}
+    .pay-card:hover {border-color: #0071e3; background-color: #f0f8ff;}
+    .pay-price {font-size: 20px; font-weight: bold; color: #0071e3;}
+    
+    /* 自动发卡区域 */
+    .auto-key-box {
+        background-color: #e8f5e9; border: 1px dashed #4caf50; padding: 15px; border-radius: 10px;
+        text-align: center; margin-top: 15px; animation: fadeIn 0.5s;
+    }
+    .key-text {font-family: monospace; font-size: 18px; font-weight: bold; color: #2e7d32; letter-spacing: 1px;}
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -386,45 +394,27 @@ def get_drawing_lines(df):
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
-# ✅ 修复：回测函数增加数据量熔断机制
 def run_backtest(df):
-    # 只针对回测需要的列去除空值
-    if df is None: return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    
-    needed_cols = ['MA5', 'MA20', 'close', 'date']
-    if not all(col in df.columns for col in needed_cols):
-        return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-
-    # 仅删除核心指标为空的行 (保留最近的数据)
-    df_bt = df.dropna(subset=needed_cols).copy().reset_index(drop=True)
-    
-    # 再次检查行数
-    if len(df_bt) < 20:
-        return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    if df is None or len(df) < 50: return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    needed = ['MA5', 'MA20', 'close', 'date']
+    if not all(c in df.columns for c in needed): return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    df_bt = df.dropna(subset=needed).reset_index(drop=True)
+    if len(df_bt) < 20: return 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
 
     capital = 100000; position = 0
-    buy_signals = []; sell_signals = []; equity = [capital]
-    dates = [df_bt.iloc[0]['date']]
+    buy_signals = []; sell_signals = []; equity = [capital]; dates = [df_bt.iloc[0]['date']]
     
     for i in range(1, len(df_bt)):
-        curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']
-        date = curr['date']
-        
-        # 修复：正确引用 win_rate (之前这里变量名写错了)
+        curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
         if prev['MA5'] <= prev['MA20'] and curr['MA5'] > curr['MA20'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA5'] >= prev['MA20'] and curr['MA5'] < curr['MA20'] and position > 0:
             capital = position * price; position = 0; sell_signals.append(date)
+        equity.append(capital + (position * price)); dates.append(date)
         
-        current_val = capital + (position * price)
-        equity.append(current_val)
-        dates.append(date)
-        
-    final_equity = equity[-1]; ret = (final_equity - 100000) / 100000 * 100
+    final = equity[-1]; ret = (final - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
-    
-    eq_df = pd.DataFrame({'date': dates, 'equity': equity})
-    return ret, win_rate, buy_signals, sell_signals, eq_df
+    return ret, win_rate, buy_signals, sell_signals, pd.DataFrame({'date': dates, 'equity': equity})
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
@@ -564,15 +554,25 @@ with st.sidebar:
             except: q = 0
             st.metric("剩余积分", q)
             
-            with st.expander("💳 充值中心"):
+            with st.expander("💎 会员中心", expanded=True):
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
                     st.write("##### 1. 选择套餐")
-                    c1, c2 = st.columns(2)
-                    with c1: st.markdown("<div class='buy-card'><div class='buy-price'>20</div><div>体验包</div></div>", unsafe_allow_html=True)
-                    with c2: st.markdown("<div class='buy-card'><div class='buy-price'>100</div><div>超值包</div></div>", unsafe_allow_html=True)
+                    pay_opt = st.radio("充值面额", [20, 50, 100], horizontal=True)
                     st.info("💡 支付后请联系管理员获取卡密")
-                    # 这里可以放二维码图片 st.image("qr.png")
+                    # 请替换 alipay.png 为您的真实收款码图片
+                    if os.path.exists("alipay.png"):
+                        st.image("alipay.png", width=200)
+                    else:
+                        st.warning("请上传 alipay.png 到根目录")
+                    
+                    # ✅ 核心功能：自动发卡模拟
+                    if st.button("✅ 我已支付，自动发货"):
+                        new_key = generate_key(pay_opt)
+                        st.success("支付成功！您的卡密如下：")
+                        st.code(new_key, language="text")
+                        st.warning("请立即复制上方卡密，并在右侧【卡密兑换】中激活")
+                
                 with tab_key:
                     key_in = st.text_input("请输入卡密")
                     if st.button("立即兑换"):

@@ -25,7 +25,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro", # ✅ 浏览器标签页名称
+    page_title="阿尔法量研 Pro | AlphaQuant",
     layout="wide",
     page_icon="📈",
     initial_sidebar_state="expanded"
@@ -63,8 +63,9 @@ apple_css = """
     .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
     
     /* 品牌标题样式 */
-    .brand-title {font-size: 22px; font-weight: 800; color: #1d1d1f; margin-bottom: 5px; line-height: 1.2;}
-    .brand-subtitle {font-size: 12px; color: #86868b; margin-bottom: 20px; font-weight: 400;}
+    .brand-title {font-size: 24px; font-weight: 800; color: #1d1d1f; margin-bottom: 2px;}
+    .brand-en {font-size: 14px; color: #0071e3; font-weight: 600; margin-bottom: 15px; letter-spacing: 0.5px;}
+    .brand-slogan {font-size: 12px; color: #86868b; font-weight: 400;}
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -197,7 +198,7 @@ def delete_user(target):
     save_users(df)
 
 # ==========================================
-# 3. 股票逻辑 (名称超级增强版)
+# 3. 股票逻辑
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -223,45 +224,45 @@ def generate_mock_data(days=365):
 
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
-    clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
-    
-    # 1. 静态超级字典
+    code = process_ticker(code)
+    # 1. 本地超级字典
     QUICK_MAP = {
         '600519': '贵州茅台', '000858': '五粮液', '601318': '中国平安', '600036': '招商银行',
         '300750': '宁德时代', '002594': '比亚迪', '601888': '中国中免', '600276': '恒瑞医药',
         '601857': '中国石油', '601088': '中国神华', '601988': '中国银行', '601398': '工商银行',
         'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 'BABA': 'Alibaba'
     }
+    # 模糊匹配
+    clean_code = code.replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
+    if code in QUICK_MAP: return QUICK_MAP[code]
 
-    # ✅ 2. 优先 Tushare (最稳)
+    # 2. Tushare (Token)
     if is_cn_stock(clean_code) and token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-
-    # 3. Baostock (备用)
+        
+    # 3. Baostock
     if is_cn_stock(clean_code) and bs:
         try:
             bs.login()
             rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
             if rs.error_code == '0':
                 data = rs.get_row_data()
-                if len(data) > 1:
-                    name = data[1]
-                    bs.logout()
-                    return name
+                if len(data)>1:
+                    bs.logout(); return data[1]
             bs.logout()
         except: pass
 
-    # 4. Yahoo Finance (美/港)
-    try:
-        if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
-        t = yf.Ticker(code)
-        return t.info.get('shortName') or t.info.get('longName') or code
-    except: pass
+    # 4. Yahoo
+    if not is_cn_stock(code):
+        try:
+            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
+            return yf.Ticker(code).info.get('shortName', code)
+        except: pass
     
     return code
 
@@ -537,14 +538,19 @@ def plot_chart(df, name, flags):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 执行入口
+# 4. 执行入口 (Logic)
 # ==========================================
 init_db()
 
 # ✅ 修复：侧边栏前置，防止退出后消失
 with st.sidebar:
-    st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:5px' class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
-    st.markdown("<div class='brand-subtitle'>用历史验证未来，用数据构建策略。</div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='text-align: left; margin-bottom: 20px;'>
+        <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
+        <div class='brand-en'>AlphaQuant Pro</div>
+        <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
+    </div>
+    """, unsafe_allow_html=True)
     
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
@@ -681,7 +687,13 @@ with st.sidebar:
 if not st.session_state.get('logged_in'):
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
-        st.markdown("<br><br><h1 style='text-align:center'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
+        st.markdown("""
+        <br><br>
+        <div style='text-align: center;'>
+            <h1 style='margin-bottom: 5px;'>阿尔法量研回测系统 Pro</h1>
+            <h3 style='color: #0071e3; margin-top: 0; font-weight: 500;'>AlphaQuant Pro</h3>
+        </div>
+        """, unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
         with tab1:
             u = st.text_input("账号")

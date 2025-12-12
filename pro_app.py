@@ -91,7 +91,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v41_1.csv"
+DB_FILE = "users_v42.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -242,7 +242,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑
+# 3. 股票逻辑 (无代理版)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -267,9 +267,10 @@ def generate_mock_data(days=365):
     return df
 
 @st.cache_data(ttl=3600)
-def get_name(code, token, proxy=None):
+def get_name(code, token):
     clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
     
+    # 1. 静态超级字典
     QUICK_MAP = {
         '600519': '贵州茅台', '000858': '五粮液', '601318': '中国平安', '600036': '招商银行',
         '300750': '宁德时代', '002594': '比亚迪', '601888': '中国中免', '600276': '恒瑞医药',
@@ -278,6 +279,7 @@ def get_name(code, token, proxy=None):
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
 
+    # 2. 新浪财经接口 (A股最稳)
     if clean_code.isdigit() and len(clean_code) == 6:
         prefixes = ['sh', 'sz', 'bj']
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
@@ -291,7 +293,8 @@ def get_name(code, token, proxy=None):
                         parts = content.split('="')
                         if len(parts) > 1:
                             data_str = parts[1]
-                            if len(data_str) > 1: return data_str.split(',')[0]
+                            if len(data_str) > 1:
+                                return data_str.split(',')[0]
             except: continue
         
         try:
@@ -303,12 +306,13 @@ def get_name(code, token, proxy=None):
                     return data["QuotationCodeTable"]["Data"][0]["Name"]
         except: pass
 
+    # 3. Yahoo Finance
     try:
-        if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
         t = yf.Ticker(code)
         return t.info.get('shortName') or t.info.get('longName') or code
     except: pass
     
+    # 4. Tushare
     if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
@@ -318,13 +322,12 @@ def get_name(code, token, proxy=None):
 
     return code
 
-def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
+def get_data_and_resample(code, token, timeframe, adjust):
     code = process_ticker(code)
     fetch_days = 1500 
     raw_df = pd.DataFrame()
     if not is_cn_stock(code):
         try:
-            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
             if not yf_df.empty:
                 if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
@@ -425,22 +428,17 @@ def calc_full_indicators(df, ma_s, ma_l):
         v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
     except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
 
-    # ✅ 修复：补全 SpanA/SpanB 计算逻辑
     p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
     p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
     df['Kijun'] = (p_high26 + p_low26) / 2
     df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
     df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
-    
-    # 防止 NaN 报错
     df['SpanA'] = df['SpanA'].fillna(method='bfill').fillna(0)
     df['SpanB'] = df['SpanB'].fillna(method='bfill').fillna(0)
 
-    # 自定义均线
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
-    
     mid = c.rolling(20).mean(); std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
     e12 = c.ewm(span=12, adjust=False).mean(); e26 = c.ewm(span=26, adjust=False).mean()
@@ -481,8 +479,6 @@ def get_drawing_lines(df):
 
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    
-    # ✅ 修复：检查自定义均线列
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
     if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
@@ -493,25 +489,20 @@ def run_backtest(df):
     
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        
-        # ✅ 修复：使用自定义均线进行回测
         if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
             capital = position * price; position = 0; sell_signals.append(date)
-        
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
-    
     eq_series = pd.Series(equity)
     cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax
     max_dd = drawdown.min() * 100
-    
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
@@ -572,7 +563,6 @@ def analyze_score(df):
 
 def main_uptrend_check(df):
     curr = df.iloc[-1]
-    # ✅ 修复：SpanA/SpanB 不再报错
     is_bull = curr['MA_Short'] > curr['MA_Long']
     is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB'])
     if is_bull and is_cloud and curr['ADX'] > 20: return "🚀 主升浪 (强趋势)", "success"
@@ -620,7 +610,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 # ==========================================
 init_db()
 
-# ✅ 侧边栏前置
+# ✅ 修复：侧边栏前置
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
@@ -669,6 +659,7 @@ with st.sidebar:
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
                 
+                # ✅ 新增：手动修改积分
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
                     target = st.selectbox("选择用户", u_list)
@@ -743,12 +734,13 @@ with st.sidebar:
                         else: st.error(msg)
         
         st.divider()
-        proxy = st.text_input("网络代理 (可选)", placeholder="http://127.0.0.1:7890")
+        # ✅ V42 移除代理
         try: dt = st.secrets["TUSHARE_TOKEN"]
         except: dt=""
         token = st.text_input("Token", value=dt, type="password")
         
-        new_c = st.text_input("代码 (支持美/港/A股)", st.session_state.code)
+        # ✅ V42 搜索前置
+        new_c = st.text_input("🔍 股票代码 (美/港/A股)", st.session_state.code)
         if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
         
         # ✅ 新增：添加自选按钮
@@ -815,7 +807,7 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # --- 主内容区 ---
-name = get_name(st.session_state.code, token, proxy)
+name = get_name(st.session_state.code, token)
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
@@ -839,7 +831,7 @@ if st.session_state.code != st.session_state.paid_code:
 if not is_demo:
     loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
     with st.spinner(random.choice(loading_tips)):
-        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
+        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust)
         if df.empty:
             st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
             df = generate_mock_data(days)

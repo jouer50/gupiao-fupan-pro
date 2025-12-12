@@ -63,7 +63,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v33_restore.csv"
+DB_FILE = "users_v33_2.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -197,7 +197,7 @@ def delete_user(target):
     save_users(df)
 
 # ==========================================
-# 3. 股票逻辑
+# 3. 股票逻辑 (名称超级字典修复)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -223,27 +223,64 @@ def generate_mock_data(days=365):
 
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
-    code = process_ticker(code)
-    QUICK_MAP = {'600519': '贵州茅台', 'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', '0700.HK': 'Tencent', 'BABA': 'Alibaba', '9988.HK': 'Alibaba HK'}
-    if code in QUICK_MAP: return QUICK_MAP[code]
-    if not is_cn_stock(code):
+    raw_code = code.upper()
+    
+    # ✅ 1. 超级字典：硬编码热门股，确保秒显
+    QUICK_MAP = {
+        # 消费/白酒
+        '600519': '贵州茅台', '000858': '五粮液', '600887': '伊利股份', '603288': '海天味业', '000568': '泸州老窖',
+        # 科技/新能源
+        '300750': '宁德时代', '002594': '比亚迪', '601012': '隆基绿能', '002415': '海康威视', '000725': '京东方A',
+        '002352': '顺丰控股', '002475': '立讯精密', '603501': '韦尔股份', '002230': '科大讯飞', '601138': '工业富联',
+        '688981': '中芯国际', '002371': '北方华创', '603986': '兆易创新', '300014': '亿纬锂能', '002049': '紫光国微',
+        # 金融/银行
+        '601318': '中国平安', '600036': '招商银行', '600030': '中信证券', '300059': '东方财富', '000001': '平安银行',
+        '601166': '兴业银行', '600000': '浦发银行', '601398': '工商银行', '601288': '农业银行', '601988': '中国银行',
+        # 医药
+        '600276': '恒瑞医药', '300015': '爱尔眼科', '300760': '迈瑞医疗', '603259': '药明康德',
+        # 中字头
+        '601857': '中国石油', '600028': '中国石化', '600900': '长江电力', '601088': '中国神华', '601888': '中国中免',
+        '601668': '中国建筑', '601800': '中国交建', '601728': '中国电信', '600941': '中国移动',
+        # 美股
+        'AAPL': 'Apple Inc', 'TSLA': 'Tesla Inc', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 
+        'GOOGL': 'Alphabet (Google)', 'AMZN': 'Amazon', 'META': 'Meta', 'NFLX': 'Netflix',
+        'AMD': 'AMD', 'INTC': 'Intel', 'BABA': 'Alibaba', 'PDD': 'Pinduoduo', 'JD': 'JD.com',
+        # 港股
+        '0700.HK': '腾讯控股', '9988.HK': '阿里巴巴', '3690.HK': '美团', '1810.HK': '小米集团', 
+        '0981.HK': '中芯国际', '0992.HK': '联想集团', '1211.HK': '比亚迪股份'
+    }
+    
+    # 模糊匹配：尝试去除 .SH .SZ 后再查
+    clean_code = raw_code.replace('.SH', '').replace('.SZ', '').replace('SH', '').replace('SZ', '')
+    if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
+    if raw_code in QUICK_MAP: return QUICK_MAP[raw_code]
+    
+    # 2. API 兜底
+    code_yf = process_ticker(code)
+    if not is_cn_stock(clean_code):
         try:
             if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
-            return yf.Ticker(code).info.get('shortName', code)
-        except: return code
+            return yf.Ticker(code_yf).info.get('shortName', code_yf)
+        except: return code_yf
+        
     if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
-            df = pro.stock_basic(ts_code=_to_ts_code(code), fields='name')
+            df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
+        
     if bs:
         try:
-            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(code))
-            if rs.error_code == '0' and len(rs.get_row_data())>1: return rs.get_row_data()[1]
+            bs.login()
+            rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
+            if rs.error_code == '0':
+                data = rs.get_row_data()
+                if len(data) > 1: return data[1]
             bs.logout()
         except: pass
-    return code
+        
+    return clean_code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
@@ -597,6 +634,7 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
+                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")

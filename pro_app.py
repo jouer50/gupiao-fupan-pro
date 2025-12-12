@@ -10,6 +10,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
+import urllib.request
+import json
+import socket
 
 # ✅ 0. 依赖库检查
 try:
@@ -22,9 +25,9 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="AlphaQuant Pro",
+    page_title="阿尔法量研 Pro", # ✅ 浏览器标签页名称
     layout="wide",
-    page_icon="💎",
+    page_icon="📈",
     initial_sidebar_state="expanded"
 )
 
@@ -35,7 +38,7 @@ if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
 apple_css = """
 <style>
-    .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
+    .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     
     .stDeployButton {display: none !important;} 
@@ -45,6 +48,8 @@ apple_css = """
     
     div.stButton > button {background-color: #0071e3; color: white; border-radius: 8px; border: none; padding: 0.6rem 1rem; font-weight: 500; width: 100%; transition: 0.2s;}
     div.stButton > button:hover {background-color: #0077ed; box-shadow: 0 4px 12px rgba(0,113,227,0.3);}
+    div.stButton > button[kind="secondary"] {background-color: #e5e5ea; color: #1d1d1f; border: 1px solid #d2d2d7;}
+    div.stButton > button[kind="secondary"]:hover {background-color: #d1d1d6;}
     
     div[data-testid="metric-container"] {background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
@@ -56,6 +61,10 @@ apple_css = """
     .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
     .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
     .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
+    
+    /* 品牌标题样式 */
+    .brand-title {font-size: 22px; font-weight: 800; color: #1d1d1f; margin-bottom: 5px; line-height: 1.2;}
+    .brand-subtitle {font-size: 12px; color: #86868b; margin-bottom: 20px; font-weight: 400;}
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -63,7 +72,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v38.csv"
+DB_FILE = "users_v39.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -188,7 +197,7 @@ def delete_user(target):
     save_users(df)
 
 # ==========================================
-# 3. 股票逻辑 (回归专业API版)
+# 3. 股票逻辑 (名称超级增强版)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -212,57 +221,49 @@ def generate_mock_data(days=365):
     df['MA20'] = df['close'].rolling(20).mean()
     return df
 
-# 🔥 V38 核心修复：移除所有爬虫，只用 Tushare/Baostock/Yfinance
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
-    code = code.strip().upper()
+    clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
     
-    # 1. 静态字典 (秒回)
+    # 1. 静态超级字典
     QUICK_MAP = {
         '600519': '贵州茅台', '000858': '五粮液', '601318': '中国平安', '600036': '招商银行',
         '300750': '宁德时代', '002594': '比亚迪', '601888': '中国中免', '600276': '恒瑞医药',
         '601857': '中国石油', '601088': '中国神华', '601988': '中国银行', '601398': '工商银行',
         'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 'BABA': 'Alibaba'
     }
-    if code in QUICK_MAP: return QUICK_MAP[code]
+    if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
 
-    # 2. 优先尝试 Tushare (A股最专业)
-    if is_cn_stock(code) and token and ts:
+    # ✅ 2. 优先 Tushare (最稳)
+    if is_cn_stock(clean_code) and token and ts:
         try:
-            ts.set_token(token)
-            pro = ts.pro_api()
-            # 必须带后缀 .SH / .SZ
-            ts_code = _to_ts_code(code)
-            df = pro.stock_basic(ts_code=ts_code, fields='name')
+            ts.set_token(token); pro = ts.pro_api()
+            df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
 
-    # 3. 其次尝试 Baostock (A股免费备用)
-    if is_cn_stock(code) and bs:
+    # 3. Baostock (备用)
+    if is_cn_stock(clean_code) and bs:
         try:
             bs.login()
-            # 必须带前缀 sh. / sz.
-            bs_code = _to_bs_code(code)
-            rs = bs.query_stock_basic(code=bs_code)
+            rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
             if rs.error_code == '0':
                 data = rs.get_row_data()
-                # Baostock 返回的 list: [code, code_name, ...]
-                if len(data) > 1 and data[1]:
+                if len(data) > 1:
                     name = data[1]
                     bs.logout()
                     return name
             bs.logout()
         except: pass
 
-    # 4. 最后尝试 Yahoo Finance (美股/港股)
-    if not is_cn_stock(code):
-        try:
-            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
-            t = yf.Ticker(code)
-            return t.info.get('shortName') or t.info.get('longName') or code
-        except: pass
+    # 4. Yahoo Finance (美/港)
+    try:
+        if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
+        t = yf.Ticker(code)
+        return t.info.get('shortName') or t.info.get('longName') or code
+    except: pass
     
-    return code # 还没找到，就显示代码
+    return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
@@ -536,13 +537,14 @@ def plot_chart(df, name, flags):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 执行入口 (Logic)
+# 4. 执行入口
 # ==========================================
 init_db()
 
 # ✅ 修复：侧边栏前置，防止退出后消失
 with st.sidebar:
-    st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:20px'>AlphaQuant <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:5px' class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
+    st.markdown("<div class='brand-subtitle'>用历史验证未来，用数据构建策略。</div>", unsafe_allow_html=True)
     
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
@@ -719,7 +721,8 @@ if st.session_state.code != st.session_state.paid_code:
         df = generate_mock_data(days)
 
 if not is_demo:
-    with st.spinner("AI 正在生成深度研报..."):
+    loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
+    with st.spinner(random.choice(loading_tips)):
         df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy)
         if df.empty:
             st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")

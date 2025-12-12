@@ -10,9 +10,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
-import urllib.request
-import json
-import socket
 
 # ✅ 0. 依赖库检查
 try:
@@ -48,8 +45,6 @@ apple_css = """
     
     div.stButton > button {background-color: #0071e3; color: white; border-radius: 8px; border: none; padding: 0.6rem 1rem; font-weight: 500; width: 100%; transition: 0.2s;}
     div.stButton > button:hover {background-color: #0077ed; box-shadow: 0 4px 12px rgba(0,113,227,0.3);}
-    div.stButton > button[kind="secondary"] {background-color: #e5e5ea; color: #1d1d1f; border: 1px solid #d2d2d7;}
-    div.stButton > button[kind="secondary"]:hover {background-color: #d1d1d6;}
     
     div[data-testid="metric-container"] {background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
@@ -57,6 +52,7 @@ apple_css = """
     .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
+    
     .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
     .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
     .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
@@ -67,7 +63,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v37_1.csv"
+DB_FILE = "users_v38.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -192,7 +188,7 @@ def delete_user(target):
     save_users(df)
 
 # ==========================================
-# 3. 股票逻辑 (名称终极修复: 双核驱动 + 伪装)
+# 3. 股票逻辑 (回归专业API版)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -216,57 +212,55 @@ def generate_mock_data(days=365):
     df['MA20'] = df['close'].rolling(20).mean()
     return df
 
-# 🔥 V37.1 终极版：新浪 + 东方财富 + 浏览器伪装
+# 🔥 V38 核心修复：移除所有爬虫，只用 Tushare/Baostock/Yfinance
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
-    clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
+    code = code.strip().upper()
     
-    # 1. 静态超级字典
+    # 1. 静态字典 (秒回)
     QUICK_MAP = {
         '600519': '贵州茅台', '000858': '五粮液', '601318': '中国平安', '600036': '招商银行',
         '300750': '宁德时代', '002594': '比亚迪', '601888': '中国中免', '600276': '恒瑞医药',
         '601857': '中国石油', '601088': '中国神华', '601988': '中国银行', '601398': '工商银行',
         'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 'BABA': 'Alibaba'
     }
-    if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
+    if code in QUICK_MAP: return QUICK_MAP[code]
 
-    # ✅ 伪装头 (关键!)
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-
-    # 2. 新浪财经接口 (A股) - 加上 Header 防止反爬
-    if clean_code.isdigit() and len(clean_code) == 6:
-        prefixes = ['sh', 'sz', 'bj']
-        for prefix in prefixes:
-            try:
-                url = f"http://hq.sinajs.cn/list={prefix}{clean_code}"
-                req = urllib.request.Request(url, headers=headers) # 加身份证
-                with urllib.request.urlopen(req, timeout=1) as response:
-                    content = response.read().decode('gbk', errors='ignore')
-                    if '="' in content:
-                        parts = content.split('="')
-                        if len(parts) > 1:
-                            data_str = parts[1]
-                            if len(data_str) > 1:
-                                name = data_str.split(',')[0]
-                                return name
-            except: continue
-
-        # 3. 东方财富接口 (A股备用) - JSON格式
+    # 2. 优先尝试 Tushare (A股最专业)
+    if is_cn_stock(code) and token and ts:
         try:
-            url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
-            req = urllib.request.Request(url_east, headers=headers)
-            with urllib.request.urlopen(req, timeout=1) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                if data and "QuotationCodeTable" in data and data["QuotationCodeTable"]["Data"]:
-                    return data["QuotationCodeTable"]["Data"][0]["Name"]
+            ts.set_token(token)
+            pro = ts.pro_api()
+            # 必须带后缀 .SH / .SZ
+            ts_code = _to_ts_code(code)
+            df = pro.stock_basic(ts_code=ts_code, fields='name')
+            if not df.empty: return df.iloc[0]['name']
         except: pass
 
-    # 4. Yahoo Finance
-    try:
-        if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
-        t = yf.Ticker(code)
-        return t.info.get('shortName') or t.info.get('longName') or code
-    except: pass
+    # 3. 其次尝试 Baostock (A股免费备用)
+    if is_cn_stock(code) and bs:
+        try:
+            bs.login()
+            # 必须带前缀 sh. / sz.
+            bs_code = _to_bs_code(code)
+            rs = bs.query_stock_basic(code=bs_code)
+            if rs.error_code == '0':
+                data = rs.get_row_data()
+                # Baostock 返回的 list: [code, code_name, ...]
+                if len(data) > 1 and data[1]:
+                    name = data[1]
+                    bs.logout()
+                    return name
+            bs.logout()
+        except: pass
+
+    # 4. 最后尝试 Yahoo Finance (美股/港股)
+    if not is_cn_stock(code):
+        try:
+            if proxy: os.environ["HTTP_PROXY"] = proxy; os.environ["HTTPS_PROXY"] = proxy
+            t = yf.Ticker(code)
+            return t.info.get('shortName') or t.info.get('longName') or code
+        except: pass
     
     return code # 还没找到，就显示代码
 
@@ -546,7 +540,7 @@ def plot_chart(df, name, flags):
 # ==========================================
 init_db()
 
-# ✅ 侧边栏常驻
+# ✅ 修复：侧边栏前置，防止退出后消失
 with st.sidebar:
     st.markdown("<div style='font-size:24px;font-weight:800;color:#1d1d1f;margin-bottom:20px'>AlphaQuant <span style='color:#0071e3'>Pro</span></div>", unsafe_allow_html=True)
     
@@ -554,7 +548,7 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
-        # ✅ 刷新缓存按钮
+        # ✅ 新增：刷新名称缓存按钮 (应对网络问题)
         if st.button("🔄 刷新缓存/修复名称"):
             st.cache_data.clear()
             st.success("已清除！正在重新获取...")
@@ -573,6 +567,7 @@ with st.sidebar:
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
                 
+                # ✅ 新增：手动修改积分
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
                     target = st.selectbox("选择用户", u_list)

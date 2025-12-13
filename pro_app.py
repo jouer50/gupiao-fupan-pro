@@ -14,25 +14,23 @@ import urllib.request
 import json
 import socket
 
-# ✅ 0. 依赖库检查与全局变量初始化 (防止 NameError)
+# ✅ 0. 依赖库检查与全局变量兜底
 ts = None
 bs = None
+
+# 兜底初始化，防止任何 NameError
+ma_s = 5
+ma_l = 20
+flags = {
+    'ma': True, 'boll': True, 'vol': True, 'macd': True, 
+    'kdj': True, 'gann': False, 'fib': True, 'chan': True
+}
 
 try:
     import yfinance as yf
 except ImportError:
     st.error("🚨 严重错误：缺少 `yfinance` 库")
     st.stop()
-
-try:
-    import tushare as ts
-except ImportError:
-    pass
-
-try:
-    import baostock as bs
-except ImportError:
-    pass
 
 # ==========================================
 # 1. 核心配置
@@ -49,45 +47,42 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# ✅ 全局默认参数
-ma_s = 5
-ma_l = 20
+# ✅ 核心常量定义 (防止 DB_FILE 报错)
+ADMIN_USER = "ZCX001"
+ADMIN_PASS = "123456"
+DB_FILE = "users_v59.csv"
+KEYS_FILE = "card_keys.csv"
 
-# 🔥 V58.0 终极 UI CSS
+# 🔥 V59.0 终极 UI CSS (果冻黄 + 同花顺风)
 ui_css = """
 <style>
-    /* 全局背景色 */
+    /* 全局背景 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
-    /* ================= 核心修复：侧边栏按钮 ================= */
-    /* 头部背景透明，保留按钮位置 */
-    header {background: transparent !important;}
-    
-    /* 隐藏装饰条 */
-    [data-testid="stDecoration"] {display: none !important;} 
-    .stDeployButton {display: none !important;} 
-    
-    /* 强制显示左上角折叠按钮，设为黑色，层级最高 */
-    [data-testid="collapsedControl"] {
-        display: block !important;
-        color: #000000 !important;
-        background-color: rgba(255,255,255,0.8) !important;
-        border-radius: 8px;
-        padding: 4px;
-        z-index: 999999 !important;
-    }
-    /* 兼容不同 Streamlit 版本的选择器 */
+    /* 强制显示侧边栏按钮 (黑色) */
     [data-testid="stSidebarCollapsedControl"] {
         display: block !important;
         color: #000000 !important;
-        background-color: rgba(255,255,255,0.8) !important;
-        border-radius: 8px;
+        background-color: rgba(255,255,255,0.9) !important;
+        border-radius: 50%;
+        padding: 4px;
         z-index: 999999 !important;
     }
+    /* 兼容旧版选择器 */
+    [data-testid="collapsedControl"] {
+        display: block !important;
+        color: #000000 !important;
+        background-color: rgba(255,255,255,0.9) !important;
+        border-radius: 50%;
+        padding: 4px;
+        z-index: 999999 !important;
+    }
+    
+    /* 隐藏杂项 */
+    .stDeployButton, footer, header {display: none !important;}
+    .block-container {padding-top: 3.5rem !important; padding-bottom: 2rem !important; padding-left: 0.5rem; padding-right: 0.5rem;}
 
-    .block-container {padding-top: 3.5rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem; padding-right: 0.8rem;}
-
-    /* ================= 🍋 按钮：果冻黄 (Jelly Yellow) ================= */
+    /* ================= 🍋 按钮：果冻黄 (Jelly Gold) ================= */
     div.stButton > button {
         background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
         color: #5d4037; 
@@ -97,7 +92,7 @@ ui_css = """
         font-weight: 800;
         font-size: 16px;
         box-shadow: 0 4px 10px rgba(255, 179, 0, 0.4); 
-        transition: all 0.2s ease;
+        transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
         width: 100%;
     }
     div.stButton > button:hover {
@@ -113,16 +108,16 @@ ui_css = """
     /* ================= 卡片容器 ================= */
     .app-card {
         background-color: #ffffff;
-        border-radius: 16px;
-        padding: 18px;
+        border-radius: 12px;
+        padding: 16px;
         margin-bottom: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
         border: 1px solid #ffffff;
     }
     
     /* 标题栏 */
     .section-header { display: flex; align-items: center; margin-bottom: 12px; margin-top: 8px; }
-    .section-title { font-size: 18px; font-weight: 900; color: #333; margin-right: 5px; }
+    .section-title { font-size: 17px; font-weight: 900; color: #333; margin-right: 5px; }
     .vip-badge { 
         background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); 
         color: #d32f2f; font-size: 10px; font-weight: 800; 
@@ -135,36 +130,33 @@ ui_css = """
     .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
     
     .param-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-        margin-bottom: 15px;
+        display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 15px;
     }
     .param-item {
-        background: #f9fafe; border-radius: 10px; padding: 10px; text-align: center;
-        border: 1px solid #edf2f7;
+        background: #f9fafe; border-radius: 10px; padding: 10px; text-align: center; border: 1px solid #edf2f7;
     }
     .param-val { font-size: 20px; font-weight: 800; color: #2c3e50; }
     .param-lbl { font-size: 12px; color: #95a5a6; margin-top: 2px; }
 
-    /* ================= 综合评级 ================= */
+    /* ================= 综合评级 (三色卡) ================= */
     .rating-container { display: flex; justify-content: space-between; gap: 8px; }
     .rating-box {
-        flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px;
+        flex: 1; background: #fff; border: 1px solid #f2f2f2; border-radius: 12px;
         text-align: center; padding: 15px 2px; 
         box-shadow: 0 4px 10px rgba(0,0,0,0.02);
     }
-    .rating-score { font-size: 26px; font-weight: 900; line-height: 1; margin-bottom: 5px; }
-    .rating-score-sub { font-size: 10px; color: #ccc; font-weight: 400; }
-    .rating-label { font-size: 12px; color: #666; font-weight: 600; }
+    .rating-score { font-size: 28px; font-weight: 900; line-height: 1; margin-bottom: 5px; font-family: 'Arial', sans-serif; }
+    .rating-score-sub { font-size: 10px; color: #ccc; font-weight: 400; margin-left: 1px;}
+    .rating-label { font-size: 12px; color: #666; font-weight: 500; }
+    .score-red { color: #ff3b30 !important; }
     .score-yellow { color: #ff9800 !important; }
+    .score-green { color: #00c853 !important; }
 
-    /* ================= 投资亮点 ================= */
+    /* ================= 投资亮点 (标签) ================= */
     .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
     .tag-box {
         background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700;
-        padding: 2px 8px; border-radius: 6px; 
-        margin-right: 10px; white-space: nowrap; margin-top: 2px;
+        padding: 2px 6px; border-radius: 4px; margin-right: 8px; white-space: nowrap; margin-top: 2px;
     }
     .tag-blue { background: #f0f7ff; color: #2962ff; }
     .tag-text { font-size: 14px; color: #333; text-align: justify; }
@@ -182,39 +174,25 @@ ui_css = """
         border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; 
         font-size: 12px; color: #888; display: flex; justify-content: space-between;
     }
-    
-    /* 趋势横幅 (回归) */
-    .trend-banner {
-        padding: 12px 16px; border-radius: 8px; margin-bottom: 15px; 
-        display: flex; align-items: center; justify-content: space-between;
-        border: 1px solid rgba(0,0,0,0.05);
-    }
-    .trend-title {font-size: 16px; font-weight: 800; margin: 0;}
 
     /* 风险雷达 */
     .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
     .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
     .risk-bar-fill { height: 100%; border-radius: 3px; }
-
-    /* 侧边栏品牌 */
-    .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
-    .brand-slogan { font-size: 12px; color: #999; margin-bottom: 20px; }
     
     /* 研报小标题 */
     .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
     .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
     
-    /* 覆盖原生 Metric */
+    /* 侧边栏品牌 */
+    .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
+    .brand-slogan { font-size: 12px; color: #999; margin-bottom: 20px; }
+    
+    /* 隐藏原生 Metric */
     [data-testid="metric-container"] { display: none; }
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
-
-# 👑 全局常量
-ADMIN_USER = "ZCX001"
-ADMIN_PASS = "123456"
-DB_FILE = "users_v58.csv"
-KEYS_FILE = "card_keys.csv"
 
 # ==========================================
 # 2. 数据库与工具
@@ -450,7 +428,7 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                     for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
                     raw_df = df.sort_values('date').reset_index(drop=True)
             except: pass
-        if raw_df.empty and bs: # ✅ 修复 BS 引用
+        if raw_df.empty and bs:
             try:
                 bs.login()
                 e = pd.Timestamp.today().strftime('%Y-%m-%d')
@@ -868,10 +846,13 @@ with st.sidebar:
         
         st.divider()
         with st.expander("🎛️ 策略参数", expanded=False):
+            st.caption("调整均线参数，优化回测结果")
             ma_s = st.slider("短期均线", 2, 20, 5)
             ma_l = st.slider("长期均线", 10, 120, 20)
         
         st.markdown("### 🛠️ 指标开关")
+        # ✅ V57.0 修复：显式初始化 flags
+        flags = {}
         c_flags = st.columns(2)
         with c_flags[0]:
             flags['ma'] = st.checkbox("MA", True)
@@ -995,7 +976,7 @@ try:
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
 
-    # 投资亮点 & 风险雷达
+    # 投资亮点
     if not is_demo:
         price_pct, is_high_risk = calculate_risk_percentile(df)
     else:

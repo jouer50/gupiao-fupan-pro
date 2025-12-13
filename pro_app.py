@@ -36,7 +36,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# ✅【关键修复】全局变量兜底初始化 (防止任何 NameError)
+# ✅ 全局变量兜底初始化 (防止 NameError)
 ma_s = 5
 ma_l = 20
 flags = {
@@ -47,7 +47,7 @@ flags = {
 # 核心常量定义
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v60.csv"
+DB_FILE = "users_v61.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -58,33 +58,63 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 V60.1 终极 UI CSS (果冻黄 + 同花顺风)
+# 🔥 V61.0 CSS：侧边栏按钮强力修复 + 黄色果冻UI
 ui_css = """
 <style>
     /* 全局背景 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
-    /* 强制显示侧边栏按钮 (黑色) */
+    /* ================= 核心修复：侧边栏按钮 ================= */
+    /* 1. 强制显示按钮，且固定在屏幕左上角，脱离 Header 限制 */
     [data-testid="stSidebarCollapsedControl"] {
         display: block !important;
-        color: #000000 !important;
-        background-color: rgba(255,255,255,0.9) !important;
-        border-radius: 50%;
-        padding: 4px;
-        z-index: 999999 !important;
+        position: fixed !important; /* 钉死在屏幕上 */
+        top: 10px !important;
+        left: 10px !important;
+        color: #333333 !important; /* 深灰色图标 */
+        background-color: rgba(255, 255, 255, 0.9) !important; /* 半透明白底 */
+        border: 1px solid #eee;
+        border-radius: 50%; /* 圆形 */
+        width: 40px; 
+        height: 40px;
+        padding: 5px;
+        z-index: 999999 !important; /* 最顶层 */
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15); /* 加阴影防背景干扰 */
+        transition: all 0.2s;
     }
-    /* 兼容旧版选择器 */
+    [data-testid="stSidebarCollapsedControl"]:hover {
+        transform: scale(1.1);
+        background-color: #fff !important;
+    }
+
+    /* 兼容旧版 Streamlit 选择器 */
     [data-testid="collapsedControl"] {
         display: block !important;
-        color: #000000 !important;
-        background-color: rgba(255,255,255,0.9) !important;
+        position: fixed !important;
+        top: 10px !important;
+        left: 10px !important;
+        color: #333333 !important;
+        background-color: rgba(255, 255, 255, 0.9) !important;
         border-radius: 50%;
-        padding: 4px;
         z-index: 999999 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    
+    /* 隐藏 Header 背景，让头部更干净，但不影响按钮 */
+    header[data-testid="stHeader"] {
+        background-color: transparent !important;
+        pointer-events: none; /* 让点击穿透 Header，防止挡住按钮 */
+    }
+    /* 恢复 Header 里按钮的点击能力 */
+    header[data-testid="stHeader"] > div {
+        pointer-events: auto;
     }
     
     /* 隐藏杂项 */
-    .stDeployButton, footer, header {display: none !important;}
+    .stDeployButton, footer {display: none !important;}
+    [data-testid="stDecoration"] {display: none !important;} 
+    
+    /* 顶部间距适配 */
     .block-container {padding-top: 3.5rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem; padding-right: 0.8rem;}
 
     /* ================= 🍋 按钮：果冻黄 (Jelly Gold) ================= */
@@ -161,7 +191,8 @@ ui_css = """
     .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
     .tag-box {
         background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700;
-        padding: 2px 6px; border-radius: 4px; margin-right: 8px; white-space: nowrap; margin-top: 2px;
+        padding: 2px 8px; border-radius: 6px; 
+        margin-right: 10px; white-space: nowrap; margin-top: 2px;
     }
     .tag-blue { background: #f0f7ff; color: #2962ff; }
     .tag-text { font-size: 14px; color: #333; text-align: justify; }
@@ -187,7 +218,7 @@ ui_css = """
     .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
     .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
     .risk-bar-fill { height: 100%; border-radius: 3px; }
-
+    
     /* 研报小标题 */
     .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
     .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
@@ -859,9 +890,9 @@ with st.sidebar:
             ma_s = st.slider("短期均线", 2, 20, 5)
             ma_l = st.slider("长期均线", 10, 120, 20)
         
-        # ✅ V59.0 修复：显式初始化 flags
         st.markdown("### 🛠️ 指标开关")
-        flags = {} # 👈 这一行救命！
+        # ✅ V60.1 修复：在渲染开关前显式初始化 flags
+        flags = {} 
         c_flags = st.columns(2)
         with c_flags[0]:
             flags['ma'] = st.checkbox("MA", True)
@@ -970,14 +1001,17 @@ try:
     st.markdown(f"""
     <div class="rating-container">
         <div class="rating-box">
+            <div class="rating-icon">🏢</div>
             <div class="rating-score">{sq} <span class="rating-score-sub">/10</span></div>
             <div class="rating-label">公司质量</div>
         </div>
         <div class="rating-box">
+            <div class="rating-icon">🪙</div>
             <div class="rating-score score-yellow">{sv} <span class="rating-score-sub sub-yellow">/10</span></div>
             <div class="rating-label">估值安全</div>
         </div>
         <div class="rating-box">
+            <div class="rating-icon">📈</div>
             <div class="rating-score">{st_} <span class="rating-score-sub">/10</span></div>
             <div class="rating-label">股价趋势</div>
         </div>

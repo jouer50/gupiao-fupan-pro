@@ -28,7 +28,7 @@ st.set_page_config(
     page_title="阿尔法量研 Pro | AlphaQuant",
     layout="wide",
     page_icon="📈",
-    initial_sidebar_state="auto" # 手机自动收起，PC自动展开
+    initial_sidebar_state="expanded"
 )
 
 # 初始化 Session
@@ -36,121 +36,65 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# 🔥 V44.1 移动端 CSS 修复版
-mobile_css = """
+apple_css = """
 <style>
-    /* 全局字体与背景 */
-    .stApp {
-        background-color: #f5f5f7; 
-        color: #1d1d1f; 
-        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-    }
+    .stApp {background-color: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
+    [data-testid="stSidebar"] {background-color: #ffffff; border-right: 1px solid #d2d2d7;}
     
-    /* ✅ 修复：不隐藏整个 Header，只隐藏干扰元素 */
-    /* header {visibility: hidden;}  <-- 删除了这行 */
-    
-    /* 隐藏顶部彩条 */
-    [data-testid="stDecoration"] {display: none !important;} 
-    
-    /* 隐藏 Deploy 按钮 */
     .stDeployButton {display: none !important;} 
-    
-    /* 隐藏页脚 */
     footer {display: none !important;}
-
-    /* 确保左上角侧边栏开关可见，并增加点击区域 */
-    [data-testid="collapsedControl"] {
-        display: block !important;
-        color: #0071e3 !important; /* 设为品牌蓝，更明显 */
-        transform: scale(1.2); /* 放大一点，方便手指点击 */
-    }
-
-    /* 手机端布局优化 */
-    .block-container {
-        padding-top: 3rem !important; /* 留出顶部空间给按钮 */
-        padding-left: 0.8rem !important; 
-        padding-right: 0.8rem !important;
-    }
-
-    /* 按钮：大拇指友好型 */
-    div.stButton > button {
-        background-color: #0071e3; 
-        color: white; 
-        border-radius: 12px; 
-        border: none; 
-        padding: 0.8rem 1rem; 
-        font-weight: 600; 
-        width: 100%; 
-        font-size: 16px;
-        box-shadow: 0 2px 5px rgba(0,113,227,0.2);
-    }
-    div.stButton > button:active {transform: scale(0.98);}
     
-    /* 次级按钮 */
-    div.stButton > button[kind="secondary"] {
-        background-color: #f2f2f7; 
-        color: #0071e3; 
-        border: none;
-    }
-
-    /* 指标卡片 */
-    [data-testid="metric-container"] {
-        background-color: #ffffff; 
-        border: none; 
-        border-radius: 12px; 
-        padding: 12px; 
-        box-shadow: 0 4px 10px rgba(0,0,0,0.03);
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-    [data-testid="stMetricLabel"] {font-size: 13px !important; color: #86868b;}
-    [data-testid="stMetricValue"] {font-size: 20px !important; font-weight: 700 !important; color: #1d1d1f;}
-    [data-testid="stMetricDelta"] {font-size: 12px !important;}
-
-    /* 研报盒子 */
-    .report-box {
-        background-color: #ffffff; 
-        border-radius: 16px; 
-        padding: 20px; 
-        font-size: 15px; 
-        line-height: 1.6; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.04);
-        margin-bottom: 15px;
-    }
-
-    /* 趋势横幅 */
-    .trend-banner {
-        padding: 15px; 
-        border-radius: 12px; 
-        margin-bottom: 20px; 
-        display: flex; 
-        align-items: center; 
-        justify-content: space-between; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    }
-    .trend-title {font-size: 18px; font-weight: 800; margin: 0;}
+    .block-container {padding-top: 2rem !important;}
     
-    /* 品牌标题 */
-    .brand-title {font-size: 28px; font-weight: 900; color: #1d1d1f; margin-bottom: 5px; letter-spacing: -0.5px;}
-    .brand-en {font-size: 18px; color: #0071e3; font-weight: 700; margin-bottom: 10px;}
-    .brand-slogan {font-size: 13px; color: #86868b; margin-bottom: 20px;}
+    div.stButton > button {background-color: #0071e3; color: white; border-radius: 8px; border: none; padding: 0.6rem 1rem; font-weight: 500; width: 100%; transition: 0.2s;}
+    div.stButton > button:hover {background-color: #0077ed; box-shadow: 0 4px 12px rgba(0,113,227,0.3);}
+    div.stButton > button[kind="secondary"] {background-color: #e5e5ea; color: #1d1d1f; border: 1px solid #d2d2d7;}
+    div.stButton > button[kind="secondary"]:hover {background-color: #d1d1d6;}
+    
+    div[data-testid="metric-container"] {background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
+    [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
+    
+    .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
+    .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
+    .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
+    
+    .buy-card {border: 1px solid #0071e3; border-radius: 10px; padding: 15px; text-align: center; margin-bottom: 10px; background-color: #fbfbfd; transition: 0.3s;}
+    .buy-card:hover {transform: scale(1.02); box-shadow: 0 5px 15px rgba(0,113,227,0.15);}
+    .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
+    
+    /* 品牌标题样式 */
+    .brand-title {font-size: 32px; font-weight: 900; color: #1d1d1f; margin-bottom: 5px; letter-spacing: -0.5px;}
+    .brand-en {font-size: 22px; color: #0071e3; font-weight: 800; margin-bottom: 20px; letter-spacing: 0.5px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
+    .brand-slogan {font-size: 14px; color: #86868b; font-weight: 400; margin-bottom: 30px;}
 
-    /* 输入框优化 */
-    .stTextInput > div > div > input {
-        border-radius: 10px; 
-        padding: 10px; 
-        font-size: 16px; 
+    /* 🔥 V45 新增：智能诊断卡片样式 */
+    .score-card-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
+    .score-card { 
+        background: #fff; border-radius: 12px; padding: 15px; text-align: center; flex: 1; 
+        border: 1px solid #f5f5f5; box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    }
+    .score-icon { font-size: 24px; margin-bottom: 5px; }
+    .score-val { font-size: 32px; font-weight: 800; color: #ff3b30; }
+    .score-total { font-size: 14px; color: #86868b; }
+    .score-label { font-size: 14px; color: #666; font-weight: 500; margin-top: 5px; }
+    
+    /* 投资亮点列表 */
+    .highlight-box { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #f5f5f5; }
+    .highlight-title { font-size: 18px; font-weight: 800; margin-bottom: 15px; color: #1d1d1f; display: flex; align-items: center; }
+    .vip-tag { background: #ff3b30; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-style: italic; font-weight: 900;}
+    .hl-item { margin-bottom: 12px; font-size: 14px; color: #333; line-height: 1.5; display: flex; }
+    .hl-tag { 
+        color: #ff3b30; background: rgba(255, 59, 48, 0.1); padding: 2px 6px; border-radius: 4px; 
+        font-weight: 600; margin-right: 10px; white-space: nowrap; height: fit-content; font-size: 12px;
     }
 </style>
 """
-st.markdown(mobile_css, unsafe_allow_html=True)
+st.markdown(apple_css, unsafe_allow_html=True)
 
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v44.csv"
+DB_FILE = "users_v45.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -332,28 +276,37 @@ def get_name(code, token, proxy=None):
         'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 'BABA': 'Alibaba'
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
-    
-    if is_cn_stock(clean_code) and token and ts:
+    if clean_code.isdigit() and len(clean_code) == 6:
+        prefixes = ['sh', 'sz', 'bj']
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
+        for prefix in prefixes:
+            try:
+                url = f"http://hq.sinajs.cn/list={prefix}{clean_code}"
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=1) as response:
+                    content = response.read().decode('gbk', errors='ignore')
+                    if '="' in content:
+                        parts = content.split('="')
+                        if len(parts) > 1: return parts[1].split(',')[0]
+            except: continue
+        try:
+            url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
+            req = urllib.request.Request(url_east, headers=headers)
+            with urllib.request.urlopen(req, timeout=1) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                if data and "QuotationCodeTable" in data and data["QuotationCodeTable"]["Data"]:
+                    return data["QuotationCodeTable"]["Data"][0]["Name"]
+        except: pass
+    try:
+        t = yf.Ticker(code)
+        return t.info.get('shortName') or t.info.get('longName') or code
+    except: pass
+    if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-
-    if is_cn_stock(clean_code) and bs:
-        try:
-            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
-            if rs.error_code == '0':
-                data = rs.get_row_data()
-                if len(data)>1: bs.logout(); return data[1]
-            bs.logout()
-        except: pass
-
-    try:
-        t = yf.Ticker(code)
-        return t.info.get('shortName') or t.info.get('longName') or code
-    except: pass
-    
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
@@ -513,7 +466,6 @@ def get_drawing_lines(df):
 
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
     if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
@@ -524,24 +476,20 @@ def run_backtest(df):
     
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        
         if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
             capital = position * price; position = 0; sell_signals.append(date)
-        
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
-    
     eq_series = pd.Series(equity)
     cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax
     max_dd = drawdown.min() * 100
-    
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
@@ -608,9 +556,72 @@ def main_uptrend_check(df):
     if is_cloud: return "📈 震荡上行", "warning"
     return "📉 主跌浪 (回避)", "error"
 
+# 🔥 V45 核心：智能诊断评分与亮点生成逻辑
+def calculate_smart_score(df, funda):
+    # 1. 股价趋势 (Trend) - 权重 40%
+    trend_score = 5 # 基础分
+    last = df.iloc[-1]
+    if last['close'] > last['MA_Long']: trend_score += 2
+    if last['DIF'] > last['DEA']: trend_score += 1
+    if last['RSI'] > 50: trend_score += 1
+    if last['MA_Short'] > last['MA_Long']: trend_score += 1
+    trend_score = min(10, trend_score) # 上限10
+
+    # 2. 估值安全 (Value) - 权重 30%
+    val_score = 5
+    try:
+        pe = float(funda['pe'])
+        if pe < 15: val_score += 3 # 低估
+        elif pe < 30: val_score += 1 # 合理
+        elif pe > 60: val_score -= 2 # 高估
+    except: pass
+    val_score = min(10, max(1, val_score))
+
+    # 3. 公司质量 (Quality) - 权重 30%
+    # 由于没有财报，我们用市值和波动率反推质量
+    qual_score = 6
+    try:
+        mv_str = funda['mv'].replace('亿','')
+        mv = float(mv_str)
+        if mv > 1000: qual_score += 2 # 大白马
+        elif mv > 100: qual_score += 1
+    except: pass
+    # 波动率越小，质量通常越稳
+    volatility = df['pct_change'].std()
+    if volatility < 2: qual_score += 1
+    qual_score = min(10, qual_score)
+    
+    return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
+
+def get_smart_highlights(df, funda):
+    last = df.iloc[-1]
+    highlights = []
+    
+    # 1. 估值逻辑
+    try:
+        pe = float(funda['pe'])
+        if pe > 0 and pe < 20: highlights.append(("估值", f"当前PE为{pe}，处于历史低位区间，安全边际较高。"))
+        elif pe > 60: highlights.append(("风险", f"当前PE高达{pe}，估值泡沫风险较大。"))
+    except: pass
+    
+    # 2. 趋势逻辑
+    change_30 = (last['close'] - df.iloc[-30]['close']) / df.iloc[-30]['close'] * 100
+    if change_30 > 20: highlights.append(("强势", f"近一月涨幅超{change_30:.1f}%，资金关注度极高。"))
+    elif change_30 < -20: highlights.append(("超跌", f"近一月跌幅达{abs(change_30):.1f}%，存在技术性反弹需求。"))
+    
+    # 3. 资金逻辑
+    if last['VolRatio'] > 2: highlights.append(("放量", "今日成交量放大2倍以上，主力资金异动明显。"))
+    
+    # 4. 筹码逻辑
+    if last['close'] > last['MA_Long']: highlights.append(("突破", "股价站上长期均线，中长期趋势转强。"))
+    
+    # 兜底
+    if not highlights: highlights.append(("平稳", "近期股价波动较小，处于横盘整理阶段。"))
+    
+    return highlights
+
 def plot_chart(df, name, flags, ma_s, ma_l):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
-    # ✅ V44 移动端触控优化
     fig.update_layout(dragmode=False)
     
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'), 1, 1)
@@ -644,7 +655,6 @@ def plot_chart(df, name, flags, ma_s, ma_l):
         fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D线'), 4, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#af52de', width=1), name='J线'), 4, 1)
     
-    # 🔥 V44 布局优化
     fig.update_layout(height=500, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=-0.2))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -887,22 +897,52 @@ try:
     df = calc_full_indicators(df, ma_short, ma_long)
     df = detect_patterns(df)
     
-    trend_txt, trend_col = main_uptrend_check(df)
-    bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
-    tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
-    st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
+    # 🔥 V45 UI 升级：三色评分卡
+    s_qual, s_val, s_trend = calculate_smart_score(df, funda)
     
-    # 🔥 V44 移动端优化：使用 columns 2-3 列布局，而不是 5 列
-    # Streamlit 的 columns 在手机端会自动垂直堆叠，或者我们可以手动分组
-    col1, col2 = st.columns(2)
-    with col1:
-        l = df.iloc[-1]
-        st.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
-        st.metric("RSI (14)", safe_fmt(l['RSI'], "{:.1f}"))
-        st.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
-    with col2:
-        st.metric("PE (TTM)", funda['pe'])
-        st.metric("ADX (趋势)", safe_fmt(l['ADX'], "{:.1f}"))
+    st.markdown(f"""
+    <div class="score-card-container">
+        <div class="score-card">
+            <div class="score-icon">🏢</div>
+            <div class="score-val" style="color: #ff3b30">{s_qual}</div>
+            <div class="score-total">/10</div>
+            <div class="score-label">公司质量</div>
+        </div>
+        <div class="score-card">
+            <div class="score-icon">🪙</div>
+            <div class="score-val" style="color: #ff9500">{s_val}</div>
+            <div class="score-total">/10</div>
+            <div class="score-label">估值安全</div>
+        </div>
+        <div class="score-card">
+            <div class="score-icon">📈</div>
+            <div class="score-val" style="color: #34c759">{s_trend}</div>
+            <div class="score-total">/10</div>
+            <div class="score-label">股价趋势</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 🔥 V45 UI 升级：投资亮点
+    highlights = get_smart_highlights(df, funda)
+    hl_html = ""
+    for tag, desc in highlights:
+        hl_html += f"<div class='hl-item'><span class='hl-tag'>{tag}</span>{desc}</div>"
+    
+    st.markdown(f"""
+    <div class="highlight-box">
+        <div class="highlight-title">投资亮点 <span class="vip-tag">VIP</span></div>
+        {hl_html}
+    </div>
+    """, unsafe_allow_html=True)
+    
+    l = df.iloc[-1]
+    k1,k2,k3,k4,k5 = st.columns(5)
+    k1.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
+    k2.metric("PE", funda['pe'])
+    k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
+    k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
+    k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
     
     plot_chart(df.tail(days), f"{name} {timeframe}分析", flags, ma_short, ma_long)
     

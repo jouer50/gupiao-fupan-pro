@@ -36,72 +36,61 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# ✅ 全局变量兜底
+# ✅【关键修复】全局变量兜底初始化 (防止任何 NameError)
 ma_s = 5
 ma_l = 20
+flags = {
+    'ma': True, 'boll': True, 'vol': True, 'macd': True, 
+    'kdj': True, 'gann': False, 'fib': True, 'chan': True
+}
+
+# 核心常量定义
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
 DB_FILE = "users_v60.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
-ts = None; bs = None
+ts = None
+bs = None
 try: import tushare as ts
 except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 V60.0 修复 CSS：找回左上角按钮
+# 🔥 V60.1 终极 UI CSS (果冻黄 + 同花顺风)
 ui_css = """
 <style>
     /* 全局背景 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
-    /* ================= 核心修复：侧边栏按钮 ================= */
-    /* 1. Header 必须显示，但设为透明 */
-    header[data-testid="stHeader"] {
-        background-color: transparent !important;
-        visibility: visible !important;
-    }
-    
-    /* 2. 隐藏 Header 里的彩条装饰 */
-    [data-testid="stDecoration"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    
-    /* 3. 隐藏 Deploy 按钮 */
-    .stDeployButton {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    
-    /* 4. 强制显示左上角折叠按钮 (黑箭头+白底) */
+    /* 强制显示侧边栏按钮 (黑色) */
     [data-testid="stSidebarCollapsedControl"] {
         display: block !important;
-        visibility: visible !important;
-        color: #000000 !important; /* 黑色箭头 */
-        background-color: rgba(255,255,255,0.9) !important; /* 白色圆底 */
+        color: #000000 !important;
+        background-color: rgba(255,255,255,0.9) !important;
         border-radius: 50%;
-        width: 40px; height: 40px;
-        padding: 5px;
+        padding: 4px;
         z-index: 999999 !important;
-        position: fixed;
-        top: 10px;
-        left: 10px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    /* 兼容旧版选择器 */
+    [data-testid="collapsedControl"] {
+        display: block !important;
+        color: #000000 !important;
+        background-color: rgba(255,255,255,0.9) !important;
+        border-radius: 50%;
+        padding: 4px;
+        z-index: 999999 !important;
     }
     
-    /* 隐藏页脚 */
-    footer {display: none !important;}
-    
-    /* 顶部间距适配 */
-    .block-container {padding-top: 4rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem; padding-right: 0.8rem;}
+    /* 隐藏杂项 */
+    .stDeployButton, footer, header {display: none !important;}
+    .block-container {padding-top: 3.5rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem; padding-right: 0.8rem;}
 
     /* ================= 🍋 按钮：果冻黄 (Jelly Gold) ================= */
     div.stButton > button {
         background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
-        color: #5d4037; 
+        color: #5d4037; /* 深褐文字 */
         border: 2px solid #fff9c4; 
         border-radius: 25px; 
         padding: 0.6rem 1.2rem;
@@ -112,7 +101,7 @@ ui_css = """
         width: 100%;
     }
     div.stButton > button:hover {
-        transform: translateY(-2px);
+        transform: translateY(-2px) scale(1.01);
         box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5);
     }
     div.stButton > button:active { transform: scale(0.96); }
@@ -161,17 +150,18 @@ ui_css = """
         text-align: center; padding: 15px 2px; 
         box-shadow: 0 4px 10px rgba(0,0,0,0.02);
     }
-    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; font-family: 'Arial', sans-serif; }
+    .rating-score { font-size: 28px; font-weight: 900; line-height: 1; margin-bottom: 5px; font-family: 'Arial', sans-serif; }
     .rating-score-sub { font-size: 10px; color: #ccc; font-weight: 400; margin-left: 1px;}
     .rating-label { font-size: 12px; color: #666; font-weight: 500; }
+    .score-red { color: #ff3b30 !important; }
     .score-yellow { color: #ff9800 !important; }
+    .score-green { color: #00c853 !important; }
 
     /* ================= 投资亮点 (标签) ================= */
     .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
     .tag-box {
         background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700;
-        padding: 2px 8px; border-radius: 6px; 
-        margin-right: 10px; white-space: nowrap; margin-top: 2px;
+        padding: 2px 6px; border-radius: 4px; margin-right: 8px; white-space: nowrap; margin-top: 2px;
     }
     .tag-blue { background: #f0f7ff; color: #2962ff; }
     .tag-text { font-size: 14px; color: #333; text-align: justify; }
@@ -185,12 +175,14 @@ ui_css = """
     }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
-    .price-point { font-weight: 700; color: #333; font-size: 15px; }
+    .strategy-col { text-align: center; flex: 1; }
+    .st-val { font-size: 16px; font-weight: 800; display: block; margin-top: 4px; }
+    .st-lbl { font-size: 12px; color: #888; }
     .support-line { 
         border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; 
         font-size: 12px; color: #888; display: flex; justify-content: space-between;
     }
-    
+
     /* 风险雷达 */
     .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
     .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
@@ -204,7 +196,7 @@ ui_css = """
     .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
     .brand-slogan { font-size: 12px; color: #999; margin-bottom: 20px; }
     
-    /* 隐藏原生 Metric */
+    /* 覆盖原生 Metric */
     [data-testid="metric-container"] { display: none; }
 </style>
 """
@@ -863,10 +855,13 @@ with st.sidebar:
         
         st.divider()
         with st.expander("🎛️ 策略参数", expanded=False):
+            st.caption("调整均线参数，优化回测结果")
             ma_s = st.slider("短期均线", 2, 20, 5)
             ma_l = st.slider("长期均线", 10, 120, 20)
         
+        # ✅ V59.0 修复：显式初始化 flags
         st.markdown("### 🛠️ 指标开关")
+        flags = {} # 👈 这一行救命！
         c_flags = st.columns(2)
         with c_flags[0]:
             flags['ma'] = st.checkbox("MA", True)

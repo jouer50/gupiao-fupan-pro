@@ -36,122 +36,164 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# ✅ 【关键修复】全局变量初始化 (防止 NameError)
+# ✅ 全局默认参数 (防止 NameError)
 ma_s = 5
 ma_l = 20
-flags = {
-    'ma': True, 'boll': True, 'vol': True, 'macd': True,
-    'kdj': True, 'gann': False, 'fib': True, 'chan': True
-}
 
-# 🔥 V54.0 黄色果冻 UI CSS
+# 🔥 V56.0 终极 UI CSS
 ui_css = """
 <style>
-    /* 全局背景 */
+    /* 全局背景色 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
-    /* 侧边栏按钮强制显示 */
-    [data-testid="stSidebarCollapsedControl"] { display: block !important; color: #333 !important; z-index: 99999; }
+    /* ================= 核心修复：侧边栏按钮 ================= */
+    /* 不要隐藏 header，而是让它透明，这样按钮还在 */
+    header {background: transparent !important;}
     
-    /* 隐藏杂项 */
-    .stDeployButton, footer, header {display: none !important;}
-    .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.5rem; padding-right: 0.5rem;}
+    /* 仅隐藏顶部的彩条装饰和 Deploy 按钮 */
+    [data-testid="stDecoration"] {display: none !important;} 
+    .stDeployButton {display: none !important;} 
+    
+    /* 强制显示左上角折叠按钮，并设为深黑色 */
+    [data-testid="stSidebarCollapsedControl"] {
+        display: block !important;
+        color: #000000 !important;
+        background-color: rgba(255,255,255,0.8);
+        border-radius: 8px;
+        padding: 4px;
+        z-index: 999999;
+    }
 
-    /* ================= 🍋 黄色果冻按钮 (核心升级) ================= */
+    /* 调整顶部间距 */
+    .block-container {padding-top: 3.5rem !important; padding-bottom: 2rem !important; padding-left: 0.5rem; padding-right: 0.5rem;}
+
+    /* ================= 🍋 按钮：黄色果冻风格 (Jelly Yellow) ================= */
     div.stButton > button {
-        background: linear-gradient(135deg, #ffca28 0%, #ffb300 100%); /* 金黄渐变 */
-        color: #3e2723; /* 深褐文字，对比度高 */
-        border: none;
+        background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); /* 金黄立体渐变 */
+        color: #5d4037; /* 深褐文字 */
+        border: 2px solid #fff9c4; /* 高光边框 */
         border-radius: 25px; /* 果冻圆角 */
         padding: 0.6rem 1.2rem;
-        font-weight: 700;
+        font-weight: 800;
         font-size: 16px;
-        box-shadow: 0 4px 6px rgba(255, 179, 0, 0.3); /* 柔和投影 */
-        transition: all 0.2s ease;
+        box-shadow: 0 4px 10px rgba(255, 179, 0, 0.4); /* 柔和投影 */
+        transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
         width: 100%;
     }
     div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(255, 179, 0, 0.4);
-        background: linear-gradient(135deg, #ffd54f 0%, #ffca28 100%);
+        transform: translateY(-3px) scale(1.02);
+        box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5);
+        background: linear-gradient(145deg, #ffe082 0%, #ffca28 100%);
     }
     div.stButton > button:active {
-        transform: scale(0.98);
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transform: scale(0.95);
+        box-shadow: 0 2px 5px rgba(255, 179, 0, 0.3);
     }
     
     /* 次级按钮 (灰色) */
     div.stButton > button[kind="secondary"] {
-        background: #f5f5f5; color: #666; box-shadow: none;
+        background: #f0f0f0; color: #666; border: 1px solid #ddd; box-shadow: none;
     }
 
     /* ================= 卡片容器 ================= */
     .app-card {
         background-color: #ffffff;
-        border-radius: 12px;
-        padding: 16px;
+        border-radius: 16px;
+        padding: 18px;
         margin-bottom: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        border: 1px solid #ffffff;
     }
     
-    /* 标题栏 */
-    .section-header { display: flex; align-items: center; margin-bottom: 15px; margin-top: 5px; }
-    .section-title { font-size: 17px; font-weight: 900; color: #333; margin-right: 5px; }
-    .vip-badge { background: #fff0f0; color: #ff3b30; font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 4px; font-style: italic; }
+    /* ================= 标题栏 ================= */
+    .section-header { display: flex; align-items: center; margin-bottom: 12px; margin-top: 8px; }
+    .section-title { font-size: 18px; font-weight: 900; color: #333; margin-right: 5px; }
+    .vip-badge { 
+        background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%); 
+        color: #d32f2f; font-size: 10px; font-weight: 800; 
+        padding: 2px 8px; border-radius: 10px; font-style: italic; 
+    }
+
+    /* ================= 股价大字 + 四宫格参数 ================= */
+    .big-price-box { text-align: center; margin-bottom: 20px; }
+    .price-main { font-size: 48px; font-weight: 900; line-height: 1; letter-spacing: -1.5px; }
+    .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
+    
+    .param-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        margin-bottom: 15px;
+    }
+    .param-item {
+        background: #f9fafe; border-radius: 10px; padding: 10px; text-align: center;
+        border: 1px solid #edf2f7;
+    }
+    .param-val { font-size: 20px; font-weight: 800; color: #2c3e50; }
+    .param-lbl { font-size: 12px; color: #95a5a6; margin-top: 2px; }
 
     /* ================= 综合评级 (三色卡) ================= */
     .rating-container { display: flex; justify-content: space-between; gap: 8px; }
     .rating-box {
-        flex: 1; background: #fff; border: 1px solid #f2f2f2; border-radius: 12px;
-        text-align: center; padding: 15px 5px; 
+        flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px;
+        text-align: center; padding: 15px 2px; 
         box-shadow: 0 4px 10px rgba(0,0,0,0.02);
     }
-    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; font-family: 'Arial', sans-serif; }
-    .rating-score-sub { font-size: 12px; color: #ccc; font-weight: 400; margin-left: 1px;}
-    .rating-label { font-size: 12px; color: #666; font-weight: 500; }
-    .score-yellow { color: #ff9800 !important; }
+    .rating-score { font-size: 26px; font-weight: 900; line-height: 1; margin-bottom: 5px; }
+    .rating-sub { font-size: 10px; color: #ccc; font-weight: 400; }
+    .rating-label { font-size: 12px; color: #666; font-weight: 600; }
+    
+    .txt-red { color: #ff3b30; }
+    .txt-orange { color: #ff9800; }
+    .txt-green { color: #00c853; }
 
-    /* ================= 投资亮点 (标签化) ================= */
+    /* ================= 投资亮点/风险 (标签化) ================= */
     .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
     .tag-box {
-        background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700;
-        padding: 2px 6px; border-radius: 4px; margin-right: 8px; white-space: nowrap; margin-top: 2px;
+        font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; 
+        margin-right: 10px; white-space: nowrap; margin-top: 2px;
     }
-    .tag-blue { background: #f0f7ff; color: #2962ff; }
+    .tag-red { background: #fff0f0; color: #ff3b30; border: 1px solid rgba(255,59,48,0.1); }
+    .tag-blue { background: #f0f7ff; color: #2962ff; border: 1px solid rgba(41,98,255,0.1); }
+    .tag-green { background: #e8f5e9; color: #2e7d32; border: 1px solid rgba(46,125,50,0.1); }
     .tag-text { font-size: 14px; color: #333; text-align: justify; }
-    .hl-num { color: #ff3b30; font-weight: 700; padding: 0 2px; }
+    
+    /* 风险雷达条 */
+    .risk-header { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #444; }
+    .risk-bar-bg { height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden; }
+    .risk-bar-fill { height: 100%; border-radius: 4px; }
 
     /* ================= 策略卡片 ================= */
     .strategy-card {
-        background: #fff; border-left: 4px solid #ffca28; /* 黄条 */
-        border-radius: 8px; padding: 15px; margin-bottom: 15px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+        background: linear-gradient(180deg, #ffffff 0%, #fdfdfd 100%); 
+        border: 1px solid #eee; border-left: 5px solid #ffca28;
+        border-radius: 12px; padding: 18px; margin-bottom: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
     }
-    .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 12px; }
-    .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; color: #666; }
-    .price-point { font-weight: 700; color: #333; font-size: 15px; }
-    .support-line { border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; font-size: 12px; color: #888; display: flex; justify-content: space-between;}
-    
-    /* 风险雷达 */
-    .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
-    .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
-    .risk-bar-fill { height: 100%; border-radius: 3px; }
+    .strategy-title { font-size: 18px; font-weight: 900; color: #333; margin-bottom: 15px; display: flex; align-items: center; }
+    .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
+    .strategy-col { text-align: center; flex: 1; }
+    .st-val { font-size: 16px; font-weight: 800; display: block; margin-top: 4px; }
+    .st-lbl { font-size: 12px; color: #888; }
+    .support-line { 
+        border-top: 1px dashed #eee; margin-top: 15px; padding-top: 10px; 
+        font-size: 13px; color: #555; display: flex; justify-content: space-between;
+    }
 
-    /* 侧边栏 */
-    .brand-title { font-size: 20px; font-weight: 900; color: #333; }
+    /* 侧边栏品牌 */
+    .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
     .brand-slogan { font-size: 12px; color: #999; margin-bottom: 20px; }
     
-    /* Metric 覆盖 */
-    [data-testid="stMetricValue"] { font-size: 24px !important; font-weight: 800 !important; color: #333 !important; }
-    [data-testid="stMetricLabel"] { font-size: 13px !important; color: #888 !important; }
+    /* 覆盖原生 Metric，隐藏它，我们用自定义的四宫格 */
+    [data-testid="metric-container"] { display: none; }
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
 
-# ✅ 【关键修复】全局常量配置 (补回 DB_FILE)
+# 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v54.csv"
+DB_FILE = "users_v56.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -452,7 +494,6 @@ def calc_full_indicators(df, ma_s, ma_l):
         v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
     except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
 
-    # ✅ 修复：在函数内使用传入的参数计算
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
 
@@ -545,24 +586,24 @@ def generate_deep_report(df, name):
 
     html = f"""
     <div class="app-card">
-        <div class="deep-title">📐 缠论结构与形态学</div>
-        <div class="deep-text">
+        <div class="section-header"><span class="section-title">📐 缠论结构与形态学</span></div>
+        <div style="font-size:14px; color:#444; line-height:1.6;">
             • <b>分型状态</b>：{chan_trend}。顶分型通常是短期压力的标志。<br>
             • <b>笔的延伸</b>：当前价格处于一笔走势的{ "延续阶段" if not (curr['F_Top'] or curr['F_Bot']) else "转折关口" }。
         </div>
     </div>
     
     <div class="app-card">
-        <div class="deep-title">🌌 江恩与斐波那契</div>
-        <div class="deep-text">
+        <div class="section-header"><span class="section-title">🌌 江恩与斐波那契</span></div>
+        <div style="font-size:14px; color:#444; line-height:1.6;">
             • 江恩角度线 1x1线是多空分界线。<br>
             • <b>斐波那契回撤</b>：{fib_txt}
         </div>
     </div>
     
     <div class="app-card">
-        <div class="deep-title">📊 核心动能指标</div>
-        <div class="deep-text">
+        <div class="section-header"><span class="section-title">📊 核心动能指标</span></div>
+        <div style="font-size:14px; color:#444; line-height:1.6;">
             • <b>MACD</b>：当前 {macd_state}。DIF={safe_fmt(curr['DIF'])}, DEA={safe_fmt(curr['DEA'])}<br>
             • <b>BOLL</b>：股价运行于 { "中轨上方" if curr['close']>curr['MA_Long'] else "中轨下方" }。<br>
             • <b>VOL量能</b>：今日 {vol_state} (量比 {safe_fmt(curr['VolRatio'])})
@@ -817,6 +858,7 @@ with st.sidebar:
         
         st.divider()
         with st.expander("🎛️ 策略参数", expanded=False):
+            st.caption("调整均线参数，优化回测结果")
             ma_s = st.slider("短期均线", 2, 20, 5)
             ma_l = st.slider("长期均线", 10, 120, 20)
         
@@ -901,40 +943,36 @@ try:
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
-    # 顶部横幅
-    t_txt, t_col = main_uptrend_check(df)
-    bg = "#e6f4ea" if t_col=="success" else "#fff7e6" if t_col=="warning" else "#fce8e6"
-    tc = "#137333" if t_col=="success" else "#b06000" if t_col=="warning" else "#c5221f"
-    st.markdown(f"<div class='trend-banner' style='background:{bg};'><h3 class='trend-title' style='color:{tc}'>{t_txt}</h3></div>", unsafe_allow_html=True)
-
-    # 核心指标
+    # 核心大字展示 (V55.0)
     l = df.iloc[-1]
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
-        st.metric("RSI (14)", safe_fmt(l['RSI'], "{:.1f}"))
-        st.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
-    with col2:
-        st.metric("PE (TTM)", funda['pe'])
-        st.metric("ADX (趋势)", safe_fmt(l['ADX'], "{:.1f}"))
-
-    # 🔥 V54.0 像素级复刻：综合评级
+    color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
+    st.markdown(f"""
+    <div class="big-price-container">
+        <span class="price-main" style="color:{color}">{l['close']:.2f}</span>
+        <span class="price-sub" style="color:{color}">{l['pct_change']:.2f}%</span>
+    </div>
+    <div class="param-grid">
+        <div class="param-item"><div class="param-val">{l['RSI']:.1f}</div><div class="param-lbl">RSI (14)</div></div>
+        <div class="param-item"><div class="param-val">{l['VolRatio']:.2f}</div><div class="param-lbl">量比</div></div>
+        <div class="param-item"><div class="param-val">{funda['pe']}</div><div class="param-lbl">PE (TTM)</div></div>
+        <div class="param-item"><div class="param-val">{l['ADX']:.1f}</div><div class="param-lbl">ADX 趋势</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 综合评级
     st.markdown("<div class='section-header'><span class='section-title'>综合评级</span> <span class='vip-badge'>VIP</span> <span class='help-icon'>?</span></div>", unsafe_allow_html=True)
     sq, sv, st_ = calculate_smart_score(df, funda)
     st.markdown(f"""
     <div class="rating-container">
         <div class="rating-box">
-            <div class="rating-icon">🏢</div>
             <div class="rating-score">{sq} <span class="rating-score-sub">/10</span></div>
             <div class="rating-label">公司质量</div>
         </div>
         <div class="rating-box">
-            <div class="rating-icon">🪙</div>
             <div class="rating-score score-yellow">{sv} <span class="rating-score-sub sub-yellow">/10</span></div>
             <div class="rating-label">估值安全</div>
         </div>
         <div class="rating-box">
-            <div class="rating-icon">📈</div>
             <div class="rating-score">{st_} <span class="rating-score-sub">/10</span></div>
             <div class="rating-label">股价趋势</div>
         </div>
@@ -942,25 +980,13 @@ try:
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
 
-    # 🔥 V54.0 像素级复刻：投资亮点 + 风险雷达
-    st.markdown("<div class='section-header'><span class='section-title'>深度透视</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
-    
+    # 投资亮点
     if not is_demo:
         price_pct, is_high_risk = calculate_risk_percentile(df)
-        bar_color = "#ff3b30" if is_high_risk else "#00c853"
-        st.markdown(f"""
-        <div style="background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
-            <div class="risk-header">
-                <span>⚠️ 风险雷达 (历史分位)</span>
-                <span style="color: {bar_color}">{price_pct}%</span>
-            </div>
-            <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:{price_pct}%; background:{bar_color}"></div></div>
-            <div style="font-size: 12px; color: #666; margin-top: 5px;">当前价格处于近10年历史位置，{'高位预警！' if is_high_risk else '处于安全区间。'}</div>
-        </div>
-        """, unsafe_allow_html=True)
     else:
         price_pct, is_high_risk = 50, False
 
+    st.markdown("<div class='section-header'><span class='section-title'>投资亮点</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
     highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
     hl_html = ""
     for tag, color_cls, desc in highlights:
@@ -972,18 +998,33 @@ try:
         """
     st.markdown(f"<div class='app-card'>{hl_html}</div>", unsafe_allow_html=True)
     
+    # 风险雷达
+    bar_color = "#ff3b30" if is_high_risk else "#00c853"
+    st.markdown(f"""
+    <div style="background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
+        <div class="risk-header">
+            <span>⚠️ 风险雷达 (历史分位)</span>
+            <span style="color: {bar_color}">{price_pct}%</span>
+        </div>
+        <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:{price_pct}%; background:{bar_color}"></div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 图表
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
     
+    # 深度研报
     st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
     
+    # 策略建议
     sc, act, col, sl, tp, pos, sup, res = analyze_score(df)
     st.markdown(f"""
     <div class="strategy-card">
         <div class="strategy-title">🤖 最终建议：{act}</div>
         <div class="strategy-grid">
-            <div class="strategy-item">仓位 <span class="price-point">{pos}</span></div>
-            <div class="strategy-item">止盈 <span class="price-point" style="color:#ff3b30">{tp:.2f}</span></div>
-            <div class="strategy-item">止损 <span class="price-point" style="color:#00c853">{sl:.2f}</span></div>
+            <div class="strategy-col"><span class="st-lbl">仓位</span><span class="st-val" style="color:#333">{pos}</span></div>
+            <div class="strategy-col"><span class="st-lbl">止盈</span><span class="st-val" style="color:#ff3b30">{tp:.2f}</span></div>
+            <div class="strategy-col"><span class="st-lbl">止损</span><span class="st-val" style="color:#00c853">{sl:.2f}</span></div>
         </div>
         <div class="support-line">
             <span>📍 支撑位：<span style="color:#00c853; font-weight:bold;">{sup:.2f}</span></span>
@@ -992,6 +1033,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
+    # 回测
     with st.expander("📚 新手必读：如何看懂回测报告？"):
         st.markdown("""
         **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。就像兵棋推演，先在沙盘上打赢了，再去实战。

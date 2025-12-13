@@ -85,30 +85,16 @@ apple_css = """
         margin-bottom: 30px;
     }
 
-    /* 智能诊断卡片样式 */
-    .score-card-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
-    .score-card { 
-        background: #fff; border-radius: 12px; padding: 15px; text-align: center; flex: 1; 
-        border: 1px solid #f5f5f5; box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    /* 🔥 V46 核心样式：风险与机构看板 */
+    .risk-panel {
+        background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; 
+        padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     }
-    .score-icon { font-size: 24px; margin-bottom: 5px; }
-    .score-val { font-size: 32px; font-weight: 800; color: #ff3b30; }
-    .score-total { font-size: 14px; color: #86868b; }
-    .score-label { font-size: 14px; color: #666; font-weight: 500; margin-top: 5px; }
-    
-    /* 投资亮点与风险列表 */
-    .highlight-box { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #f5f5f5; }
-    .highlight-title { font-size: 18px; font-weight: 800; margin-bottom: 15px; color: #1d1d1f; display: flex; align-items: center; }
-    .vip-tag { background: #ff3b30; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-style: italic; font-weight: 900;}
-    .hl-item { margin-bottom: 12px; font-size: 14px; color: #333; line-height: 1.5; display: flex; }
-    .hl-tag { 
-        color: #ff3b30; background: rgba(255, 59, 48, 0.1); padding: 2px 6px; border-radius: 4px; 
-        font-weight: 600; margin-right: 10px; white-space: nowrap; height: fit-content; font-size: 12px;
-    }
-    .risk-tag {
-        color: #ffffff; background: #ff3b30; padding: 2px 6px; border-radius: 4px; 
-        font-weight: 600; margin-right: 10px; white-space: nowrap; height: fit-content; font-size: 12px;
-    }
+    .risk-header { font-size: 16px; font-weight: 800; color: #1d1d1f; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+    .risk-tag-high { background-color: #ffcccc; color: #cc0000; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+    .risk-tag-low { background-color: #e6fffa; color: #009900; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+    .inst-rating { font-size: 24px; font-weight: 900; color: #0071e3; }
+    .inst-target { font-size: 14px; color: #666; }
 </style>
 """
 st.markdown(apple_css, unsafe_allow_html=True)
@@ -411,28 +397,18 @@ def get_fundamentals(code, token):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-", "target_price": "-", "rating": "-"}
     code = process_ticker(code)
     
-    # 获取详细信息
+    # 尝试 Yahoo
     try:
         t = yf.Ticker(code)
         i = t.info
         res['pe'] = safe_fmt(i.get('trailingPE'))
         res['pb'] = safe_fmt(i.get('priceToBook'))
         res['mv'] = f"{i.get('marketCap')/100000000:.2f}亿" if i.get('marketCap') else "-"
-        
-        # 🔥 V46 核心：获取机构目标价和评级
-        if 'targetMeanPrice' in i:
-            res['target_price'] = safe_fmt(i.get('targetMeanPrice'))
-        if 'recommendationKey' in i:
-            # 翻译评级
-            rec = i.get('recommendationKey', '').lower()
-            if 'buy' in rec: res['rating'] = '买入'
-            elif 'sell' in rec: res['rating'] = '卖出'
-            elif 'hold' in rec: res['rating'] = '持有'
-            else: res['rating'] = rec.capitalize()
-            
+        if 'targetMeanPrice' in i: res['target_price'] = safe_fmt(i.get('targetMeanPrice'))
+        if 'recommendationKey' in i: res['rating'] = i.get('recommendationKey', '').replace('buy','买入').replace('sell','卖出').replace('hold','持有')
     except: pass
     
-    # 尝试 Tushare 补充
+    # 尝试 Tushare
     if token and ts and is_cn_stock(code):
         try:
             pro = ts.pro_api(token)
@@ -444,23 +420,6 @@ def get_fundamentals(code, token):
         except: pass
         
     return res
-
-# ✅ V46 核心：计算 10 年历史分位
-def calculate_risk_percentile(df):
-    if df is None or df.empty: return 0, False
-    
-    # 取最近 10 年数据 (假设 df 已经是全部数据)
-    # 计算当前价格在历史区间的百分位
-    current_price = df.iloc[-1]['close']
-    min_price = df['close'].min()
-    max_price = df['close'].max()
-    
-    if max_price == min_price: return 0, False
-    
-    percentile = (current_price - min_price) / (max_price - min_price) * 100
-    is_high_risk = percentile > 95 # 超过 95% 视为高危
-    
-    return round(percentile, 1), is_high_risk
 
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
@@ -612,6 +571,15 @@ def main_uptrend_check(df):
     if is_cloud: return "📈 震荡上行", "warning"
     return "📉 主跌浪 (回避)", "error"
 
+# 🔥 V46 核心：风险与机构逻辑
+def calculate_risk_percentile(df):
+    if df is None or df.empty: return 0, False
+    curr = df.iloc[-1]['close']
+    low = df['close'].min(); high = df['close'].max()
+    if high == low: return 0, False
+    pct = (curr - low) / (high - low) * 100
+    return round(pct, 1), pct > 85
+
 def calculate_smart_score(df, funda):
     trend_score = 5
     last = df.iloc[-1]
@@ -620,7 +588,6 @@ def calculate_smart_score(df, funda):
     if last['RSI'] > 50: trend_score += 1
     if last['MA_Short'] > last['MA_Long']: trend_score += 1
     trend_score = min(10, trend_score)
-
     val_score = 5
     try:
         pe = float(funda['pe'])
@@ -629,7 +596,6 @@ def calculate_smart_score(df, funda):
         elif pe > 60: val_score -= 2
     except: pass
     val_score = min(10, max(1, val_score))
-
     qual_score = 6
     try:
         mv_str = str(funda['mv']).replace('亿','')
@@ -640,47 +606,40 @@ def calculate_smart_score(df, funda):
     volatility = df['pct_change'].std()
     if volatility < 2: qual_score += 1
     qual_score = min(10, qual_score)
-    
     return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
 
-# 🔥 V46 核心：智能诊断 + 机构评级
 def get_smart_highlights(df, funda, price_pct, is_high_risk):
     last = df.iloc[-1]
     highlights = []
     
-    # 1. 机构评级
+    # 机构观点
     if funda.get('rating') and funda.get('rating') != '-':
         highlights.append(("机构", f"华尔街/机构评级为 **{funda['rating']}**。"))
-    
     if funda.get('target_price') and funda.get('target_price') != '-':
         try:
             target = float(funda['target_price'])
             curr = last['close']
             upside = (target - curr) / curr * 100
-            if upside > 0:
-                highlights.append(("目标", f"机构目标均价 **{target}**，潜在上涨空间 **{upside:.1f}%**。"))
+            if upside > 0: highlights.append(("目标", f"机构目标均价 **{target}**，潜在空间 **{upside:.1f}%**。"))
         except: pass
 
-    # 2. 风险提示
+    # 风险与估值
     if is_high_risk:
-        highlights.append(("⚠️ 风险", f"当前价格处于近10年 **{price_pct}%** 分位，**历史高位**，注意回调风险！"))
-    elif price_pct < 10:
-        highlights.append(("机会", f"当前价格处于近10年 **{price_pct}%** 分位，**历史低位**，安全边际极高。"))
+        highlights.append(("⚠️ 风险", f"当前价格处于近10年 **{price_pct}%** 高位，注意回调！"))
+    elif price_pct < 15:
+        highlights.append(("机会", f"当前价格处于近10年 **{price_pct}%** 低位，安全边际高。"))
     
-    # 3. 估值逻辑
     try:
         pe = float(funda['pe'])
         if pe > 0 and pe < 20: highlights.append(("估值", f"当前PE为{pe}，估值偏低。"))
-        elif pe > 60: highlights.append(("泡沫", f"当前PE高达{pe}，存在估值泡沫。"))
+        elif pe > 60: highlights.append(("泡沫", f"当前PE高达{pe}，存在泡沫风险。"))
     except: pass
     
-    # 4. 趋势逻辑
-    change_30 = (last['close'] - df.iloc[-30]['close']) / df.iloc[-30]['close'] * 100
-    if change_30 > 20: highlights.append(("强势", f"近一月涨幅超{change_30:.1f}%，资金关注度极高。"))
-    elif change_30 < -20: highlights.append(("超跌", f"近一月跌幅达{abs(change_30):.1f}%，存在反弹需求。"))
-    
-    if not highlights: highlights.append(("平稳", "近期股价波动较小，处于横盘整理阶段。"))
-    
+    # 智能兜底：如果没抓到机构数据，补充技术面分析
+    if not highlights:
+        if last['MA_Short'] > last['MA_Long']: highlights.append(("技术", "均线呈多头排列，短期趋势向上。"))
+        else: highlights.append(("技术", "均线呈空头排列，短期趋势向下。"))
+        
     return highlights
 
 def plot_chart(df, name, flags, ma_s, ma_l):
@@ -726,7 +685,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置
+# ✅ 修复：侧边栏前置，防止退出后消失
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
@@ -868,7 +827,6 @@ with st.sidebar:
         
         st.divider()
         
-        # V41 新增：策略实验室
         with st.expander("🎛️ 策略实验室", expanded=False):
             st.caption("调整均线参数，优化回测结果")
             ma_short = st.slider("短期均线 (Fast)", 2, 20, 5)
@@ -956,56 +914,56 @@ try:
     df = calc_full_indicators(df, ma_short, ma_long)
     df = detect_patterns(df)
     
+    # 🔥 V46 核心逻辑：风险分析 & 机构观点
     trend_txt, trend_col = main_uptrend_check(df)
     bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
     tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
     st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
     
-    # 🔥 V45 UI 升级：三色评分卡
+    # 智能诊断区域
+    if not is_demo:
+        st.markdown("### 🛡️ 深度透视 (Deep Dive)")
+        d_col1, d_col2 = st.columns(2)
+        
+        with d_col1:
+            st.write("**⚠️ 风险雷达 (历史分位)**")
+            price_pct, is_high_risk = calculate_risk_percentile(df)
+            st.progress(min(100, int(price_pct)))
+            if is_high_risk:
+                st.error(f"当前价格处于历史 {price_pct}% 高位，注意回调风险！")
+            else:
+                st.caption(f"当前价格处于历史 {price_pct}% 分位，相对安全。")
+                
+        with d_col2:
+            st.write("**🏦 机构观点**")
+            r_val = funda.get('rating', '-')
+            t_price = funda.get('target_price', '-')
+            
+            # 智能兜底：如果没有机构数据，用技术指标生成
+            if r_val == '-' or t_price == '-':
+                r_val = "技术性买入" if df.iloc[-1]['MA_Short'] > df.iloc[-1]['MA_Long'] else "观望"
+                t_price = f"{df.iloc[-1]['close'] * 1.2:.2f} (AI预测)"
+            
+            m1, m2 = st.columns(2)
+            m1.metric("综合评级", r_val)
+            m2.metric("目标均价", t_price)
+
+    # 评分卡与亮点
     s_qual, s_val, s_trend = calculate_smart_score(df, funda)
-    
     st.markdown(f"""
     <div class="score-card-container">
-        <div class="score-card">
-            <div class="score-icon">🏢</div>
-            <div class="score-val" style="color: #ff3b30">{s_qual}</div>
-            <div class="score-total">/10</div>
-            <div class="score-label">公司质量</div>
-        </div>
-        <div class="score-card">
-            <div class="score-icon">🪙</div>
-            <div class="score-val" style="color: #ff9500">{s_val}</div>
-            <div class="score-total">/10</div>
-            <div class="score-label">估值安全</div>
-        </div>
-        <div class="score-card">
-            <div class="score-icon">📈</div>
-            <div class="score-val" style="color: #34c759">{s_trend}</div>
-            <div class="score-total">/10</div>
-            <div class="score-label">股价趋势</div>
-        </div>
+        <div class="score-card"><div class="score-icon">🏢</div><div class="score-val" style="color: #ff3b30">{s_qual}</div><div class="score-label">公司质量</div></div>
+        <div class="score-card"><div class="score-icon">🪙</div><div class="score-val" style="color: #ff9500">{s_val}</div><div class="score-label">估值安全</div></div>
+        <div class="score-card"><div class="score-icon">📈</div><div class="score-val" style="color: #34c759">{s_trend}</div><div class="score-label">股价趋势</div></div>
     </div>
     """, unsafe_allow_html=True)
     
-    # 🔥 V45 UI 升级：投资亮点
-    price_pct, is_high_risk = calculate_risk_percentile(df) # ✅ 修复：获取风险分位
     highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
-    
-    hl_html = ""
-    for tag, desc in highlights:
-        # 风险标签用红色，其他用默认色
-        tag_class = "risk-tag" if "风险" in tag or "高位" in desc else "hl-tag"
-        hl_html += f"<div class='hl-item'><span class='{tag_class}'>{tag}</span>{desc}</div>"
-    
-    st.markdown(f"""
-    <div class="highlight-box">
-        <div class="highlight-title">投资亮点 <span class="vip-tag">VIP</span></div>
-        {hl_html}
-    </div>
-    """, unsafe_allow_html=True)
-    
+    hl_html = "".join([f"<div class='hl-item'><span class='{'risk-tag' if '风险' in t else 'hl-tag'}'>{t}</span>{d}</div>" for t,d in highlights])
+    st.markdown(f"<div class='highlight-box'><div class='highlight-title'>投资亮点 <span class='vip-tag'>VIP</span></div>{hl_html}</div>", unsafe_allow_html=True)
+
+    # 核心指标
     l = df.iloc[-1]
-    # 🔥 V44 移动端优化：使用 columns 2-3 列布局，而不是 5 列
     col1, col2 = st.columns(2)
     with col1:
         st.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))

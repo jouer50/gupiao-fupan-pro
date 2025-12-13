@@ -55,8 +55,6 @@ apple_css = """
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
     
     .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
-    
-    /* 趋势横幅 (修复回归) */
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
     
@@ -65,9 +63,27 @@ apple_css = """
     .buy-price {font-size: 24px; font-weight: 800; color: #0071e3;}
     
     /* 品牌标题样式 */
-    .brand-title {font-size: 32px; font-weight: 900; color: #1d1d1f; margin-bottom: 5px; letter-spacing: -0.5px;}
-    .brand-en {font-size: 22px; color: #0071e3; font-weight: 800; margin-bottom: 20px; letter-spacing: 0.5px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
-    .brand-slogan {font-size: 14px; color: #86868b; font-weight: 400; margin-bottom: 30px;}
+    .brand-title {
+        font-size: 32px; 
+        font-weight: 900; 
+        color: #1d1d1f; 
+        margin-bottom: 5px;
+        letter-spacing: -0.5px;
+    }
+    .brand-en {
+        font-size: 22px; 
+        color: #0071e3; 
+        font-weight: 800; 
+        margin-bottom: 20px; 
+        letter-spacing: 0.5px;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .brand-slogan {
+        font-size: 14px; 
+        color: #86868b; 
+        font-weight: 400;
+        margin-bottom: 30px;
+    }
 
     /* 智能诊断卡片样式 */
     .score-card-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
@@ -80,13 +96,17 @@ apple_css = """
     .score-total { font-size: 14px; color: #86868b; }
     .score-label { font-size: 14px; color: #666; font-weight: 500; margin-top: 5px; }
     
-    /* 投资亮点列表 */
+    /* 投资亮点与风险列表 */
     .highlight-box { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #f5f5f5; }
     .highlight-title { font-size: 18px; font-weight: 800; margin-bottom: 15px; color: #1d1d1f; display: flex; align-items: center; }
     .vip-tag { background: #ff3b30; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-style: italic; font-weight: 900;}
     .hl-item { margin-bottom: 12px; font-size: 14px; color: #333; line-height: 1.5; display: flex; }
     .hl-tag { 
         color: #ff3b30; background: rgba(255, 59, 48, 0.1); padding: 2px 6px; border-radius: 4px; 
+        font-weight: 600; margin-right: 10px; white-space: nowrap; height: fit-content; font-size: 12px;
+    }
+    .risk-tag {
+        color: #ffffff; background: #ff3b30; padding: 2px 6px; border-radius: 4px; 
         font-weight: 600; margin-right: 10px; white-space: nowrap; height: fit-content; font-size: 12px;
     }
 </style>
@@ -96,7 +116,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v45_1.csv"
+DB_FILE = "users_v46.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -244,7 +264,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (名称终极修复)
+# 3. 股票逻辑
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -278,31 +298,38 @@ def get_name(code, token, proxy=None):
         'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 'BABA': 'Alibaba'
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
-    
-    # 优先 Tushare
-    if is_cn_stock(clean_code) and token and ts:
+
+    if clean_code.isdigit() and len(clean_code) == 6:
+        prefixes = ['sh', 'sz', 'bj']
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
+        for prefix in prefixes:
+            try:
+                url = f"http://hq.sinajs.cn/list={prefix}{clean_code}"
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=1) as response:
+                    content = response.read().decode('gbk', errors='ignore')
+                    if '="' in content:
+                        parts = content.split('="')
+                        if len(parts) > 1: return parts[1].split(',')[0]
+            except: continue
+        try:
+            url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
+            req = urllib.request.Request(url_east, headers=headers)
+            with urllib.request.urlopen(req, timeout=1) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                if data and "QuotationCodeTable" in data and data["QuotationCodeTable"]["Data"]:
+                    return data["QuotationCodeTable"]["Data"][0]["Name"]
+        except: pass
+    try:
+        t = yf.Ticker(code)
+        return t.info.get('shortName') or t.info.get('longName') or code
+    except: pass
+    if token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
-
-    # Baostock
-    if is_cn_stock(clean_code) and bs:
-        try:
-            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
-            if rs.error_code == '0':
-                data = rs.get_row_data()
-                if len(data)>1: bs.logout(); return data[1]
-            bs.logout()
-        except: pass
-
-    # Yahoo
-    try:
-        t = yf.Ticker(code)
-        return t.info.get('shortName') or t.info.get('longName') or code
-    except: pass
-    
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
@@ -381,17 +408,32 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
 
 @st.cache_data(ttl=3600)
 def get_fundamentals(code, token):
-    res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-"}
+    res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-", "target_price": "-", "rating": "-"}
     code = process_ticker(code)
-    if not is_cn_stock(code):
-        try:
-            t = yf.Ticker(code); i = t.info
-            res['pe'] = safe_fmt(i.get('trailingPE'))
-            res['pb'] = safe_fmt(i.get('priceToBook'))
-            res['mv'] = f"{i.get('marketCap')/100000000:.2f}亿" if i.get('marketCap') else "-"
-        except: pass
-        return res
-    if token and ts:
+    
+    # 获取详细信息
+    try:
+        t = yf.Ticker(code)
+        i = t.info
+        res['pe'] = safe_fmt(i.get('trailingPE'))
+        res['pb'] = safe_fmt(i.get('priceToBook'))
+        res['mv'] = f"{i.get('marketCap')/100000000:.2f}亿" if i.get('marketCap') else "-"
+        
+        # 🔥 V46 核心：获取机构目标价和评级
+        if 'targetMeanPrice' in i:
+            res['target_price'] = safe_fmt(i.get('targetMeanPrice'))
+        if 'recommendationKey' in i:
+            # 翻译评级
+            rec = i.get('recommendationKey', '').lower()
+            if 'buy' in rec: res['rating'] = '买入'
+            elif 'sell' in rec: res['rating'] = '卖出'
+            elif 'hold' in rec: res['rating'] = '持有'
+            else: res['rating'] = rec.capitalize()
+            
+    except: pass
+    
+    # 尝试 Tushare 补充
+    if token and ts and is_cn_stock(code):
         try:
             pro = ts.pro_api(token)
             df = pro.daily_basic(ts_code=_to_ts_code(code), fields='pe_ttm,pb,total_mv')
@@ -400,7 +442,25 @@ def get_fundamentals(code, token):
                 res['pe'] = safe_fmt(r['pe_ttm']); res['pb'] = safe_fmt(r['pb'])
                 res['mv'] = f"{r['total_mv']/10000:.1f}亿" if r['total_mv'] else "-"
         except: pass
+        
     return res
+
+# ✅ V46 核心：计算 10 年历史分位
+def calculate_risk_percentile(df):
+    if df is None or df.empty: return 0, False
+    
+    # 取最近 10 年数据 (假设 df 已经是全部数据)
+    # 计算当前价格在历史区间的百分位
+    current_price = df.iloc[-1]['close']
+    min_price = df['close'].min()
+    max_price = df['close'].max()
+    
+    if max_price == min_price: return 0, False
+    
+    percentile = (current_price - min_price) / (max_price - min_price) * 100
+    is_high_risk = percentile > 95 # 超过 95% 视为高危
+    
+    return round(percentile, 1), is_high_risk
 
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
@@ -462,8 +522,6 @@ def get_drawing_lines(df):
 
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    
-    # ✅ 修复：检查自定义均线列
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
     if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
@@ -474,25 +532,20 @@ def run_backtest(df):
     
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        
-        # ✅ 修复：使用自定义均线进行回测
         if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
             capital = position * price; position = 0; sell_signals.append(date)
-        
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
-    
     eq_series = pd.Series(equity)
     cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax
     max_dd = drawdown.min() * 100
-    
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
@@ -553,73 +606,79 @@ def analyze_score(df):
 
 def main_uptrend_check(df):
     curr = df.iloc[-1]
-    # ✅ 修复：SpanA/SpanB 不再报错
     is_bull = curr['MA_Short'] > curr['MA_Long']
     is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB'])
     if is_bull and is_cloud and curr['ADX'] > 20: return "🚀 主升浪 (强趋势)", "success"
     if is_cloud: return "📈 震荡上行", "warning"
     return "📉 主跌浪 (回避)", "error"
 
-# 🔥 V45 核心：智能诊断评分与亮点生成逻辑
 def calculate_smart_score(df, funda):
-    # 1. 股价趋势 (Trend) - 权重 40%
-    trend_score = 5 # 基础分
+    trend_score = 5
     last = df.iloc[-1]
     if last['close'] > last['MA_Long']: trend_score += 2
     if last['DIF'] > last['DEA']: trend_score += 1
     if last['RSI'] > 50: trend_score += 1
     if last['MA_Short'] > last['MA_Long']: trend_score += 1
-    trend_score = min(10, trend_score) # 上限10
+    trend_score = min(10, trend_score)
 
-    # 2. 估值安全 (Value) - 权重 30%
     val_score = 5
     try:
         pe = float(funda['pe'])
-        if pe < 15: val_score += 3 # 低估
-        elif pe < 30: val_score += 1 # 合理
-        elif pe > 60: val_score -= 2 # 高估
+        if pe < 15: val_score += 3
+        elif pe < 30: val_score += 1
+        elif pe > 60: val_score -= 2
     except: pass
     val_score = min(10, max(1, val_score))
 
-    # 3. 公司质量 (Quality) - 权重 30%
-    # 由于没有财报，我们用市值和波动率反推质量
     qual_score = 6
     try:
         mv_str = str(funda['mv']).replace('亿','')
         mv = float(mv_str)
-        if mv > 1000: qual_score += 2 # 大白马
+        if mv > 1000: qual_score += 2
         elif mv > 100: qual_score += 1
     except: pass
-    # 波动率越小，质量通常越稳
     volatility = df['pct_change'].std()
     if volatility < 2: qual_score += 1
     qual_score = min(10, qual_score)
     
     return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
 
-def get_smart_highlights(df, funda):
+# 🔥 V46 核心：智能诊断 + 机构评级
+def get_smart_highlights(df, funda, price_pct, is_high_risk):
     last = df.iloc[-1]
     highlights = []
     
-    # 1. 估值逻辑
+    # 1. 机构评级
+    if funda.get('rating') and funda.get('rating') != '-':
+        highlights.append(("机构", f"华尔街/机构评级为 **{funda['rating']}**。"))
+    
+    if funda.get('target_price') and funda.get('target_price') != '-':
+        try:
+            target = float(funda['target_price'])
+            curr = last['close']
+            upside = (target - curr) / curr * 100
+            if upside > 0:
+                highlights.append(("目标", f"机构目标均价 **{target}**，潜在上涨空间 **{upside:.1f}%**。"))
+        except: pass
+
+    # 2. 风险提示
+    if is_high_risk:
+        highlights.append(("⚠️ 风险", f"当前价格处于近10年 **{price_pct}%** 分位，**历史高位**，注意回调风险！"))
+    elif price_pct < 10:
+        highlights.append(("机会", f"当前价格处于近10年 **{price_pct}%** 分位，**历史低位**，安全边际极高。"))
+    
+    # 3. 估值逻辑
     try:
         pe = float(funda['pe'])
-        if pe > 0 and pe < 20: highlights.append(("估值", f"当前PE为{pe}，处于历史低位区间，安全边际较高。"))
-        elif pe > 60: highlights.append(("风险", f"当前PE高达{pe}，估值泡沫风险较大。"))
+        if pe > 0 and pe < 20: highlights.append(("估值", f"当前PE为{pe}，估值偏低。"))
+        elif pe > 60: highlights.append(("泡沫", f"当前PE高达{pe}，存在估值泡沫。"))
     except: pass
     
-    # 2. 趋势逻辑
+    # 4. 趋势逻辑
     change_30 = (last['close'] - df.iloc[-30]['close']) / df.iloc[-30]['close'] * 100
     if change_30 > 20: highlights.append(("强势", f"近一月涨幅超{change_30:.1f}%，资金关注度极高。"))
-    elif change_30 < -20: highlights.append(("超跌", f"近一月跌幅达{abs(change_30):.1f}%，存在技术性反弹需求。"))
+    elif change_30 < -20: highlights.append(("超跌", f"近一月跌幅达{abs(change_30):.1f}%，存在反弹需求。"))
     
-    # 3. 资金逻辑
-    if last['VolRatio'] > 2: highlights.append(("放量", "今日成交量放大2倍以上，主力资金异动明显。"))
-    
-    # 4. 筹码逻辑
-    if last['close'] > last['MA_Long']: highlights.append(("突破", "股价站上长期均线，中长期趋势转强。"))
-    
-    # 兜底
     if not highlights: highlights.append(("平稳", "近期股价波动较小，处于横盘整理阶段。"))
     
     return highlights
@@ -667,7 +726,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置，防止退出后消失
+# ✅ 修复：侧边栏前置
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
@@ -769,7 +828,6 @@ with st.sidebar:
                 tab_pay, tab_key = st.tabs(["扫码支付", "卡密兑换"])
                 with tab_pay:
                     st.write("##### 1. 选择充值套餐")
-                    # ✅ V40.2 优化：使用 Radio Button 替代大卡片
                     pay_opt = st.radio("点击选择面额 (元)", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
                     
                     st.info("💡 支付后请点击下方按钮获取卡密")
@@ -778,7 +836,6 @@ with st.sidebar:
                     else:
                         st.warning("请上传 alipay.png 到根目录")
                     
-                    # ✅ 核心功能：自动发卡模拟
                     if st.button("✅ 我已支付，自动发货"):
                         new_key = generate_key(pay_opt)
                         st.success("支付成功！您的卡密如下：")
@@ -793,10 +850,8 @@ with st.sidebar:
                         else: st.error(msg)
         
         st.divider()
-        # V42 移除代理，保留 Token 默认隐藏
         token = "" # 默认空，自动使用内置 key
         
-        # V42 搜索前置
         new_c = st.text_input("🔍 股票代码 (美/港/A股)", st.session_state.code)
         if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
         
@@ -933,10 +988,14 @@ try:
     """, unsafe_allow_html=True)
     
     # 🔥 V45 UI 升级：投资亮点
-    highlights = get_smart_highlights(df, funda)
+    price_pct, is_high_risk = calculate_risk_percentile(df) # ✅ 修复：获取风险分位
+    highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
+    
     hl_html = ""
     for tag, desc in highlights:
-        hl_html += f"<div class='hl-item'><span class='hl-tag'>{tag}</span>{desc}</div>"
+        # 风险标签用红色，其他用默认色
+        tag_class = "risk-tag" if "风险" in tag or "高位" in desc else "hl-tag"
+        hl_html += f"<div class='hl-item'><span class='{tag_class}'>{tag}</span>{desc}</div>"
     
     st.markdown(f"""
     <div class="highlight-box">
@@ -947,7 +1006,6 @@ try:
     
     l = df.iloc[-1]
     # 🔥 V44 移动端优化：使用 columns 2-3 列布局，而不是 5 列
-    # Streamlit 的 columns 在手机端会自动垂直堆叠，或者我们可以手动分组
     col1, col2 = st.columns(2)
     with col1:
         st.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))

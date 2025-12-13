@@ -55,6 +55,8 @@ apple_css = """
     [data-testid="stMetricValue"] {font-size: 26px !important; font-weight: 700 !important; color: #1d1d1f;}
     
     .report-box {background-color: #ffffff; border-radius: 12px; padding: 20px; border: 1px solid #d2d2d7; font-size: 14px; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
+    
+    /* 趋势横幅 (修复回归) */
     .trend-banner {padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
     .trend-title {font-size: 20px; font-weight: 800; margin: 0;}
     
@@ -67,7 +69,7 @@ apple_css = """
     .brand-en {font-size: 22px; color: #0071e3; font-weight: 800; margin-bottom: 20px; letter-spacing: 0.5px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;}
     .brand-slogan {font-size: 14px; color: #86868b; font-weight: 400; margin-bottom: 30px;}
 
-    /* 🔥 V45 新增：智能诊断卡片样式 */
+    /* 智能诊断卡片样式 */
     .score-card-container { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
     .score-card { 
         background: #fff; border-radius: 12px; padding: 15px; text-align: center; flex: 1; 
@@ -94,7 +96,7 @@ st.markdown(apple_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v45.csv"
+DB_FILE = "users_v45_1.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -242,7 +244,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑
+# 3. 股票逻辑 (名称终极修复)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -276,37 +278,31 @@ def get_name(code, token, proxy=None):
         'AAPL': 'Apple', 'TSLA': 'Tesla', 'NVDA': 'NVIDIA', 'MSFT': 'Microsoft', 'BABA': 'Alibaba'
     }
     if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
-    if clean_code.isdigit() and len(clean_code) == 6:
-        prefixes = ['sh', 'sz', 'bj']
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
-        for prefix in prefixes:
-            try:
-                url = f"http://hq.sinajs.cn/list={prefix}{clean_code}"
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=1) as response:
-                    content = response.read().decode('gbk', errors='ignore')
-                    if '="' in content:
-                        parts = content.split('="')
-                        if len(parts) > 1: return parts[1].split(',')[0]
-            except: continue
-        try:
-            url_east = f"http://searchapi.eastmoney.com/api/suggest/get?input={clean_code}&type=14"
-            req = urllib.request.Request(url_east, headers=headers)
-            with urllib.request.urlopen(req, timeout=1) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                if data and "QuotationCodeTable" in data and data["QuotationCodeTable"]["Data"]:
-                    return data["QuotationCodeTable"]["Data"][0]["Name"]
-        except: pass
-    try:
-        t = yf.Ticker(code)
-        return t.info.get('shortName') or t.info.get('longName') or code
-    except: pass
-    if token and ts:
+    
+    # 优先 Tushare
+    if is_cn_stock(clean_code) and token and ts:
         try:
             ts.set_token(token); pro = ts.pro_api()
             df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
             if not df.empty: return df.iloc[0]['name']
         except: pass
+
+    # Baostock
+    if is_cn_stock(clean_code) and bs:
+        try:
+            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
+            if rs.error_code == '0':
+                data = rs.get_row_data()
+                if len(data)>1: bs.logout(); return data[1]
+            bs.logout()
+        except: pass
+
+    # Yahoo
+    try:
+        t = yf.Ticker(code)
+        return t.info.get('shortName') or t.info.get('longName') or code
+    except: pass
+    
     return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
@@ -466,6 +462,8 @@ def get_drawing_lines(df):
 
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    
+    # ✅ 修复：检查自定义均线列
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
     if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
@@ -476,20 +474,25 @@ def run_backtest(df):
     
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
+        
+        # ✅ 修复：使用自定义均线进行回测
         if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
         elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
             capital = position * price; position = 0; sell_signals.append(date)
+        
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
+    
     eq_series = pd.Series(equity)
     cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax
     max_dd = drawdown.min() * 100
+    
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
@@ -550,6 +553,7 @@ def analyze_score(df):
 
 def main_uptrend_check(df):
     curr = df.iloc[-1]
+    # ✅ 修复：SpanA/SpanB 不再报错
     is_bull = curr['MA_Short'] > curr['MA_Long']
     is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB'])
     if is_bull and is_cloud and curr['ADX'] > 20: return "🚀 主升浪 (强趋势)", "success"
@@ -581,7 +585,7 @@ def calculate_smart_score(df, funda):
     # 由于没有财报，我们用市值和波动率反推质量
     qual_score = 6
     try:
-        mv_str = funda['mv'].replace('亿','')
+        mv_str = str(funda['mv']).replace('亿','')
         mv = float(mv_str)
         if mv > 1000: qual_score += 2 # 大白马
         elif mv > 100: qual_score += 1
@@ -663,7 +667,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 # ==========================================
 init_db()
 
-# ✅ 修复：侧边栏前置
+# ✅ 修复：侧边栏前置，防止退出后消失
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
@@ -677,7 +681,7 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
-        # ✅ 新增：刷新名称缓存按钮
+        # ✅ 新增：刷新名称缓存按钮 (应对网络问题)
         if st.button("🔄 刷新缓存/修复名称"):
             st.cache_data.clear()
             st.success("已清除！正在重新获取...")
@@ -897,6 +901,11 @@ try:
     df = calc_full_indicators(df, ma_short, ma_long)
     df = detect_patterns(df)
     
+    trend_txt, trend_col = main_uptrend_check(df)
+    bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
+    tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
+    st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
+    
     # 🔥 V45 UI 升级：三色评分卡
     s_qual, s_val, s_trend = calculate_smart_score(df, funda)
     
@@ -937,12 +946,16 @@ try:
     """, unsafe_allow_html=True)
     
     l = df.iloc[-1]
-    k1,k2,k3,k4,k5 = st.columns(5)
-    k1.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
-    k2.metric("PE", funda['pe'])
-    k3.metric("RSI", safe_fmt(l['RSI'], "{:.1f}"))
-    k4.metric("ADX", safe_fmt(l['ADX'], "{:.1f}"))
-    k5.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
+    # 🔥 V44 移动端优化：使用 columns 2-3 列布局，而不是 5 列
+    # Streamlit 的 columns 在手机端会自动垂直堆叠，或者我们可以手动分组
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
+        st.metric("RSI (14)", safe_fmt(l['RSI'], "{:.1f}"))
+        st.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
+    with col2:
+        st.metric("PE (TTM)", funda['pe'])
+        st.metric("ADX (趋势)", safe_fmt(l['ADX'], "{:.1f}"))
     
     plot_chart(df.tail(days), f"{name} {timeframe}分析", flags, ma_short, ma_long)
     

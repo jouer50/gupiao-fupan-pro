@@ -462,14 +462,21 @@ def run_backtest(df):
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
+# 🔥 V48 核心回归：生成深度研报 (含缠论、江恩、指标)
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
+    
+    # 缠论分析
     chan_trend = "底分型构造中" if curr['F_Bot'] else "顶分型构造中" if curr['F_Top'] else "中继形态"
+    
+    # 江恩与斐波那契
     gann, fib = get_drawing_lines(df)
     try:
         fib_near = min(fib.items(), key=lambda x: abs(x[1]-curr['close']))
         fib_txt = f"股价正逼近斐波那契 <b>{fib_near[0]}</b> 关键位 ({fib_near[1]:.2f})。"
     except: fib_txt = "数据不足，无法计算位置。"
+    
+    # 核心指标
     macd_state = "金叉共振" if curr['DIF']>curr['DEA'] else "死叉调整"
     vol_state = "放量" if curr['VolRatio']>1.2 else "缩量" if curr['VolRatio']<0.8 else "温和"
 
@@ -505,6 +512,7 @@ def generate_deep_report(df, name):
     """
     return html
 
+# 🔥 V48 核心回归：计算支撑/压力位
 def analyze_score(df):
     c = df.iloc[-1]; score=0; reasons=[]
     if c['MA_Short']>c['MA_Long']: score+=2; reasons.append("均线金叉")
@@ -524,6 +532,8 @@ def analyze_score(df):
     atr = c['ATR14']
     stop_loss = c['close'] - 2*atr
     take_profit = c['close'] + 3*atr
+    
+    # 支撑压力位（近20日高低点）
     support = df['low'].iloc[-20:].min()
     resistance = df['high'].iloc[-20:].max()
     
@@ -786,8 +796,8 @@ with st.sidebar:
         
         with st.expander("🎛️ 策略参数", expanded=False):
             st.caption("调整均线参数，优化回测结果")
-            ma_short = st.slider("短期均线 (Fast)", 2, 20, 5)
-            ma_long = st.slider("长期均线 (Slow)", 10, 120, 20)
+            ma_s = st.slider("短期均线 (Fast)", 2, 20, 5) # ✅ 变量名修复 ma_s
+            ma_l = st.slider("长期均线 (Slow)", 10, 120, 20) # ✅ 变量名修复 ma_l
         
         st.markdown("### 🛠️ 指标开关")
         flags = {
@@ -864,7 +874,7 @@ if not is_demo:
 try:
     funda = get_fundamentals(st.session_state.code, token)
     # ✅ 使用自定义均线参数
-    df = calc_full_indicators(df, ma_short, ma_long)
+    df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
     # 🔥 V46 核心逻辑：风险分析 & 机构观点

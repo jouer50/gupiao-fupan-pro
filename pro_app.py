@@ -36,7 +36,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# ✅ 全局变量兜底初始化 (防止 NameError)
+# ✅ 全局变量兜底初始化
 ma_s = 5
 ma_l = 20
 flags = {
@@ -58,61 +58,64 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 V61.0 CSS：侧边栏按钮强力修复 + 黄色果冻UI
+# 🔥 V61.1 CSS：侧边栏按钮修复 + 黄色果冻UI
 ui_css = """
 <style>
     /* 全局背景 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
     /* ================= 核心修复：侧边栏按钮 ================= */
-    /* 1. 强制显示按钮，且固定在屏幕左上角，脱离 Header 限制 */
+    /* 1. Header 必须显示，但设为透明 */
+    header[data-testid="stHeader"] {
+        background-color: transparent !important;
+        visibility: visible !important;
+        pointer-events: none; /* 让点击穿透 Header */
+    }
+    header[data-testid="stHeader"] > div {
+        pointer-events: auto;
+    }
+    
+    /* 2. 隐藏 Header 里的彩条装饰 */
+    [data-testid="stDecoration"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    
+    /* 3. 隐藏 Deploy 按钮 */
+    .stDeployButton {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    
+    /* 4. 强制显示左上角折叠按钮 (黑箭头+白底) */
     [data-testid="stSidebarCollapsedControl"] {
         display: block !important;
-        position: fixed !important; /* 钉死在屏幕上 */
+        position: fixed !important;
         top: 10px !important;
         left: 10px !important;
-        color: #333333 !important; /* 深灰色图标 */
-        background-color: rgba(255, 255, 255, 0.9) !important; /* 半透明白底 */
-        border: 1px solid #eee;
-        border-radius: 50%; /* 圆形 */
-        width: 40px; 
-        height: 40px;
+        color: #000000 !important;
+        background-color: rgba(255,255,255,0.9) !important;
+        border-radius: 50%;
+        width: 40px; height: 40px;
         padding: 5px;
-        z-index: 999999 !important; /* 最顶层 */
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15); /* 加阴影防背景干扰 */
-        transition: all 0.2s;
+        z-index: 999999 !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
-    [data-testid="stSidebarCollapsedControl"]:hover {
-        transform: scale(1.1);
-        background-color: #fff !important;
-    }
-
-    /* 兼容旧版 Streamlit 选择器 */
+    /* 兼容旧版选择器 */
     [data-testid="collapsedControl"] {
         display: block !important;
         position: fixed !important;
         top: 10px !important;
         left: 10px !important;
-        color: #333333 !important;
-        background-color: rgba(255, 255, 255, 0.9) !important;
+        color: #000000 !important;
+        background-color: rgba(255,255,255,0.9) !important;
         border-radius: 50%;
         z-index: 999999 !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
     
-    /* 隐藏 Header 背景，让头部更干净，但不影响按钮 */
-    header[data-testid="stHeader"] {
-        background-color: transparent !important;
-        pointer-events: none; /* 让点击穿透 Header，防止挡住按钮 */
-    }
-    /* 恢复 Header 里按钮的点击能力 */
-    header[data-testid="stHeader"] > div {
-        pointer-events: auto;
-    }
-    
-    /* 隐藏杂项 */
-    .stDeployButton, footer {display: none !important;}
-    [data-testid="stDecoration"] {display: none !important;} 
+    /* 隐藏页脚 */
+    footer {display: none !important;}
     
     /* 顶部间距适配 */
     .block-container {padding-top: 3.5rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem; padding-right: 0.8rem;}
@@ -131,7 +134,7 @@ ui_css = """
         width: 100%;
     }
     div.stButton > button:hover {
-        transform: translateY(-2px) scale(1.01);
+        transform: translateY(-2px);
         box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5);
     }
     div.stButton > button:active { transform: scale(0.96); }
@@ -176,16 +179,14 @@ ui_css = """
     /* ================= 综合评级 (三色卡) ================= */
     .rating-container { display: flex; justify-content: space-between; gap: 8px; }
     .rating-box {
-        flex: 1; background: #fff; border: 1px solid #f2f2f2; border-radius: 12px;
+        flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px;
         text-align: center; padding: 15px 2px; 
         box-shadow: 0 4px 10px rgba(0,0,0,0.02);
     }
-    .rating-score { font-size: 28px; font-weight: 900; line-height: 1; margin-bottom: 5px; font-family: 'Arial', sans-serif; }
+    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; font-family: 'Arial', sans-serif; }
     .rating-score-sub { font-size: 10px; color: #ccc; font-weight: 400; margin-left: 1px;}
     .rating-label { font-size: 12px; color: #666; font-weight: 500; }
-    .score-red { color: #ff3b30 !important; }
     .score-yellow { color: #ff9800 !important; }
-    .score-green { color: #00c853 !important; }
 
     /* ================= 投资亮点 (标签) ================= */
     .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
@@ -206,19 +207,17 @@ ui_css = """
     }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
-    .strategy-col { text-align: center; flex: 1; }
-    .st-val { font-size: 16px; font-weight: 800; display: block; margin-top: 4px; }
-    .st-lbl { font-size: 12px; color: #888; }
+    .price-point { font-weight: 700; color: #333; font-size: 15px; }
     .support-line { 
         border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; 
         font-size: 12px; color: #888; display: flex; justify-content: space-between;
     }
-
+    
     /* 风险雷达 */
     .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
     .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
     .risk-bar-fill { height: 100%; border-radius: 3px; }
-    
+
     /* 研报小标题 */
     .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
     .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
@@ -822,12 +821,23 @@ with st.sidebar:
         if not is_admin:
             with st.expander("💎 充值中心", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
+                st.write("##### 1. 选择充值套餐")
                 pay_opt = st.radio("充值面额", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
-                if st.button("✅ 模拟支付"):
+                
+                st.write("##### 2. 扫码支付")
+                if os.path.exists("alipay.png"):
+                    st.image("alipay.png", caption="请使用支付宝扫码", width=200)
+                else:
+                    st.warning("请上传 alipay.png")
+                    
+                st.write("##### 3. 获取卡密")
+                if st.button("✅ 我已支付，自动发货"):
                     new_key = generate_key(pay_opt)
                     st.success("支付成功！您的卡密如下：")
                     st.code(new_key, language="text")
-                k_in = st.text_input("兑换卡密")
+                
+                st.write("##### 4. 兑换")
+                k_in = st.text_input("输入卡密")
                 if st.button("兑换"):
                     s, m = redeem_key(user, k_in)
                     if s: st.success(m); time.sleep(1); st.rerun()
@@ -891,8 +901,6 @@ with st.sidebar:
             ma_l = st.slider("长期均线", 10, 120, 20)
         
         st.markdown("### 🛠️ 指标开关")
-        # ✅ V60.1 修复：在渲染开关前显式初始化 flags
-        flags = {} 
         c_flags = st.columns(2)
         with c_flags[0]:
             flags['ma'] = st.checkbox("MA", True)
@@ -1001,17 +1009,14 @@ try:
     st.markdown(f"""
     <div class="rating-container">
         <div class="rating-box">
-            <div class="rating-icon">🏢</div>
             <div class="rating-score">{sq} <span class="rating-score-sub">/10</span></div>
             <div class="rating-label">公司质量</div>
         </div>
         <div class="rating-box">
-            <div class="rating-icon">🪙</div>
             <div class="rating-score score-yellow">{sv} <span class="rating-score-sub sub-yellow">/10</span></div>
             <div class="rating-label">估值安全</div>
         </div>
         <div class="rating-box">
-            <div class="rating-icon">📈</div>
             <div class="rating-score">{st_} <span class="rating-score-sub">/10</span></div>
             <div class="rating-label">股价趋势</div>
         </div>

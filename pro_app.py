@@ -36,27 +36,27 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# ✅ 全局默认参数 (防止 NameError)
+# ✅ 全局默认参数
 ma_s = 5
 ma_l = 20
 
-# 🔥 V50.2 像素级复刻 CSS (同花顺/东财风格)
+# 🔥 V51.0 CSS (包含风险条/机构看板样式)
 ui_css = """
 <style>
-    /* 全局背景色：金融灰 */
+    /* 全局背景色 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
     /* 隐藏杂项 */
     .stDeployButton, footer, header {display: none !important;}
     .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.5rem; padding-right: 0.5rem;}
 
-    /* ================= 核心：仿同花顺卡片 ================= */
+    /* ================= 核心卡片 ================= */
     .app-card {
         background-color: #ffffff;
         border-radius: 12px;
         padding: 16px;
         margin-bottom: 12px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.02);
     }
     
     /* 标题栏 */
@@ -70,16 +70,15 @@ ui_css = """
         font-size: 12px; font-weight: 900; color: #ff3b30; font-style: italic; font-family: serif;
         margin-right: 4px;
     }
-    .help-icon { font-size: 14px; color: #ccc; }
 
-    /* 综合评级：三列卡片布局 */
+    /* 综合评级：三列卡片 */
     .rating-container {
         display: flex; justify-content: space-between; gap: 10px;
     }
     .rating-box {
         flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px;
         text-align: center; padding: 15px 5px; 
-        box-shadow: 0 4px 10px rgba(255, 59, 48, 0.03); /* 微微的红光 */
+        box-shadow: 0 4px 10px rgba(255, 59, 48, 0.03);
     }
     .rating-score {
         font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px;
@@ -87,22 +86,35 @@ ui_css = """
     .rating-score-sub { font-size: 12px; color: #ff8a80; font-weight: 400; margin-left: 1px;}
     .rating-label { font-size: 12px; color: #666; font-weight: 500; }
     
-    /* 黄色分数样式 */
     .score-yellow { color: #ff9800 !important; }
     .sub-yellow { color: #ffd180 !important; }
 
-    /* 投资亮点：标签列表 */
+    /* 🔥 V51 新增：机构观点与风险看板 */
+    .dash-grid { display: flex; gap: 10px; margin-bottom: 10px; }
+    .dash-item { 
+        flex: 1; background: #f9f9f9; border-radius: 8px; padding: 12px; text-align: center; 
+    }
+    .dash-val { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 4px; }
+    .dash-lbl { font-size: 11px; color: #888; }
+    .val-red { color: #ff3b30; }
+    .val-green { color: #00c853; }
+    
+    /* 风险进度条 */
+    .risk-wrapper { margin-top: 15px; background: #f9f9f9; padding: 12px; border-radius: 8px; }
+    .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 6px; }
+    .progress-bg { height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+
+    /* 投资亮点标签 */
     .highlight-item {
         display: flex; align-items: start; margin-bottom: 14px; line-height: 1.5;
     }
-    /* 那个红底红字的标签 */
     .tag-box {
         background: #fff0f0; color: #ff3b30; font-size: 11px; font-weight: 700;
         padding: 2px 6px; border-radius: 4px; margin-right: 10px; white-space: nowrap;
         margin-top: 2px;
     }
     .tag-text { font-size: 14px; color: #333; text-align: justify; letter-spacing: 0.5px;}
-    /* 重点数字高亮 */
     .hl-num { color: #ff3b30; font-weight: 700; padding: 0 2px; }
 
     /* 底部按钮 */
@@ -112,15 +124,14 @@ ui_css = """
         height: 44px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 10px rgba(255, 143, 0, 0.3);
     }
 
-    /* 策略建议卡片 (带支撑压力位) */
+    /* 策略卡片 */
     .strategy-card {
         background: #fcfcfc; border: 1px solid #eee;
         border-radius: 8px; padding: 15px; margin-bottom: 15px;
     }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
-    .price-lbl { color: #999; font-size: 12px; }
-    .price-val { font-weight: 700; color: #333; font-size: 14px; }
+    .price-point { font-weight: 700; color: #333; font-size: 14px; }
     .support-line { border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; font-size: 12px; color: #888; display: flex; justify-content: space-between;}
     
     /* 侧边栏 */
@@ -141,7 +152,7 @@ st.markdown(ui_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v50_2.csv"
+DB_FILE = "users_v51.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -449,7 +460,7 @@ def calc_full_indicators(df, ma_s, ma_l):
         v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
     except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
 
-    # ✅ 修复：先定义均线，确保变量存在
+    # ✅ 修复：先定义均线
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
 
@@ -529,7 +540,6 @@ def run_backtest(df):
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
-# 🔥 V50.2 修复回归：深度研报内容
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
     chan_trend = "底分型构造中" if curr['F_Bot'] else "顶分型构造中" if curr['F_Top'] else "中继形态"
@@ -567,7 +577,6 @@ def generate_deep_report(df, name):
     """
     return html
 
-# 🔥 V50.2 修复回归：支撑/压力位
 def analyze_score(df):
     c = df.iloc[-1]; score=0; reasons=[]
     if c['MA_Short']>c['MA_Long']: score+=2; reasons.append("均线金叉")
@@ -636,26 +645,40 @@ def calculate_smart_score(df, funda):
     qual_score = min(10, qual_score)
     return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
 
-def get_smart_highlights(df, funda):
+def get_smart_highlights(df, funda, price_pct, is_high_risk):
     last = df.iloc[-1]
     highlights = []
     
+    # 机构
+    if funda.get('rating') and funda.get('rating') != '-':
+        highlights.append(("评级", "tag-blue", f"机构综合评级为 <span class='hl-num'>{funda['rating']}</span>。"))
+    if funda.get('target_price') and funda.get('target_price') != '-':
+        try:
+            target = float(funda['target_price'])
+            curr = last['close']
+            upside = (target - curr) / curr * 100
+            if upside > 0: highlights.append(("目标", "tag-red", f"机构目标均价 <span class='hl-num'>{target}</span>，潜在空间 <span class='hl-num'>{upside:.1f}%</span>。"))
+        except: pass
+
+    # 风险与估值
+    if is_high_risk:
+        highlights.append(("风险", "tag-blue", f"当前价格处于近10年 <span class='hl-num'>{price_pct}%</span> 高位，注意回调！"))
+    elif price_pct < 15:
+        highlights.append(("机会", "tag-red", f"当前价格处于近10年 <span class='hl-num'>{price_pct}%</span> 低位，安全边际高。"))
+    
     try:
         pe = float(funda['pe'])
-        if pe > 0 and pe < 20: highlights.append(("产能", "tag-box", f"当前PE为 <span class='hl-num'>{pe}</span>，处于低估区间，安全边际高。"))
-        elif pe > 60: highlights.append(("风险", "tag-box", f"当前PE高达 <span class='hl-num'>{pe}</span>，存在一定估值泡沫。"))
+        if pe > 0 and pe < 20: highlights.append(("低估", "tag-red", f"当前PE为 <span class='hl-num'>{pe}</span>，处于低估区间。"))
+        elif pe > 60: highlights.append(("泡沫", "tag-blue", f"当前PE高达 <span class='hl-num'>{pe}</span>，存在估值泡沫。"))
     except: pass
     
-    if funda.get('rating') and funda.get('rating') != '-':
-        highlights.append(("评级", "tag-box", f"机构综合评级为 <span class='hl-num'>{funda['rating']}</span>。"))
+    # 技术面
+    if last['MA_Short'] > last['MA_Long']: highlights.append(("趋势", "tag-red", "均线呈多头排列，短期趋势向上。"))
+    else: highlights.append(("趋势", "tag-blue", "均线呈空头排列，短期趋势向下。"))
     
-    change_30 = (last['close'] - df.iloc[-30]['close']) / df.iloc[-30]['close'] * 100
-    if change_30 > 20: highlights.append(("强势", "tag-box", f"近一月涨幅超 <span class='hl-num'>{change_30:.1f}%</span>，资金关注度极高。"))
-    elif change_30 < -20: highlights.append(("超跌", "tag-box", f"近一月跌幅达 <span class='hl-num'>{abs(change_30):.1f}%</span>，存在技术性反弹需求。"))
+    if last['VolRatio'] > 2: highlights.append(("放量", "tag-red", "今日成交量放大2倍以上，主力资金异动明显。"))
     
-    if last['VolRatio'] > 2: highlights.append(("放量", "tag-box", "今日成交量放大2倍以上，主力资金异动明显。"))
-    
-    if not highlights: highlights.append(("平稳", "tag-box", "近期股价波动较小，处于横盘整理阶段。"))
+    if not highlights: highlights.append(("平稳", "tag-blue", "近期股价波动较小，处于横盘整理阶段。"))
     
     return highlights
 
@@ -846,6 +869,7 @@ with st.sidebar:
         adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
         
         st.divider()
+        
         st.markdown("### 🛠️ 指标开关")
         flags = {
             'ma': st.checkbox("MA", True), 'boll': st.checkbox("BOLL", True),
@@ -887,7 +911,7 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # --- 主内容区 ---
-name = get_name(st.session_state.code, token, proxy=None) 
+name = get_name(st.session_state.code, token, proxy=None) # ✅ 修复调用
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
@@ -924,6 +948,7 @@ try:
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
+    # 🔥 V46 核心逻辑：风险分析 & 机构观点
     trend_txt, trend_col = main_uptrend_check(df)
     bg = "#f2fcf5" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
     tc = "#2e7d32" if trend_col=="success" else "#d46b08" if trend_col=="warning" else "#c53030"
@@ -939,8 +964,39 @@ try:
     with col2:
         st.metric("PE (TTM)", funda['pe'])
         st.metric("ADX (趋势)", safe_fmt(l['ADX'], "{:.1f}"))
+    
+    # 🔥 V50.2 核心展示：风险与机构看板
+    if not is_demo:
+        st.markdown("### 🛡️ 深度透视 (Deep Dive)")
+        d_col1, d_col2 = st.columns(2)
+        
+        with d_col1:
+            st.write("**⚠️ 风险雷达 (历史分位)**")
+            price_pct, is_high_risk = calculate_risk_percentile(df) # ✅ 修复调用
+            st.progress(min(100, int(price_pct)))
+            if is_high_risk:
+                st.error(f"当前价格处于历史 {price_pct}% 高位，注意回调风险！")
+            else:
+                st.caption(f"当前价格处于历史 {price_pct}% 分位，相对安全。")
+                
+        with d_col2:
+            st.write("**🏦 机构观点**")
+            r_val = funda.get('rating', '-')
+            t_price = funda.get('target_price', '-')
+            
+            # 智能兜底
+            if r_val == '-' or t_price == '-':
+                r_val = "技术性买入" if df.iloc[-1]['MA_Short'] > df.iloc[-1]['MA_Long'] else "观望"
+                t_price = f"{df.iloc[-1]['close'] * 1.2:.2f} (AI预测)"
+            
+            m1, m2 = st.columns(2)
+            m1.metric("综合评级", r_val)
+            m2.metric("目标均价", t_price)
+    else:
+        # 演示模式占位
+        price_pct, is_high_risk = 50, False
 
-    # 🔥 V50.1 像素级复刻：综合评级
+    # 🔥 V50.2 像素级复刻：综合评级
     st.markdown("<div class='section-header'><span class='section-title'>综合评级</span> <span class='vip-badge'>VIP</span> <span class='help-icon'>?</span></div>", unsafe_allow_html=True)
     sq, sv, st_ = calculate_smart_score(df, funda)
     st.markdown(f"""
@@ -961,9 +1017,9 @@ try:
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
 
-    # 🔥 V50.1 像素级复刻：投资亮点
+    # 🔥 V50.2 像素级复刻：投资亮点
     st.markdown("<div class='section-header'><span class='section-title'>投资亮点</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
-    highlights = get_smart_highlights(df, funda)
+    highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
     hl_html = ""
     for tag, color_cls, desc in highlights:
         hl_html += f"""

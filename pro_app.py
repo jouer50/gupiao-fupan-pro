@@ -36,24 +36,56 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# ✅ 全局默认参数 (防止报错的核心)
+# ✅【关键修复】全局变量初始化，防止 NameError
 ma_s = 5
 ma_l = 20
+flags = {
+    'ma': True, 'boll': True, 'vol': True, 'macd': True,
+    'kdj': True, 'gann': False, 'fib': True, 'chan': True
+}
 
-# 🔥 V52.0 像素级复刻 CSS
+# 🔥 V53.0 黄色果冻 UI CSS
 ui_css = """
 <style>
-    /* 全局背景色 */
+    /* 全局背景 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
-    /* 侧边栏按钮修复：强制显示 */
-    [data-testid="collapsedControl"] { display: block !important; color: #2962ff !important; z-index: 99999; }
+    /* 侧边栏按钮强制显示 */
+    [data-testid="collapsedControl"] { display: block !important; color: #333 !important; z-index: 99999; }
     
     /* 隐藏杂项 */
     .stDeployButton, footer, header {display: none !important;}
-    .block-container {padding-top: 2rem !important; padding-bottom: 2rem !important; padding-left: 0.5rem; padding-right: 0.5rem;}
+    .block-container {padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.5rem; padding-right: 0.5rem;}
 
-    /* ================= 通用卡片容器 ================= */
+    /* ================= 🍋 黄色果冻按钮 (核心升级) ================= */
+    div.stButton > button {
+        background: linear-gradient(135deg, #ffca28 0%, #ffb300 100%); /* 金黄渐变 */
+        color: #3e2723; /* 深褐色文字，对比度高 */
+        border: none;
+        border-radius: 25px; /* 果冻圆角 */
+        padding: 0.6rem 1.2rem;
+        font-weight: 700;
+        font-size: 16px;
+        box-shadow: 0 4px 6px rgba(255, 179, 0, 0.3); /* 柔和投影 */
+        transition: all 0.2s ease;
+        width: 100%;
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(255, 179, 0, 0.4);
+        background: linear-gradient(135deg, #ffd54f 0%, #ffca28 100%);
+    }
+    div.stButton > button:active {
+        transform: scale(0.98);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    /* 次级按钮 (灰色) */
+    div.stButton > button[kind="secondary"] {
+        background: #f5f5f5; color: #666; box-shadow: none;
+    }
+
+    /* ================= 卡片容器 ================= */
     .app-card {
         background-color: #ffffff;
         border-radius: 12px;
@@ -63,80 +95,48 @@ ui_css = """
     }
     
     /* 标题栏 */
-    .section-header {
-        display: flex; align-items: center; margin-bottom: 15px; margin-top: 5px;
-    }
-    .section-title {
-        font-size: 16px; font-weight: 900; color: #333; margin-right: 5px; letter-spacing: 0.5px;
-    }
-    .vip-badge {
-        background: #fff0f0; color: #ff3b30; font-size: 10px; font-weight: 800;
-        padding: 1px 5px; border-radius: 4px; font-style: italic; margin-right: 5px;
-    }
-    .help-icon { font-size: 14px; color: #ccc; }
+    .section-header { display: flex; align-items: center; margin-bottom: 15px; margin-top: 5px; }
+    .section-title { font-size: 17px; font-weight: 900; color: #333; margin-right: 5px; }
+    .vip-badge { background: #fff0f0; color: #ff3b30; font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 4px; font-style: italic; }
 
-    /* ================= 综合评级：三列布局 (复刻图2) ================= */
-    .rating-container {
-        display: flex; justify-content: space-between; gap: 8px;
-    }
+    /* ================= 综合评级 (三色卡) ================= */
+    .rating-container { display: flex; justify-content: space-between; gap: 8px; }
     .rating-box {
-        flex: 1; background: #fff; border: 1px solid #f2f2f2; border-radius: 10px;
-        text-align: center; padding: 15px 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.01);
+        flex: 1; background: #fff; border: 1px solid #f2f2f2; border-radius: 12px;
+        text-align: center; padding: 15px 5px; 
+        box-shadow: 0 4px 10px rgba(0,0,0,0.02);
     }
-    .rating-icon { font-size: 18px; margin-bottom: 5px; display: block; }
-    
-    .rating-score {
-        font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; font-family: 'Roboto', sans-serif;
-    }
-    .rating-score-sub { font-size: 12px; color: #999; font-weight: 400; margin-left: 1px; }
-    .rating-label { font-size: 12px; color: #666; margin-top: 6px; font-weight: 500; }
+    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; font-family: 'Arial', sans-serif; }
+    .rating-score-sub { font-size: 12px; color: #ccc; font-weight: 400; margin-left: 1px;}
+    .rating-label { font-size: 12px; color: #666; font-weight: 500; }
+    .score-yellow { color: #ff9800 !important; }
 
-    /* ================= 投资亮点：标签列表 (复刻图2) ================= */
-    .highlight-item {
-        display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5;
-    }
+    /* ================= 投资亮点 (标签化) ================= */
+    .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
     .tag-box {
-        background: #fff1f0; color: #f5222d; font-size: 11px; font-weight: 700;
-        padding: 2px 6px; border-radius: 4px; margin-right: 8px; white-space: nowrap;
-        margin-top: 2px;
+        background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700;
+        padding: 2px 6px; border-radius: 4px; margin-right: 8px; white-space: nowrap; margin-top: 2px;
     }
-    .tag-blue { background: #f0f5ff; color: #2f54eb; } /* 蓝色标签 */
+    .tag-blue { background: #f0f7ff; color: #2962ff; }
     .tag-text { font-size: 14px; color: #333; text-align: justify; }
-    
-    /* 高亮数字 */
     .hl-num { color: #ff3b30; font-weight: 700; padding: 0 2px; }
 
-    /* ================= 策略建议卡片 (带支撑压力) ================= */
+    /* ================= 策略卡片 ================= */
     .strategy-card {
-        background: linear-gradient(to bottom, #fff, #fcfcfc);
-        border: 1px solid #eee; border-left: 4px solid #ff3b30;
+        background: #fff; border-left: 4px solid #ffca28; /* 黄条 */
         border-radius: 8px; padding: 15px; margin-bottom: 15px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.03);
     }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 12px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 13px; color: #666; }
     .price-point { font-weight: 700; color: #333; font-size: 15px; }
-    .support-line { 
-        border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; 
-        font-size: 12px; color: #888; display: flex; justify-content: space-between;
-    }
-
+    .support-line { border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; font-size: 12px; color: #888; display: flex; justify-content: space-between;}
+    
     /* 风险雷达 */
     .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
     .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
     .risk-bar-fill { height: 100%; border-radius: 3px; }
 
-    /* 研报小标题 */
-    .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
-    .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
-
-    /* 按钮样式 */
-    div.stButton > button {
-        background: linear-gradient(90deg, #ff3b30, #ff2d55); 
-        color: white; border-radius: 20px; border: none;
-        height: 40px; font-weight: 600; font-size: 16px;
-    }
-    
     /* 侧边栏 */
     .brand-title { font-size: 20px; font-weight: 900; color: #333; }
     .brand-slogan { font-size: 12px; color: #999; margin-bottom: 20px; }
@@ -151,7 +151,7 @@ st.markdown(ui_css, unsafe_allow_html=True)
 # 👑 全局常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v52.csv"
+DB_FILE = "users_v53.csv"
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -443,7 +443,6 @@ def get_fundamentals(code, token):
         except: pass
     return res
 
-# ✅ 修复：ma_s 和 ma_l 作为参数传入，彻底解决 NameError
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
     try:
@@ -453,6 +452,7 @@ def calc_full_indicators(df, ma_s, ma_l):
         v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
     except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
 
+    # ✅ 修复：在函数内使用传入的参数计算
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
 
@@ -723,7 +723,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # ✅ 侧边栏：搜索框置顶
+    # ✅ 搜索框置顶
     new_c = st.text_input("🔍 股票代码 (美/港/A股)", st.session_state.code)
     if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
 
@@ -731,7 +731,7 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
-        # ✅ 自选股紧随其后
+        # ✅ 自选股紧随搜索
         if not is_admin:
             with st.expander("⭐ 我的自选股", expanded=False):
                 current_wl = get_user_watchlist(user)
@@ -747,19 +747,19 @@ with st.sidebar:
                             update_watchlist(user, c, "remove")
                             st.rerun()
             if st.button("❤️ 加入自选"): update_watchlist(user, st.session_state.code, "add"); st.rerun()
-        
-        # 刷新按钮
-        if st.button("🔄 刷新缓存"): st.cache_data.clear(); st.rerun()
 
-        # 充值中心 (默认折叠)
+        # 充值中心 (折叠)
         if not is_admin:
             with st.expander("💎 充值中心", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
                 pay_opt = st.radio("充值面额", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
-                if st.button("✅ 模拟支付"):
+                
+                if st.button("✅ 我已支付，自动发货"):
                     new_key = generate_key(pay_opt)
-                    st.success("支付成功！卡密如下：")
+                    st.success("支付成功！您的卡密如下：")
                     st.code(new_key, language="text")
+                    st.warning("请立即复制上方卡密，并在右侧【卡密兑换】中激活")
+                
                 k_in = st.text_input("兑换卡密")
                 if st.button("兑换"):
                     s, m = redeem_key(user, k_in)
@@ -774,11 +774,9 @@ with st.sidebar:
                 if st.button("批量生成"):
                     num = batch_generate_keys(points_gen, count_gen)
                     st.success(f"已生成 {num} 张卡密")
-            
             with st.expander("用户管理"):
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota"]], hide_index=True)
-                
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
                     target = st.selectbox("选择用户", u_list)
@@ -790,40 +788,21 @@ with st.sidebar:
                         chk = st.checkbox("确认删除")
                         if st.button("删除") and chk: delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
 
-                csv = df_u.to_csv(index=False).encode('utf-8')
-                st.download_button("备份数据", csv, "backup.csv", "text/csv")
-                uploaded_file = st.file_uploader("恢复用户数据", type="csv", key="restore_users")
-                if uploaded_file is not None:
-                    try:
-                        df_restore = pd.read_csv(uploaded_file)
-                        required = ["username", "password_hash", "watchlist", "quota"]
-                        if all(col in df_restore.columns for col in required):
-                            df_restore.to_csv(DB_FILE, index=False)
-                            st.success("✅ 恢复成功！")
-                            time.sleep(1); st.rerun()
-                        else: st.error("❌ 格式错误")
-                    except Exception as e: st.error(f"❌ 失败: {e}")
-                
-            with st.expander("卡密管理"):
-                df_k = load_keys()
-                show_all = st.checkbox("显示已使用", False)
-                if not show_all: display_df = df_k[df_k['status'] == 'unused']
-                else: display_df = df_k
-                st.dataframe(display_df, hide_index=True, use_container_width=True)
-                
-                if st.button("🗑️ 清理已用卡密"):
-                    clean_df = df_k[df_k['status'] == 'unused']
-                    save_keys(clean_df)
-                    st.success("已清理！")
-                    time.sleep(1); st.rerun()
+        # ✅ 刷新按钮
+        if st.button("🔄 刷新缓存"): st.cache_data.clear(); st.rerun()
 
-        # 策略参数 (修复变量作用域)
-        st.divider()
-        with st.expander("🎛️ 策略参数", expanded=False):
-            ma_s = st.slider("短期均线", 2, 20, 5)
-            ma_l = st.slider("长期均线", 10, 120, 20)
+        timeframe = st.selectbox("K线周期", ["日线", "周线", "月线"])
+        days = st.radio("显示范围", [30,60,120,250,500], 2, horizontal=True)
+        adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
         
-        # 指标开关
+        st.divider()
+        
+        with st.expander("🎛️ 策略参数", expanded=False):
+            st.caption("调整均线参数，优化回测结果")
+            # ✅ 双保险：这里定义也会更新全局
+            ma_s = st.slider("短期均线 (Fast)", 2, 20, 5)
+            ma_l = st.slider("长期均线 (Slow)", 10, 120, 20)
+        
         st.markdown("### 🛠️ 指标开关")
         flags = {
             'ma': st.checkbox("MA", True), 'boll': st.checkbox("BOLL", True),
@@ -831,15 +810,6 @@ with st.sidebar:
             'kdj': st.checkbox("KDJ", True), 'gann': st.checkbox("江恩", False),
             'fib': st.checkbox("斐波那契", True), 'chan': st.checkbox("缠论", True)
         }
-        st.divider()
-        
-        # Token 输入框 (默认空)
-        token = "" 
-        
-        timeframe = st.selectbox("周期", ["日线", "周线", "月线"])
-        days = st.radio("范围", [30,60,120,250], 2, horizontal=True)
-        adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
-        
         st.divider()
         st.caption("免责声明：本系统仅供量化研究，不构成投资建议。")
         if st.button("退出登录"): st.session_state["logged_in"]=False; st.rerun()
@@ -874,7 +844,7 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # --- 主内容区 ---
-name = get_name(st.session_state.code, token, proxy=None) 
+name = get_name(st.session_state.code, "", None) 
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
@@ -898,59 +868,32 @@ if st.session_state.code != st.session_state.paid_code:
 if not is_demo:
     loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
     with st.spinner(random.choice(loading_tips)):
-        df = get_data_and_resample(st.session_state.code, token, timeframe, adjust, proxy=None)
+        df = get_data_and_resample(st.session_state.code, "", timeframe, adjust, proxy=None)
         if df.empty:
             st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
             df = generate_mock_data(days)
             is_demo = True
 
 try:
-    funda = get_fundamentals(st.session_state.code, token)
-    # ✅ 使用自定义均线参数
+    funda = get_fundamentals(st.session_state.code, "")
+    # ✅ 传递全局变量 ma_s, ma_l
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
-    # 🔥 V46 核心逻辑：风险分析 & 机构观点
-    trend_txt, trend_col = main_uptrend_check(df)
-    bg = "#e6f4ea" if trend_col=="success" else "#fff7e6" if trend_col=="warning" else "#fff2f2"
-    tc = "#137333" if trend_col=="success" else "#b06000" if t_col=="warning" else "#c5221f"
-    st.markdown(f"<div class='trend-banner' style='background:{bg};border:1px solid {tc}'><h3 class='trend-title' style='color:{tc}'>{trend_txt}</h3></div>", unsafe_allow_html=True)
-
-    # 核心指标
-    l = df.iloc[-1]
-    col1, col2 = st.columns(2)
-    with col1:
-        color = "red" if l['pct_change'] > 0 else "green"
-        st.markdown(f"""
-        <div style="text-align: center;">
-            <div style="font-size: 14px; color: #888;">最新价格</div>
-            <div style="font-size: 36px; font-weight: 900; color: {color};">
-                {l['close']:.2f} 
-                <span style="font-size: 16px;">({l['pct_change']:.2f}%)</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.metric("PE (TTM)", funda['pe'])
-        st.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
-
-    # 🔥 V50.2 像素级复刻：综合评级
+    # 🔥 V52.0 UI 复刻：同花顺/东财风格
     st.markdown("<div class='section-header'><span class='section-title'>综合评级</span> <span class='vip-badge'>VIP</span> <span class='help-icon'>?</span></div>", unsafe_allow_html=True)
     sq, sv, st_ = calculate_smart_score(df, funda)
     st.markdown(f"""
     <div class="rating-container">
         <div class="rating-box">
-            <div class="rating-icon">🏢</div>
             <div class="rating-score">{sq} <span class="rating-score-sub">/10</span></div>
             <div class="rating-label">公司质量</div>
         </div>
         <div class="rating-box">
-            <div class="rating-icon">🪙</div>
             <div class="rating-score score-yellow">{sv} <span class="rating-score-sub sub-yellow">/10</span></div>
             <div class="rating-label">估值安全</div>
         </div>
         <div class="rating-box">
-            <div class="rating-icon">📈</div>
             <div class="rating-score">{st_} <span class="rating-score-sub">/10</span></div>
             <div class="rating-label">股价趋势</div>
         </div>
@@ -958,26 +901,13 @@ try:
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
 
-    # 🔥 V50.2 像素级复刻：投资亮点 + 风险雷达
-    st.markdown("<div class='section-header'><span class='section-title'>深度透视</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
-    
-    # 风险雷达
+    # 投资亮点
     if not is_demo:
         price_pct, is_high_risk = calculate_risk_percentile(df)
-        bar_color = "#ff3b30" if is_high_risk else "#00c853"
-        st.markdown(f"""
-        <div style="background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
-            <div class="risk-header">
-                <span>⚠️ 风险雷达 (历史分位)</span>
-                <span style="color: {bar_color}">{price_pct}%</span>
-            </div>
-            <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:{price_pct}%; background:{bar_color}"></div></div>
-            <div style="font-size: 12px; color: #666; margin-top: 5px;">当前价格处于近10年历史位置，{'高位预警！' if is_high_risk else '处于安全区间。'}</div>
-        </div>
-        """, unsafe_allow_html=True)
     else:
         price_pct, is_high_risk = 50, False
-
+        
+    st.markdown("<div class='section-header'><span class='section-title'>投资亮点</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
     highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
     hl_html = ""
     for tag, color_cls, desc in highlights:
@@ -989,13 +919,36 @@ try:
         """
     st.markdown(f"<div class='app-card'>{hl_html}</div>", unsafe_allow_html=True)
     
+    # 核心指标
+    l = df.iloc[-1]
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("价格", f"{l['close']:.2f}", safe_fmt(l['pct_change'], "{:.2f}", suffix="%"))
+        st.metric("RSI (14)", safe_fmt(l['RSI'], "{:.1f}"))
+        st.metric("量比", safe_fmt(l['VolRatio'], "{:.2f}"))
+    with col2:
+        st.metric("PE (TTM)", funda['pe'])
+        st.metric("ADX (趋势)", safe_fmt(l['ADX'], "{:.1f}"))
+        
+    # 风险雷达
+    bar_color = "#ff3b30" if is_high_risk else "#00c853"
+    st.markdown(f"""
+    <div style="background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
+        <div class="risk-header">
+            <span>⚠️ 风险雷达 (历史分位)</span>
+            <span style="color: {bar_color}">{price_pct}%</span>
+        </div>
+        <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:{price_pct}%; background:{bar_color}"></div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
     # 图表
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
     
-    # 深度研报 (回归)
+    # 深度研报
     st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
     
-    # 策略建议 (回归)
+    # 策略建议 (含支撑压力)
     sc, act, col, sl, tp, pos, sup, res = analyze_score(df)
     st.markdown(f"""
     <div class="strategy-card">
@@ -1012,7 +965,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    # 回测 (回归)
+    # 回测
     with st.expander("📚 新手必读：如何看懂回测报告？"):
         st.markdown("""
         **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。就像兵棋推演，先在沙盘上打赢了，再去实战。

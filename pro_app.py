@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V74 (Stable)",
+    page_title="阿尔法量研 Pro V75 (Final)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -54,7 +54,7 @@ ADMIN_PASS = "123456"
 DB_FILE = "users_v69.csv" 
 KEYS_FILE = "card_keys.csv"
 
-# 🔥 公众号验证码配置 (在此修改你的验证码)
+# 🔥 公众号验证码 (请在公众号后台设置关键词回复为这个数字)
 OFFICIAL_CODE = "8888" 
 
 # Optional deps
@@ -65,7 +65,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (升级了 Final Card 样式以容纳新数据)
+# 🔥 CSS 样式 (V75 最终优化版)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -130,12 +130,12 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 升级版最终建议卡片样式 */
+    /* 🔥 升级版最终建议卡片样式 (优化版) */
     .final-card-container {
         background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
         border: 2px solid #2962ff;
         border-radius: 16px;
-        padding: 24px;
+        padding: 24px 20px 15px 20px;
         margin-top: 20px;
         box-shadow: 0 10px 30px rgba(41, 98, 255, 0.15);
         text-align: center;
@@ -153,32 +153,38 @@ ui_css = """
         box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
     }
     .final-action-main {
-        font-size: 42px; font-weight: 900; margin: 25px 0 15px 0;
+        font-size: 42px; font-weight: 900; margin: 30px 0 20px 0;
         background: -webkit-linear-gradient(45deg, #2962ff, #00d4ff);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         letter-spacing: -1px;
     }
     .final-grid {
         display: flex; justify-content: space-around; margin-top: 20px;
-        background: rgba(255,255,255,0.6); border-radius: 12px; padding: 15px;
+        background: rgba(255,255,255,0.8); border-radius: 12px; padding: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
     }
     .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
     .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
     
-    /* 新增：第二行 Grid (支撑/压力) */
+    /* 优化：第二行 Grid (支撑/压力) 使用浅色背景区分 */
     .final-grid-2 {
-        display: flex; justify-content: space-around; margin-top: 10px;
-        border-top: 1px dashed #cce0ff; padding-top: 15px;
+        display: flex; justify-content: space-around; margin-top: 15px;
+        background: rgba(240, 247, 255, 0.5);
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px dashed #cce0ff;
     }
 
     .final-reasons {
-        margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;
+        margin-top: 15px; padding-top: 10px; 
         text-align: left; font-size: 13px; color: #555;
+        background: #fff; padding: 10px; border-radius: 8px;
     }
     
+    /* 优化：免责声明字体更小，颜色更淡 */
     .final-disclaimer {
-        margin-top: 15px; font-size: 10px; color: #999; text-align: center;
-        border-top: 1px solid #eee; padding-top: 8px;
+        margin-top: 15px; font-size: 11px; color: #aaa; text-align: center;
+        border-top: 1px solid #eee; padding-top: 8px; line-height: 1.4;
     }
 
     /* 锁定状态样式 */
@@ -745,12 +751,20 @@ def analyze_score(df):
     if c['RSI']<20: score+=2; reasons.append("RSI 进入超卖区 (反弹概率大)")
     elif c['RSI']>80: reasons.append("RSI 进入超买区 (回调风险大)")
     if c['VolRatio']>1.5: score+=1; reasons.append("主力放量攻击")
+    
+    # 🔥🔥🔥 绝对风控逻辑：一票否决
+    if c['close'] < c['MA_Long'] and c['MA_Short'] < c['MA_Long']:
+        score = -99 
+        reasons.append("⚠️ 触发绝对风控：空头排列，建议空仓")
+
     action = "积极买入" if score>=4 else "持有/观望" if score>=0 else "减仓/卖出"
     color = "success" if score>=4 else "warning" if score>=0 else "error"
+    
     if score >= 4: pos_txt = "80% (重仓)"
     elif score >= 1: pos_txt = "50% (中仓)"
-    elif score >= -2: pos_txt = "20% (底仓)"
-    else: pos_txt = "0% (空仓)"
+    elif score >= -2 and score != -99: pos_txt = "20% (底仓)"
+    else: pos_txt = "0% (空仓)" # 包含 -99 的情况
+    
     atr = c['ATR14']
     stop_loss = c['close'] - 2*atr
     take_profit = c['close'] + 3*atr
@@ -841,7 +855,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V74</div>
+        <div class='brand-en'>AlphaQuant Pro V75</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1165,7 +1179,7 @@ try:
     # 核心分析数据准备
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
     
-    # 🔥🔥🔥 默认风控模块保留
+    # 🔥🔥🔥 默认风控模块
     with st.expander("🛡️ 关键位与风控 (Support & Resistance)", expanded=False):
         sr_cols = st.columns(4)
         sr_cols[0].metric("支撑位 (Support)", f"{sup:.2f}", help="近20日最低价")
@@ -1239,8 +1253,7 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 智能决策系统 (Final Card) - 升级版
-    # 包含了：操作建议、仓位、止盈止损、支撑压力、风险提示
+    # 🔥🔥🔥 智能决策系统 (Final Card) - 优化版
     if is_pro:
         st.markdown(f"""
         <div class="final-card-container">

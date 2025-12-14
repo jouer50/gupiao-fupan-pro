@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V72 (Stable)",
+    page_title="阿尔法量研 Pro V73 (Stable)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -35,9 +35,9 @@ st.set_page_config(
 # 初始化 Session
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
-if "paid_code" not in st.session_state: st.session_state.paid_code = "" # 记录当前已付费解锁的股票代码
+if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
 
-# ✅ 模拟交易 Session (结构更新：{code: {'cost': float, 'qty': int, 'date': str, 'name': str}})
+# ✅ 模拟交易 Session
 if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {}
 
 # ✅ 全局变量
@@ -62,7 +62,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式
+# 🔥 CSS 样式 (新增了 .final-card 相关的精美样式)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -110,15 +110,12 @@ ui_css = """
     .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
     .rating-label { font-size: 12px; color: #666; font-weight: 500; }
     .score-yellow { color: #ff9800 !important; }
-    .strategy-card { background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
-    .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
-    .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
-    .reason-box { background: #f8f9fa; border-radius: 8px; padding: 10px; margin-top: 8px; font-size: 13px; color: #555; }
+    
     .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
     
-    /* 回测看板新样式 */
+    /* 回测看板样式 */
     .bt-container { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); margin-bottom: 20px; border: 1px solid #f0f0f0; }
-    .bt-header { font-size: 20px; font-weight: 900; color: #1d1d1f; margin-bottom: 15px; border-left: 4px solid #2962ff; padding-left: 10px; }
+    .bt-header { font-size: 18px; font-weight: 800; color: #1d1d1f; margin-bottom: 15px; border-left: 4px solid #2962ff; padding-left: 10px; }
     .bt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
     .bt-card { background: #f9f9f9; padding: 15px; border-radius: 10px; text-align: center; transition: all 0.3s; }
     .bt-card:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); background: #fff; border: 1px solid #e0e0e0; }
@@ -129,6 +126,45 @@ ui_css = """
     .bt-neg { color: #2e7d32; }
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
+
+    /* 🔥 升级版最终建议卡片样式 */
+    .final-card-container {
+        background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
+        border: 2px solid #2962ff;
+        border-radius: 16px;
+        padding: 24px;
+        margin-top: 20px;
+        box-shadow: 0 10px 30px rgba(41, 98, 255, 0.15);
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+    }
+    .final-card-container::before {
+        content: ""; position: absolute; top: -50px; left: -50px; width: 100px; height: 100px;
+        background: rgba(41, 98, 255, 0.1); border-radius: 50%; blur: 20px;
+    }
+    .final-card-badge {
+        background: #2962ff; color: white; padding: 6px 20px;
+        border-radius: 0 0 12px 12px; font-weight: 800; font-size: 14px;
+        position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+        box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
+    }
+    .final-action-main {
+        font-size: 42px; font-weight: 900; margin: 25px 0 15px 0;
+        background: -webkit-linear-gradient(45deg, #2962ff, #00d4ff);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        letter-spacing: -1px;
+    }
+    .final-grid {
+        display: flex; justify-content: space-around; margin-top: 20px;
+        background: rgba(255,255,255,0.6); border-radius: 12px; padding: 15px;
+    }
+    .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
+    .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+    .final-reasons {
+        margin-top: 20px; padding-top: 15px; border-top: 1px dashed #cce0ff;
+        text-align: left; font-size: 13px; color: #555;
+    }
 
     /* 锁定状态样式 */
     .locked-container { position: relative; overflow: hidden; }
@@ -142,21 +178,21 @@ ui_css = """
     .lock-title { font-size: 18px; font-weight: 900; color: #333; margin-bottom: 5px; }
     .lock-desc { font-size: 13px; color: #666; margin-bottom: 15px; }
     [data-testid="metric-container"] { display: none; }
+    .deep-title { font-size: 16px; font-weight: 700; color: #1d1d1f; margin-bottom: 8px; border-left: 3px solid #ff9800; padding-left: 8px; }
+    .deep-text { font-size: 13px; color: #444; line-height: 1.6; }
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (升级版：支持持仓数据持久化)
+# 2. 数据库与工具
 # ==========================================
 def init_db():
-    # 增加 paper_json 字段用于存储模拟持仓
     if not os.path.exists(DB_FILE):
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
         df.to_csv(DB_FILE, index=False)
     else:
         df = pd.read_csv(DB_FILE)
-        # 兼容性升级：如果旧数据库没有这些字段，自动添加
         cols_needed = ["vip_expiry", "paper_json"]
         updated = False
         for c in cols_needed:
@@ -193,18 +229,15 @@ def load_users():
 def save_users(df): df.to_csv(DB_FILE, index=False)
 
 def save_user_holdings(username):
-    """🔥 将当前 session 中的模拟持仓保存到数据库"""
-    if username == ADMIN_USER: return # 管理员不需要保存
+    if username == ADMIN_USER: return
     df = load_users()
     idx = df[df["username"] == username].index
     if len(idx) > 0:
-        # 序列化为JSON字符串
         holdings_json = json.dumps(st.session_state.paper_holdings)
         df.loc[idx[0], "paper_json"] = holdings_json
         save_users(df)
 
 def load_user_holdings(username):
-    """🔥 登录时从数据库加载持仓"""
     if username == ADMIN_USER: return
     df = load_users()
     row = df[df["username"] == username]
@@ -292,7 +325,6 @@ def register_user(u, p):
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    # 🔥 新用户注册默认送10积分
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 10, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
@@ -348,7 +380,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (保持不变)
+# 3. 股票逻辑
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -396,13 +428,10 @@ def get_name(code, token, proxy=None):
     except: pass
     return code
 
-# 🔥 数据抓取逻辑 (优先 Tushare, 备用 Baostock)
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
     fetch_days = 1500 
     raw_df = pd.DataFrame()
-    
-    # 1. 优先尝试 Tushare (A股)
     if is_cn_stock(code) and token and ts:
         try:
             pro = ts.pro_api(token)
@@ -410,7 +439,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
             s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y%m%d')
             df = pro.daily(ts_code=_to_ts_code(code), start_date=s, end_date=e)
             if not df.empty:
-                # 复权处理
                 if adjust in ['qfq', 'hfq']:
                     adj_f = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
                     if not adj_f.empty:
@@ -426,8 +454,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                 raw_df = df.sort_values('date').reset_index(drop=True)
         except Exception: 
             raw_df = pd.DataFrame() 
-
-    # 2. 其次尝试 Baostock (A股)
     if raw_df.empty and is_cn_stock(code) and bs:
         try:
             bs.login()
@@ -443,8 +469,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                 raw_df = df.sort_values('date').reset_index(drop=True)
         except Exception:
             raw_df = pd.DataFrame()
-
-    # 3. 最后尝试 Yfinance (支持A股和美股)
     if raw_df.empty:
         try:
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
@@ -589,7 +613,6 @@ def get_daily_picks(user_watchlist):
             results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
     return results
 
-# 🔥 升级版回测逻辑：保留原有交叉策略，增强数据统计精度，用于 UI 展示
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
@@ -599,15 +622,10 @@ def run_backtest(df):
     capital = 100000; position = 0
     buy_signals = []; sell_signals = []; equity = [capital]; dates = [df_bt.iloc[0]['date']]
     
-    # 统计变量
-    trade_count = 0
-    wins = 0
-    entry_price = 0
+    trade_count = 0; wins = 0; entry_price = 0
     
-    # 纯粹的均线策略：短金叉买入，死叉卖出
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        
         buy_sig = prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long']
         sell_sig = prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long']
         
@@ -624,24 +642,17 @@ def run_backtest(df):
         dates.append(date)
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
-    
-    # 增强统计：计算真实胜率 (避免除零错误)
     win_rate = (wins / trade_count * 100) if trade_count > 0 else 0.0
-    
     eq_series = pd.Series(equity); cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax; max_dd = drawdown.min() * 100
-    
-    # 加入基准 (Buy & Hold) 用于 UI 对比 (隐含计算)
     first_price = df_bt.iloc[0]['close']
-    last_price = df_bt.iloc[-1]['close']
     bench_equity = [(p / first_price) * 100000 for p in df_bt['close']]
     
     eq_df = pd.DataFrame({
         'date': dates, 
         'equity': equity,
-        'benchmark': bench_equity[:len(dates)] # 确保长度对其
+        'benchmark': bench_equity[:len(dates)] 
     })
-    
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
 
 def generate_deep_report(df, name):
@@ -722,6 +733,7 @@ def analyze_score(df):
     atr = c['ATR14']
     stop_loss = c['close'] - 2*atr
     take_profit = c['close'] + 3*atr
+    # 唐奇安通道作为支撑压力
     support = df['low'].iloc[-20:].min()
     resistance = df['high'].iloc[-20:].max()
     return score, action, color, stop_loss, take_profit, pos_txt, support, resistance, reasons
@@ -808,7 +820,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V72</div>
+        <div class='brand-en'>AlphaQuant Pro V73</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -821,13 +833,11 @@ with st.sidebar:
         is_admin = (user == ADMIN_USER)
         is_vip, vip_msg = check_vip_status(user)
         
-        # 🔥 加载持仓数据
         load_user_holdings(user)
         
         if is_vip: st.success(f"👑 {vip_msg}")
         else: st.info(f"👤 普通用户 (积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]})")
 
-        # 🔥 权限逻辑升级：专业模式需付费
         st.markdown("### 👁️ 视觉模式")
         view_mode = st.radio("显示模式", ["极简模式", "专业模式"], index=0, horizontal=True)
         
@@ -844,7 +854,7 @@ with st.sidebar:
                     st.rerun()
                 else:
                     st.error("积分不足，请充值")
-            is_pro = False # 未付费前强制保持极简效果
+            is_pro = False 
         else:
             is_pro = (view_mode == "专业模式")
         
@@ -858,25 +868,18 @@ with st.sidebar:
                     st.rerun()
             st.divider()
         
-        # 🔥 优化版模拟交易逻辑 + 数据说明
         if not is_admin:
             with st.expander("🎮 模拟交易 (Paper Trading)", expanded=True):
-                # 🔥 新增功能说明与价值
                 with st.expander("📚 使用说明与功能价值", expanded=False):
                     st.markdown("""
                     **💡 功能价值：**
                     1. **零风险试错**：验证您的策略是否有效，而无需投入真金白银。
                     2. **盘感训练**：记录买卖逻辑，通过盈亏反馈修正交易心态。
                     3. **数据永存**：您的持仓数据已云端备份，随时可查。
-
-                    **🛠️ 使用逻辑：**
-                    * **买入**：以当前最新价开仓，系统自动扣除虚拟本金。
-                    * **卖出**：平仓结算，自动计算收益率。
                     """)
                 
                 curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
                 
-                # 获取当前价格
                 curr_price = 0
                 try:
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
@@ -889,7 +892,7 @@ with st.sidebar:
                         mkt_val = curr_price * qty
                         profit = (curr_price - cost) * qty
                         profit_pct = (curr_price - cost) / cost * 100
-                        p_color = "red" if profit > 0 else "green" # A股红涨绿跌
+                        p_color = "red" if profit > 0 else "green" 
                         st.markdown(f"""
                         <div style="font-size:14px; margin-bottom:5px;">
                             <b>持仓成本:</b> {cost:.2f}<br>
@@ -903,19 +906,19 @@ with st.sidebar:
                         
                     if st.button("卖出平仓", key="paper_sell"):
                         del st.session_state.paper_holdings[st.session_state.code]
-                        save_user_holdings(user) # 🔥 立即持久化保存
+                        save_user_holdings(user)
                         st.success("已卖出！")
                         st.rerun()
                 else:
                     buy_qty = st.number_input("买入数量 (手)", min_value=1, max_value=100, value=1, step=1)
                     if st.button("➕ 模拟买入", key="paper_buy"):
                         st.session_state.paper_holdings[st.session_state.code] = {
-                            'cost': 0, # 将在主逻辑中更新为当日收盘价
+                            'cost': 0, 
                             'qty': buy_qty * 100, 
                             'date': datetime.now().strftime("%Y-%m-%d"),
                             'name': ""
                         }
-                        save_user_holdings(user) # 🔥 立即持久化保存
+                        save_user_holdings(user)
                         st.success("买入成功！")
                         st.rerun()
 
@@ -999,7 +1002,6 @@ with st.sidebar:
         
         st.divider()
         
-        # 即使是极简模式，也允许调整均线参数，但隐藏了开关以保持界面整洁，默认全开
         if is_pro:
             with st.expander("🎛️ 策略参数 (Pro)", expanded=True):
                 ma_s = st.slider("短期均线", 2, 20, 5)
@@ -1066,20 +1068,19 @@ with st.spinner(random.choice(loading_tips)):
         df = generate_mock_data(days)
         is_demo = True
 
-# 更新模拟持仓的成本逻辑 (如果在模拟买入时未获取到价格)
 if st.session_state.code in st.session_state.paper_holdings:
     if st.session_state.paper_holdings[st.session_state.code]['cost'] == 0:
         st.session_state.paper_holdings[st.session_state.code]['cost'] = df.iloc[-1]['close']
         st.session_state.paper_holdings[st.session_state.code]['name'] = name
-        save_user_holdings(user) # 🔥 成本更新后也保存
+        save_user_holdings(user) 
 
 try:
-    # 基础指标计算 (所有用户可见)
+    # 基础指标计算
     funda = get_fundamentals(st.session_state.code, "")
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
-    # === 区域 1：免费内容 ===
+    # === 区域 1：基础行情 (免费) ===
     status, msg, css_class = check_market_status(df)
     st.markdown(f"""
     <div class="market-status-box {css_class}">
@@ -1116,20 +1117,11 @@ try:
     </div>
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
-
-    # === 区域 2：深度内容 (VIP/付费) ===
-    # 权限判断逻辑统一：如果是管理员，VIP，或已付费代码，则解锁
-    has_access = False
-    if is_admin: has_access = True
-    elif is_vip: has_access = True
-    elif st.session_state.paid_code == st.session_state.code: has_access = True
     
+    # AI 助理部分 (免费可见，作为引流)
     ai_text, ai_mood = generate_ai_copilot_text(df, name)
     ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
     
-    if not has_access:
-        st.markdown('<div class="locked-container"><div class="locked-blur">', unsafe_allow_html=True)
-
     st.markdown(f"""
     <div class="ai-chat-box">
         <div class="ai-avatar">{ai_icon}</div>
@@ -1140,42 +1132,44 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
+    # 核心分析数据准备
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
-    reason_html = "".join([f"<div>• {r}</div>" for r in reasons])
     
-    # 🔥🔥🔥 逻辑调整：仅 Pro 模式显示策略卡片
-    if is_pro:
-        st.markdown(f"""
-        <div class="strategy-card">
-            <div class="strategy-title">🤖 最终建议：{act}</div>
-            <div class="strategy-grid">
-                <div class="strategy-col"><span class="st-lbl">仓位</span><span class="st-val" style="color:#333">{pos}</span></div>
-                <div class="strategy-col"><span class="st-lbl">止盈</span><span class="st-val" style="color:#ff3b30">{tp:.2f}</span></div>
-                <div class="strategy-col"><span class="st-lbl">止损</span><span class="st-val" style="color:#00c853">{sl:.2f}</span></div>
-            </div>
-            <div class="reason-box">
-                <div class="reason-title">💡 决策依据 (VIP)</div>
-                {reason_html}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    # 🔥🔥🔥 新增功能模块：关键位与风控 (默认折叠)
+    with st.expander("🛡️ 关键位与风控 (Support & Resistance)", expanded=False):
+        sr_cols = st.columns(4)
+        sr_cols[0].metric("支撑位 (Support)", f"{sup:.2f}", help="近20日最低价")
+        sr_cols[1].metric("压力位 (Resistance)", f"{res:.2f}", help="近20日最高价")
+        sr_cols[2].metric("止损位 (Stop Loss)", f"{sl:.2f}", help="当前价 - 2倍ATR波动率")
+        sr_cols[3].metric("止盈位 (Take Profit)", f"{tp:.2f}", help="当前价 + 3倍ATR波动率")
+        st.caption("ℹ️ 计算逻辑：支撑/压力基于唐奇安通道(20日极值)；止盈/止损基于ATR(14)真实波幅，旨在根据市场波动率动态调整风控点位。")
+
+    # === 区域 2：深度内容 (VIP/付费解锁) ===
+    # 权限判断
+    has_access = False
+    if is_admin: has_access = True
+    elif is_vip: has_access = True
+    elif st.session_state.paid_code == st.session_state.code: has_access = True
     
+    if not has_access:
+        st.markdown('<div class="locked-container"><div class="locked-blur">', unsafe_allow_html=True)
+
+    # 1. 绘图 (图表前置)
+    plot_chart(df.tail(days), name, flags, ma_s, ma_l)
+    
+    # 2. 深度研报
+    st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
+    
+    st.divider()
+
+    # 🔥🔥🔥 调整顺序：回测看板放倒数第二
     st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
-    
-    # 运行回测
     ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
-    
-    # 计算额外的高级指标 (仅用于展示)
     try:
-        bench_ret = ((eq['benchmark'].iloc[-1] / 100000) - 1) * 100
-        alpha = ret - bench_ret
-        # 简单的夏普比率估算 (年化)
         daily_returns = eq['equity'].pct_change().dropna()
         sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() != 0 else 0
-    except:
-        bench_ret = 0; alpha = 0; sharpe = 0
+    except: sharpe = 0
 
-    # HTML 看板
     st.markdown(f"""
     <div class="bt-container">
         <div class="bt-grid">
@@ -1204,47 +1198,34 @@ try:
     # 交互式图表 (Plotly)
     if not eq.empty:
         bt_fig = make_subplots(rows=1, cols=1)
-        # 策略净值
         bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
                                     line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
-        # 基准净值
         bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy&Hold)', 
                                     line=dict(color='#9e9e9e', width=1.5, dash='dash')))
-        
-        # 标注买卖点
         if len(buy_sigs) > 0:
-            # 获取买入点对应的净值
             buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
             bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
                                         marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
-        
-        bt_fig.update_layout(
-            title='资金曲线 vs 基准指数',
-            height=350, 
-            margin=dict(l=10,r=10,t=40,b=10),
-            legend=dict(orientation="h", y=1.1),
-            yaxis_title="账户净值",
-            hovermode="x unified"
-        )
+        bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 策略原理解析
-    with st.expander("🔬 查看策略逻辑与科学性验证"):
-        st.markdown("""
-        **策略内核：趋势跟随 (Trend Following)**
-        
-        本系统采用经典的双均线交叉系统 (Dual Moving Average Crossover) 配合波动率过滤。
-        * **科学性**：通过大量历史数据验证，趋势策略在具有长尾分布的金融市场中具有正期望值。
-        * **风控机制**：最大回撤控制在合理范围内，通过死叉强制离场机制，避免了类似2015年股灾的毁灭性打击。
-        * **超额收益 (Alpha)**：通过规避震荡期的磨损和捕捉主升浪，实现超越基准指数的收益。
-        """)
-
-    st.divider()
-    # 🔥🔥🔥 极简模式下保留技术线图
-    plot_chart(df.tail(days), name, flags, ma_s, ma_l)
-    
-    # 🔥🔥🔥 极简模式下保留核心动能/缠论研报 (但如果是未付费用户，这部分会被上面的 div class="locked-blur" 模糊掉)
-    st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
+    # 🔥🔥🔥 调整顺序：最终建议卡片放最后，并应用美化后的样式
+    if is_pro:
+        st.markdown(f"""
+        <div class="final-card-container">
+            <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
+            <div class="final-action-main">{act}</div>
+            <div class="final-grid">
+                <div><div class="final-item-val">{pos}</div><div class="final-item-lbl">建议仓位</div></div>
+                <div><div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div><div class="final-item-lbl">目标止盈</div></div>
+                <div><div class="final-item-val" style="color:#00c853">{sl:.2f}</div><div class="final-item-lbl">预警止损</div></div>
+            </div>
+            <div class="final-reasons">
+                <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
+                {"".join([f"<div>• {r}</div>" for r in reasons])}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) # close blur
@@ -1257,7 +1238,6 @@ try:
             <div class="lock-desc">包含：AI解读、买卖点位、缠论结构、机构研报</div>
         </div>
         """, unsafe_allow_html=True)
-        # 底部解锁按钮保留，逻辑与侧边栏一致
         c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
         with c_lock2:
             if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", key="main_unlock", type="primary", use_container_width=True):

@@ -127,33 +127,34 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 智能决策卡片 - 修复版样式 */
+    /* 🔥 智能决策卡片 - 修复版样式 (已修改 overflow 和 margin) */
     .final-card-container {
         background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
         border: 2px solid #2962ff;
         border-radius: 16px;
         padding: 24px;
-        margin-top: 20px;
+        margin-top: 40px; /* 增加顶部Margin防止徽章被切 */
         box-shadow: 0 10px 30px rgba(41, 98, 255, 0.15);
         text-align: center;
         position: relative;
-        overflow: hidden;
+        overflow: visible; /* 关键修复：允许徽章和阴影溢出显示 */
     }
     .final-card-container::before {
         content: ""; position: absolute; top: -50px; left: -50px; width: 100px; height: 100px;
-        background: rgba(41, 98, 255, 0.1); border-radius: 50%; blur: 20px;
+        background: rgba(41, 98, 255, 0.1); border-radius: 50%; blur: 20px; z-index: 0;
     }
     .final-card-badge {
         background: #2962ff; color: white; padding: 6px 20px;
         border-radius: 0 0 12px 12px; font-weight: 800; font-size: 14px;
-        position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+        position: absolute; top: -2px; left: 50%; transform: translateX(-50%);
         box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
+        z-index: 2;
     }
     .final-action-main {
-        font-size: 42px; font-weight: 900; margin: 25px 0 15px 0;
+        font-size: 42px; font-weight: 900; margin: 30px 0 15px 0;
         background: -webkit-linear-gradient(45deg, #2962ff, #00d4ff);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        letter-spacing: -1px;
+        letter-spacing: -1px; position: relative; z-index: 1;
     }
     .final-grid {
         display: flex; justify-content: space-around; margin-top: 20px;
@@ -162,7 +163,6 @@ ui_css = """
     .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
     .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
     
-    /* 核心修复：定义缺失的样式 */
     .final-support-grid {
         display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;
         background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #e0e0e0;
@@ -1320,16 +1320,17 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 智能决策系统 (修复版 - 完美样式)
+    # 🔥🔥🔥 智能决策系统 (修复完整版)
     if is_pro:
-        # 在 Python 中构建 HTML 列表，避免直接 f-string 混淆
-        reasons_list_html = ""
-        for r in reasons:
-            reasons_list_html += f"<div class='reason-item'>• {r}</div>"
+        # 1. 预处理原因列表 (避免 f-string 语法冲突)
+        reasons_html = "".join([f"<div class='reason-item'>• {r}</div>" for r in reasons])
             
+        # 2. 构建完整的 HTML 结构
+        # 包含：顶部的徽章 -> 核心决策大字 -> 仓位/止盈止损网格 -> 支撑压力 -> 原因 -> 免责
         final_card_html = f"""
         <div class="final-card-container">
             <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
+            
             <div class="final-action-main">{act}</div>
             
             <div class="final-grid">
@@ -1353,13 +1354,14 @@ try:
 
             <div class="final-reasons">
                 <div style="font-weight:bold; margin-bottom:8px; color:#333;">💡 决策因子分析：</div>
-                {reasons_list_html}
+                {reasons_html}
             </div>
             
             <div class="disclaimer-box">
                 ⚠️ 免责声明：以上数据仅基于技术指标自动计算，不构成任何投资建议。股市有风险，入市需谨慎。
             </div>
         </div>
+        <div style="height: 20px;"></div>
         """
         st.markdown(final_card_html, unsafe_allow_html=True)
 

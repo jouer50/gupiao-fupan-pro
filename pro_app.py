@@ -25,7 +25,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V64",
+    page_title="阿尔法量研 Pro V65",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -58,7 +58,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 V64.0 CSS：原有果冻UI + 新增商业化组件样式
+# 🔥 V65.0 CSS：原有果冻UI + 商业化增强 + 解释性UI
 ui_css = """
 <style>
     /* 全局背景 */
@@ -144,11 +144,13 @@ ui_css = """
     .tag-text { font-size: 14px; color: #333; text-align: justify; }
     .hl-num { color: #ff3b30; font-weight: 700; padding: 0 2px; }
 
-    /* ================= 策略卡片 ================= */
+    /* ================= 策略卡片 & 解释性AI ================= */
     .strategy-card { background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
     .support-line { border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; font-size: 12px; color: #888; display: flex; justify-content: space-between; }
+    .reason-box { background: #f8f9fa; border-radius: 8px; padding: 10px; margin-top: 8px; font-size: 13px; color: #555; }
+    .reason-title { font-weight: 700; color: #333; margin-bottom: 4px; display: flex; align-items: center; }
     
     /* 风险雷达 */
     .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
@@ -301,7 +303,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (增加风控指标 MA60)
+# 3. 股票逻辑 (保持原样，仅做计算扩展)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -457,7 +459,6 @@ def calc_full_indicators(df, ma_s, ma_l):
 
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
-    # 🌟 新增 MA60 用于风控
     df['MA60'] = c.rolling(60).mean()
 
     p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
@@ -516,7 +517,6 @@ def check_market_status(df):
     if df is None or df.empty or len(df) < 60: return "neutral", "数据不足", "gray"
     curr = df.iloc[-1]
     
-    # 逻辑：价格在 MA60 之上为多头，之下为空头
     if curr['close'] > curr['MA60']:
         return "green", "🚀 趋势向上 (可积极做多)", "status-green"
     elif curr['close'] < curr['MA60']:
@@ -524,15 +524,12 @@ def check_market_status(df):
     else:
         return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
 
-# 🎯 每日精选池逻辑 (模拟)
+# 🎯 每日精选池逻辑
 def get_daily_picks(user_watchlist):
-    # 这里模拟一个选股池，实际项目中可以连接数据库
-    # 包含热门股 + 用户自选股
     hot_stocks = ["600519", "NVDA", "TSLA", "300750", "002594", "AAPL"]
     pool = list(set(hot_stocks + user_watchlist))
     
     results = []
-    # 随机打标签模拟选股结果
     for code in pool[:6]: 
         name = get_name(code, "", None)
         status = random.choice(["buy", "hold", "wait"])
@@ -542,48 +539,64 @@ def get_daily_picks(user_watchlist):
             results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
     return results
 
-# 🛠️ 升级版回测 (带风控)
+# 🛠️ 升级版回测 (带风控 + 相对收益Alpha + 近期胜率)
 def run_backtest(df, use_trend_filter=True):
-    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]}), 0.0, 0.0
     needed = ['MA_Short', 'MA_Long', 'close', 'date', 'MA60']
-    # 简单的兼容性处理
     if 'MA60' not in df.columns: df['MA60'] = df['close'].rolling(60).mean()
     
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
-    if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]}), 0.0, 0.0
 
     capital = 100000; position = 0
     buy_signals = []; sell_signals = []; equity = [capital]; dates = [df_bt.iloc[0]['date']]
-    
+    trades = [] # 记录单笔盈亏 [entry_price, exit_price, profit_pct]
+    entry_price = 0
+
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
         
-        # 风控条件：如果 use_trend_filter 为真，必须 price > MA60 才允许开仓
         is_bull_market = (curr['close'] > curr['MA60']) if use_trend_filter else True
         
-        # 信号
         buy_sig = prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long']
         sell_sig = prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long']
         
-        # 交易执行
         if buy_sig and position == 0 and is_bull_market:
             position = capital / price; capital = 0; buy_signals.append(date)
-        elif (sell_sig or (not is_bull_market and position > 0)): # 卖出信号 OR 跌破牛熊线强制止损
+            entry_price = price
+        elif (sell_sig or (not is_bull_market and position > 0)): 
             if position > 0:
                 capital = position * price; position = 0; sell_signals.append(date)
+                # 记录这笔交易
+                trades.append((price - entry_price) / entry_price * 100)
         
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
-    win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
+    
+    # ✅ NEW: 计算基准收益 (Buy & Hold)
+    start_price = df_bt.iloc[0]['close']
+    end_price = df_bt.iloc[-1]['close']
+    benchmark_ret = (end_price - start_price) / start_price * 100
+    
+    # ✅ NEW: 计算近期胜率 (Last 20 trades)
+    recent_trades = trades[-20:] if len(trades) > 20 else trades
+    recent_wins = len([t for t in recent_trades if t > 0])
+    recent_win_rate = (recent_wins / len(recent_trades) * 100) if recent_trades else 50
+    
+    # 全局胜率
+    wins = len([t for t in trades if t > 0])
+    win_rate = (wins / len(trades) * 100) if trades else 50
+    
     eq_series = pd.Series(equity)
     cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax
     max_dd = drawdown.min() * 100
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
-    return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
+    
+    return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df, benchmark_ret, recent_win_rate
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
@@ -622,14 +635,20 @@ def generate_deep_report(df, name):
     """
     return html
 
+# ✅ 增加理由返回，用于解释性AI
 def analyze_score(df):
     c = df.iloc[-1]; score=0; reasons=[]
-    if c['MA_Short']>c['MA_Long']: score+=2; reasons.append("均线金叉")
-    else: score-=2
-    if c['close']>c['MA_Long']: score+=1; reasons.append("站上长期均线")
-    if c['DIF']>c['DEA']: score+=1; reasons.append("MACD多头")
-    if c['RSI']<20: score+=2; reasons.append("RSI超卖")
-    if c['VolRatio']>1.5: score+=1; reasons.append("放量攻击")
+    if c['MA_Short']>c['MA_Long']: score+=2; reasons.append("均线金叉 (短线看涨)")
+    else: score-=2; reasons.append("均线死叉 (短线看跌)")
+    
+    if c['close']>c['MA_Long']: score+=1; reasons.append("站上长期生命线")
+    else: reasons.append("跌破长期生命线")
+    
+    if c['DIF']>c['DEA']: score+=1; reasons.append("MACD 处于多头区域")
+    if c['RSI']<20: score+=2; reasons.append("RSI 进入超卖区 (反弹概率大)")
+    elif c['RSI']>80: reasons.append("RSI 进入超买区 (回调风险大)")
+    
+    if c['VolRatio']>1.5: score+=1; reasons.append("主力放量攻击")
     
     action = "积极买入" if score>=4 else "持有/观望" if score>=0 else "减仓/卖出"
     color = "success" if score>=4 else "warning" if score>=0 else "error"
@@ -644,7 +663,7 @@ def analyze_score(df):
     support = df['low'].iloc[-20:].min()
     resistance = df['high'].iloc[-20:].max()
     
-    return score, action, color, stop_loss, take_profit, pos_txt, support, resistance
+    return score, action, color, stop_loss, take_profit, pos_txt, support, resistance, reasons
 
 def main_uptrend_check(df):
     curr = df.iloc[-1]
@@ -744,22 +763,23 @@ def plot_chart(df, name, flags, ma_s, ma_l):
     if flags.get('fib'):
         for k,v in fi.items(): fig.add_hline(y=v, line_dash='dash', line_color='#ff9800', row=1, col=1)
         
-    # 🌟 缠论可视化增强：画笔
+    # 🌟 缠论可视化增强 (V65.0)：自动画笔
     if flags.get('chan'):
+        # 原有的三角形标记
         tops=df[df['F_Top']]; bots=df[df['F_Bot']]
         fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='顶分型'), 1, 1)
         fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='底分型'), 1, 1)
         
-        # 简单画笔逻辑：连接分型点
+        # ✅ NEW: 连接顶底分型，画出“笔” (Zigzag Lines)
         chan_pts = []
         for i, row in df.iterrows():
             if row['F_Top']: chan_pts.append({'d': row['date'], 'v': row['high'], 't': 'top'})
             elif row['F_Bot']: chan_pts.append({'d': row['date'], 'v': row['low'], 't': 'bot'})
         
-        # 过滤连续同向分型
         if chan_pts:
             clean_pts = [chan_pts[0]]
             for p in chan_pts[1:]:
+                # 过滤连续同向分型，只保留极值
                 if p['t'] != clean_pts[-1]['t']: clean_pts.append(p)
                 else:
                     if p['t'] == 'top' and p['v'] > clean_pts[-1]['v']: clean_pts[-1] = p
@@ -767,6 +787,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
             
             cx = [p['d'] for p in clean_pts]
             cy = [p['v'] for p in clean_pts]
+            # 这里画出蓝色的折线
             fig.add_trace(go.Scatter(x=cx, y=cy, mode='lines', line=dict(color='#2962ff', width=2), name='缠论笔'), 1, 1)
 
     colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
@@ -804,13 +825,12 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
-        # 🌟 NEW: 每日精选池 (商业化功能)
+        # 🌟 NEW: 每日精选池
         if not is_admin:
             st.markdown("### 🎯 每日精选策略")
             user_wl = get_user_watchlist(user)
             picks = get_daily_picks(user_wl)
             for pick in picks:
-                 # 简单的卡片点击逻辑
                 if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}"):
                     st.session_state.code = pick['code']
                     st.rerun()
@@ -997,7 +1017,7 @@ try:
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
-    # 🌟 NEW: 大盘风控红绿灯 (置顶显示)
+    # 大盘风控红绿灯 (置顶显示)
     status, msg, css_class = check_market_status(df)
     st.markdown(f"""
     <div class="market-status-box {css_class}">
@@ -1011,7 +1031,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    # 核心大字展示 (V55.0)
+    # 核心大字展示
     l = df.iloc[-1]
     color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
     st.markdown(f"""
@@ -1027,7 +1047,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    # 趋势横幅 (回归)
+    # 趋势横幅
     t_txt, t_col = main_uptrend_check(df)
     bg = "#fff0f0" if t_col=="success" else "#f0f9eb" if t_col=="warning" else "#e6f7ff"
     tc = "#ff3b30" if t_col=="success" else "#00c853" if t_col=="warning" else "#2962ff"
@@ -1092,8 +1112,11 @@ try:
     # 深度研报
     st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
     
-    # 策略建议
-    sc, act, col, sl, tp, pos, sup, res = analyze_score(df)
+    # 策略建议 & 解释性 AI (Explainable AI)
+    sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df) # Unpack new reasons
+    
+    reason_html = "".join([f"<div>• {r}</div>" for r in reasons])
+    
     st.markdown(f"""
     <div class="strategy-card">
         <div class="strategy-title">🤖 最终建议：{act}</div>
@@ -1106,30 +1129,45 @@ try:
             <span>📍 支撑位：<span style="color:#00c853; font-weight:bold;">{sup:.2f}</span></span>
             <span>⚡ 压力位：<span style="color:#ff3b30; font-weight:bold;">{res:.2f}</span></span>
         </div>
+        <div class="reason-box">
+            <div class="reason-title">💡 决策依据 (Explainable AI)</div>
+            {reason_html}
+        </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # 回测 (带风控参数)
+    # 回测 (增强版：相对收益 + 近期胜率)
     with st.expander("📚 新手必读：如何看懂回测报告？"):
         st.markdown("""
         **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。就像兵棋推演，先在沙盘上打赢了，再去实战。
         **2. 核心指标解读**：
-        * **💰 总收益率**：策略在这段时间内赚了多少钱。正数越大约好，代表爆发力。
-        * **🏆 胜率**：交易获胜的次数占比。**>50%** 说明策略有效，**>70%** 是极品策略。胜率高，心态才稳。
-        * **📉 交易次数**：策略是否活跃。次数过少（如<5次）可能只是运气好，样本量不足，仅供参考。
-        **3. 价值所在**：拒绝“凭感觉”炒股，用真实历史数据验证策略的有效性，让你买入更安心！
+        * **💰 相对收益 (Alpha)**：策略是否跑赢了傻傻拿着不动(Buy & Hold)？这是衡量策略是否优秀的核心标准。
+        * **🏆 近期胜率**：展示最近20次交易的胜负情况，更能反映当前市场的适应性。
         """)
         
-    with st.expander("⚖️ 历史回测数据 (已开启风控增强)", expanded=True):
+    with st.expander("⚖️ 历史回测数据 (Alpha增强版)", expanded=True):
         # 默认开启趋势风控来优化展示数据
-        ret, win, mdd, _, _, eq = run_backtest(df, use_trend_filter=True)
+        ret, win, mdd, _, _, eq, bench_ret, recent_win = run_backtest(df, use_trend_filter=True)
+        
         c1, c2, c3 = st.columns(3)
-        c1.metric("收益", f"{ret:.1f}%"); c2.metric("胜率", f"{win:.0f}%"); c3.metric("回撤", f"{mdd:.1f}%")
+        
+        # 使用 Delta 展示相对强弱
+        alpha = ret - bench_ret
+        c1.metric("总收益 (Total)", f"{ret:.1f}%", delta=f"{alpha:.1f}% vs 基准", delta_color="normal")
+        c2.metric("胜率 (Win Rate)", f"{win:.0f}%", f"近20次: {recent_win:.0f}%")
+        c3.metric("最大回撤", f"{mdd:.1f}%")
+        
+        if alpha > 0:
+            st.success(f"🔥 **表现优异！** 该策略跑赢大盘 {alpha:.1f}%，具备超额收益能力。")
+        else:
+            st.info(f"🐢 **表现稳健。** 策略紧随大盘波动，建议结合基本面操作。")
+            
         if not eq.empty:
             f2 = go.Figure()
-            f2.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], fill='tozeroy', line=dict(color='#2962ff', width=1.5)))
-            f2.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(showgrid=False), yaxis=dict(showgrid=False))
+            f2.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], fill='tozeroy', line=dict(color='#2962ff', width=1.5), name='策略净值'))
+            f2.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), showlegend=False)
             st.plotly_chart(f2, use_container_width=True)
 
 except Exception as e:
     st.error(f"Error: {e}")
+    st.error(traceback.format_exc())

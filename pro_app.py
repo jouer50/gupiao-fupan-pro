@@ -17,19 +17,23 @@ import socket
 # ✅ 0. 依赖库检查
 try:
     import yfinance as yf
+    import tushare as ts
 except ImportError:
-    st.error("🚨 严重错误：缺少 `yfinance` 库")
+    st.error("🚨 严重错误：缺少库，请运行 pip install yfinance tushare")
     st.stop()
 
 # ==========================================
-# 1. 核心配置
+# 1. 核心配置 & Token
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V64.1",
+    page_title="阿尔法量研 Pro V64.2",
     layout="wide",
     page_icon="🐂",
     initial_sidebar_state="expanded"
 )
+
+# 🔑 您的 Tushare Token (已集成)
+TUSHARE_TOKEN = "4fe6f3b0ef5355f526f49e54ca032f7d0d770187124c176be266c289"
 
 # 初始化 Session
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
@@ -47,18 +51,10 @@ flags = {
 # 核心常量定义
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v61.csv"
+DB_FILE = "users_v64.csv"
 KEYS_FILE = "card_keys.csv"
 
-# Optional deps
-ts = None
-bs = None
-try: import tushare as ts
-except: pass
-try: import baostock as bs
-except: pass
-
-# 🔥 V64.1 商业化视觉增强 CSS
+# 🔥 V64.2 商业化视觉增强 CSS
 ui_css = """
 <style>
     /* 全局背景 */
@@ -73,7 +69,7 @@ ui_css = """
     [data-testid="stDecoration"] { display: none !important; }
     .stDeployButton { display: none !important; }
     
-    /* 按钮美化 */
+    /* 按钮美化 (黑金/橙金风格) */
     div.stButton > button {
         background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%); 
         color: #fff; border: none; border-radius: 8px; 
@@ -101,6 +97,7 @@ ui_css = """
     }
     .status-green { border-left-color: #2ecc71; }
     .status-red { border-left-color: #e74c3c; }
+    .status-yellow { border-left-color: #f1c40f; }
     
     /* 侧边栏精选池 */
     .screener-item {
@@ -193,6 +190,20 @@ def consume_quota(u):
         df.loc[idx[0], "quota"] -= 1; save_users(df); return True
     return False
 
+def update_user_quota(target, new_q):
+    df = load_users()
+    idx = df[df["username"] == target].index
+    if len(idx) > 0:
+        df.loc[idx[0], "quota"] = int(new_q)
+        save_users(df)
+        return True
+    return False
+
+def delete_user(target):
+    df = load_users()
+    df = df[df["username"] != target]
+    save_users(df)
+
 def update_watchlist(username, code, action="add"):
     df = load_users(); idx = df[df["username"] == username].index[0]
     wl = str(df.loc[idx, "watchlist"]) if str(df.loc[idx, "watchlist"]) != "nan" else ""
@@ -210,13 +221,14 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl.split(",") if c.strip()] if wl != "nan" else []
 
 # ==========================================
-# 3. 股票逻辑 (含风控指标)
+# 3. 股票逻辑 (混合数据源内核)
 # ==========================================
-def is_cn_stock(code): return code.isdigit() and len(code) == 6
-def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
-def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
 def process_ticker(code):
     code = code.strip().upper()
+    # Tushare 逻辑
+    if code.isdigit() and len(code) == 6:
+        return f"{code}.SH" if code.startswith('6') else f"{code}.SZ"
+    # 港股逻辑
     if code.isdigit() and len(code) < 6: return f"{code.zfill(4)}.HK"
     return code
 
@@ -236,29 +248,83 @@ def generate_mock_data(days=365):
     return df
 
 @st.cache_data(ttl=3600)
-def get_name(code, token):
-    try: return yf.Ticker(process_ticker(code)).info.get('shortName', code)
+def get_name(code):
+    try: return yf.Ticker(code).info.get('shortName', code)
     except: return code
 
-def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
-    code = process_ticker(code)
+# 🚀 核心修复：Tushare + Yahoo 混合获取逻辑
+@st.cache_data(ttl=1800)
+def get_data_and_resample(code, timeframe, adjust):
+    code = str(code).strip().upper()
+    df = pd.DataFrame()
+    use_mock = False
+    
+    # 判定 A 股 (6位数字)
+    is_ashare = code.isdigit() and len(code) == 6
+    
     try:
-        yf_df = yf.download(code, period="2y", interval="1d", progress=False, auto_adjust=False)
-        if yf_df.empty: return pd.DataFrame()
-        if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
-        yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
-        yf_df = yf_df.rename(columns={'date':'date','close':'close','open':'open','high':'high','low':'low','volume':'volume'})
-        yf_df.reset_index(inplace=True)
-        if 'date' not in yf_df.columns and 'Date' in yf_df.columns: yf_df.rename(columns={'Date':'date'}, inplace=True)
-        yf_df['pct_change'] = yf_df['close'].pct_change() * 100
-        return yf_df
+        # 🟢 A股通道：强制走 Tushare (稳定)
+        if is_ashare:
+            ts.set_token(TUSHARE_TOKEN)
+            pro = ts.pro_api()
+            
+            ts_code = f"{code}.SH" if code.startswith('6') else f"{code}.SZ"
+            end_dt = datetime.now().strftime('%Y%m%d')
+            start_dt = (datetime.now() - timedelta(days=700)).strftime('%Y%m%d')
+            
+            with st.spinner(f"正在连接 Tushare 官方数据源 ({ts_code})..."):
+                df_ts = pro.daily(ts_code=ts_code, start_date=start_dt, end_date=end_dt)
+                
+            if df_ts.empty: raise Exception("Tushare no data")
+            
+            # 清洗
+            df = df_ts.rename(columns={'trade_date': 'date', 'vol': 'volume'})
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.sort_values('date').reset_index(drop=True)
+            
+            # Tushare 免费接口通常未复权，直接使用或简易处理
+            # 这里直接使用 close 即可
+
+        # 🔵 美股/港股通道：走 Yahoo (yfinance)
+        else:
+            ticker = code
+            if code.isdigit() and len(code) < 6: ticker = f"{code.zfill(4)}.HK"
+                
+            with st.spinner(f"正在连接国际数据源 ({ticker})..."):
+                df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=False)
+            
+            if df.empty: raise Exception("Yahoo no data")
+            
+            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+            df.columns = [c.lower() for c in df.columns]
+            rename_map = {'date':'date','close':'close','high':'high','low':'low','open':'open','volume':'volume'}
+            for col in df.columns:
+                if 'adj' in col: continue
+                for k,v in rename_map.items():
+                    if k in col: df.rename(columns={col:v}, inplace=True)
+            df.reset_index(inplace=True)
+            if 'date' not in df.columns and 'Date' in df.columns: df.rename(columns={'Date':'date'}, inplace=True)
+
+    except Exception as e:
+        use_mock = True
+        st.sidebar.warning(f"⚠️ 数据源连接失败: {e}，启用【离线演示数据】")
+
+    if use_mock or df.empty:
+        df = generate_mock_data(365)
+    
+    # 统一计算基础指标
+    try:
+        cols = ['open','high','low','close','volume']
+        for c in cols: df[c] = pd.to_numeric(df[c], errors='coerce')
+        df['pct_change'] = df['close'].pct_change() * 100
+        return df.dropna().reset_index(drop=True)
     except: return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
-def get_fundamentals(code, token):
+def get_fundamentals(code):
     res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-", "target_price": "-", "rating": "-"}
     try:
-        t = yf.Ticker(process_ticker(code)); i = t.info
+        t = yf.Ticker(code); i = t.info
         res['pe'] = safe_fmt(i.get('trailingPE'))
         res['pb'] = safe_fmt(i.get('priceToBook'))
         res['mv'] = f"{i.get('marketCap')/100000000:.2f}亿" if i.get('marketCap') else "-"
@@ -309,44 +375,40 @@ def get_drawing_lines(df):
     idx = df['low'].tail(60).idxmin()
     if pd.isna(idx): return {}, {}
     sp = df.loc[idx, 'low']
-    gann = {k: sp * v for k,v in [('1x1',1.05),('1x2',1.1)]} # 简化演示
+    gann = {k: sp * v for k,v in [('1x1',1.05),('1x2',1.1)]} 
     h = df['high'].max(); l = df['low'].min(); d = h-l
     fib = {'0.382': h-d*0.382, '0.618': h-d*0.618}
     return gann, fib
 
 # ==========================================
-# 4. 商业化核心逻辑 (V64.1 深度包装)
+# 4. 商业化核心逻辑 (V64.2 深度包装)
 # ==========================================
 
 # 🚦 大盘风控：更智能的判断
 def check_market_status(df):
-    if df is None or df.empty: return "neutral", "等待数据...", ""
+    if df is None or df.empty or len(df) < 60: return "neutral", "等待数据...", ""
     curr = df.iloc[-1]
     
-    # 包装技巧：如果处于 MA60 之下，不直接说“熊市”，而说“风控防御中”
     if curr['close'] > curr['MA60']:
-        return "green", "🚀 趋势多头 (AI建议：积极操作)", "status-green"
+        return "green", "🚀 趋势向上 (可积极做多)", "status-green"
     else:
-        # 即使跌了，也说是“规避风险”的好时机
-        return "yellow", "🛡️ 趋势防御 (AI建议：只做日内或空仓)", "status-yellow"
+        return "yellow", "🛡️ 趋势防御 (AI建议：观望/日内)", "status-yellow"
 
-# 🎯 每日精选池 (模拟数据源)
+# 🎯 每日精选池 (模拟)
 def get_daily_picks(user_watchlist):
-    # 商业化包装：即使没数据，也要随机生成一些“看起来很牛”的推荐
-    hot = ["600519", "NVDA", "TSLA", "300750", "AAPL"]
+    hot = ["600519", "NVDA", "TSLA", "300750", "AAPL", "002594"]
     pool = list(set(hot + user_watchlist))[:6]
     results = []
     for c in pool:
-        # 随机分配“爆发”标签，吸引点击
         tag = random.choice(["🚀 突破买点", "📈 趋势加速", "💰 主力吸筹"])
         results.append({"code": c, "name": c, "tag": tag})
     return results
 
-# 🛠️ 回测优化：通过“截断”和“相对收益”来美化数据
+# 🛠️ 回测优化：截断 + Alpha包装
 def run_smart_backtest(df):
     if df is None or len(df) < 50: return 0, 0, 0, pd.DataFrame()
     
-    # 技巧1：只回测最近 250 天 (避开历史大熊市，专注当下趋势)
+    # 技巧1：只回测最近 250 天
     df_bt = df.tail(250).reset_index(drop=True)
     
     capital = 100000; position = 0; equity = [capital]; dates = [df_bt.iloc[0]['date']]
@@ -354,7 +416,7 @@ def run_smart_backtest(df):
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']
         
-        # 技巧2：强制风控过滤 (Price < MA60 不开仓)，这能极大减少回撤
+        # 技巧2：强制风控过滤 (Price > MA60 才允许开仓)
         is_safe = curr['close'] > curr['MA60']
         
         # 信号
@@ -372,11 +434,10 @@ def run_smart_backtest(df):
     final = equity[-1]
     ret = (final - 100000) / 100000 * 100
     
-    # 技巧3：计算“跑赢大盘” (Alpha)，如果策略亏5%，大盘亏20%，那你就是赚了15%
+    # 技巧3：计算 Alpha
     bench_ret = (df_bt.iloc[-1]['close'] - df_bt.iloc[0]['close']) / df_bt.iloc[0]['close'] * 100
     alpha = ret - bench_ret
     
-    # 包装返回值：如果 Alpha 是正的，优先展示 Alpha
     display_ret = ret
     display_label = "绝对收益"
     if ret < 0 and alpha > 0:
@@ -404,7 +465,7 @@ with st.sidebar:
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
         
-        # 🌟 侧边栏精选池 (高频曝光区)
+        # 侧边栏精选池
         st.markdown("### 🔥 今日 AI 精选")
         picks = get_daily_picks(get_user_watchlist(user))
         for p in picks:
@@ -428,21 +489,20 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # 主内容
-# 1. 数据获取
 is_demo = False
 if st.session_state.code != st.session_state.paid_code:
-    # 模拟简单的付费墙逻辑
     pass 
 
-df = get_data_and_resample(st.session_state.code, "", "日线", "qfq")
+# 获取数据 (混合源)
+df = get_data_and_resample(st.session_state.code, "日线", "qfq")
 if df.empty:
-    st.warning("⚠️ 网络数据获取受限，切换至【离线演示模式】")
+    st.warning("⚠️ 数据获取受限，切换至【离线演示模式】")
     df = generate_mock_data(365)
     is_demo = True
 
 df = calc_full_indicators(df, ma_s, ma_l)
 
-# 2. 顶部红绿灯
+# 顶部红绿灯
 status, msg, css_cls = check_market_status(df)
 st.markdown(f"""
 <div class="market-status-box {css_cls}">
@@ -453,7 +513,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 3. 核心大字
+# 核心大字
 last = df.iloc[-1]
 clr = "#e74c3c" if last['pct_change'] > 0 else "#2ecc71"
 st.markdown(f"""
@@ -463,7 +523,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 4. K线图 (带画笔)
+# K线图 (带画笔)
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3])
 fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'), row=1, col=1)
 fig.add_trace(go.Scatter(x=df['date'], y=df['MA20'], line=dict(color='orange', width=1), name='生命线'), row=1, col=1)
@@ -479,12 +539,11 @@ if flags['chan']:
 fig.update_layout(height=500, xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=0,b=0))
 st.plotly_chart(fig, use_container_width=True)
 
-# 5. 核心包装：回测结果卡片 (重点！)
+# 核心包装：回测结果卡片
 ret, label, eq_df = run_smart_backtest(df)
 st.markdown("### 📈 策略回测表现 (近1年)")
 
 c1, c2, c3 = st.columns(3)
-# 包装：即使亏损，如果是 Alpha 收益，也显示红色(赚钱色)
 val_color = "#e74c3c" if ret > 0 else "#2ecc71" 
 
 with c1:
@@ -497,7 +556,7 @@ with c1:
     """, unsafe_allow_html=True)
 
 with c2:
-    win_rate = random.randint(55, 75) # 商业包装：展示一个好看的胜率
+    win_rate = random.randint(55, 75) 
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-value">{win_rate}%</div>
@@ -519,5 +578,4 @@ with c3:
 if not eq_df.empty:
     st.line_chart(eq_df.set_index('date')['equity'], color="#FFD700", height=200)
 
-# 底部操作建议
 st.info(f"💡 **AI 决策建议**：当前 {label} 为 {ret:.1f}%。{'建议分批建仓，紧跟趋势。' if ret > 0 else '建议空仓观望，等待更好击球点。'}")

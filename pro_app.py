@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V77 (AI Report)",
+    page_title="阿尔法量研 Pro V78 (SimTrade)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -37,8 +37,14 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
 
-# ✅ 模拟交易 Session
-if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {}
+# ✅ 模拟交易数据结构初始化 (升级版)
+# 结构: {'cash': 1000000, 'holdings': {}, 'history': []}
+if "paper_account" not in st.session_state: 
+    st.session_state.paper_account = {
+        "cash": 1000000.0,  # 初始资金 100万
+        "holdings": {},     # 持仓字典
+        "history": []       # 交易记录
+    }
 
 # ✅ 全局变量
 ma_s = 5
@@ -53,7 +59,7 @@ ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
 DB_FILE = "users_v69.csv" 
 KEYS_FILE = "card_keys.csv"
-WECHAT_VALID_CODE = "666888" # 模拟微信公众号返回的验证码
+WECHAT_VALID_CODE = "666888" 
 
 # Optional deps
 ts = None
@@ -195,7 +201,8 @@ def save_user_holdings(username):
     df = load_users()
     idx = df[df["username"] == username].index
     if len(idx) > 0:
-        holdings_json = json.dumps(st.session_state.paper_holdings)
+        # 保存整个 paper_account 结构
+        holdings_json = json.dumps(st.session_state.paper_account)
         df.loc[idx[0], "paper_json"] = holdings_json
         save_users(df)
 
@@ -207,9 +214,22 @@ def load_user_holdings(username):
         json_str = str(row.iloc[0]["paper_json"])
         if json_str and json_str != "nan":
             try:
-                st.session_state.paper_holdings = json.loads(json_str)
+                data = json.loads(json_str)
+                # 兼容旧版本数据结构
+                if "cash" not in data:
+                    st.session_state.paper_account = {
+                        "cash": 1000000.0,
+                        "holdings": data, # 假设旧数据全是 holdings
+                        "history": []
+                    }
+                else:
+                    st.session_state.paper_account = data
             except:
-                st.session_state.paper_holdings = {}
+                st.session_state.paper_account = {"cash": 1000000.0, "holdings": {}, "history": []}
+    
+    # 确保初始化
+    if "cash" not in st.session_state.paper_account:
+        st.session_state.paper_account["cash"] = 1000000.0
 
 def load_keys():
     try: return pd.read_csv(KEYS_FILE)
@@ -289,7 +309,9 @@ def register_user(u, p, initial_quota=10):
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": "{}"}
+    # 注册时初始化 paper_json 为新的结构
+    init_paper = json.dumps({"cash": 1000000.0, "holdings": {}, "history": []})
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": init_paper}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
     return True, f"注册成功，已获赠 {initial_quota} 积分！"
@@ -804,7 +826,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V77</div>
+        <div class='brand-en'>AlphaQuant Pro V78</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -822,7 +844,6 @@ with st.sidebar:
                 * 有问题咨询微信公众号：`lubingxpiaoliuji`
                 """)
                 
-                # 回归到仅人工/扫码方式，删除了自动模拟发货
                 if os.path.exists("alipay.png"):
                     st.image("alipay.png", caption="请使用支付宝扫码 (备注用户名)", width=200)
                 
@@ -840,6 +861,7 @@ with st.sidebar:
     if st.session_state.get('logged_in'):
         is_vip, vip_msg = check_vip_status(user)
         
+        # 加载用户持仓数据（含资金）
         load_user_holdings(user)
         
         if is_vip: st.success(f"👑 {vip_msg}")
@@ -875,59 +897,169 @@ with st.sidebar:
                     st.rerun()
             st.divider()
         
+        # ✅✅✅✅✅✅✅✅✅ 重构后的模拟交易模块 ✅✅✅✅✅✅✅✅✅
         if not is_admin:
-            with st.expander("🎮 模拟交易 (Paper Trading)", expanded=True):
-                with st.expander("📚 使用说明与功能价值", expanded=False):
-                    st.markdown("""
-                    **💡 功能价值：**
-                    1. **零风险试错**：验证您的策略是否有效，而无需投入真金白银。
-                    2. **盘感训练**：记录买卖逻辑，通过盈亏反馈修正交易心态。
-                    3. **数据永存**：您的持仓数据已云端备份，随时可查。
-                    """)
+            with st.expander("🎮 模拟交易 (仿真账户)", expanded=True):
+                # 1. 账户核心数据准备
+                paper = st.session_state.paper_account
+                cash = paper.get("cash", 1000000.0)
+                holdings = paper.get("holdings", {})
                 
-                curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
-                
-                curr_price = 0
+                # 获取当前股价
                 try:
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
-                except: curr_price = 0 
+                except: curr_price = 0
                 
-                if curr_hold:
-                    cost = curr_hold.get('cost', 0)
-                    qty = curr_hold.get('qty', 100)
-                    if curr_price > 0:
-                        mkt_val = curr_price * qty
-                        profit = (curr_price - cost) * qty
-                        profit_pct = (curr_price - cost) / cost * 100
-                        p_color = "red" if profit > 0 else "green" 
-                        st.markdown(f"""
-                        <div style="font-size:14px; margin-bottom:5px;">
-                            <b>持仓成本:</b> {cost:.2f}<br>
-                            <b>持仓数量:</b> {qty} 股<br>
-                            <b>持仓市值:</b> {mkt_val:.0f}<br>
-                            <b>浮动盈亏:</b> <span style='color:{p_color}; font-weight:bold'>{profit:.0f} ({profit_pct:.2f}%)</span>
-                        </div>
-                        """, unsafe_allow_html=True)
+                # 计算总资产
+                total_mkt_val = 0
+                for c_code, c_data in holdings.items():
+                    # 简单估算，如果不是当前代码，无法实时获取所有价格，这里简化处理：
+                    # 仅实时更新当前选中的股票市值，其他按成本价估算（实际生产环境应批量获取价格）
+                    if c_code == st.session_state.code and curr_price > 0:
+                        total_mkt_val += curr_price * c_data['qty']
                     else:
-                        st.info(f"成本: {cost:.2f} | 数量: {qty}")
+                        total_mkt_val += c_data['cost'] * c_data['qty'] # 暂时用成本代替非当前股价格
+                
+                total_assets = cash + total_mkt_val
+                total_profit = total_assets - 1000000.0
+                p_color = "red" if total_profit >= 0 else "green"
+
+                # 2. 账户概览面板
+                st.markdown(f"""
+                <div style="background:#f0f2f6; padding:10px; border-radius:8px; margin-bottom:10px;">
+                    <div style="display:flex; justify-content:space-between; font-size:12px; color:#666;">
+                        <span>总资产(估)</span>
+                        <span>可用资金</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                        <span style="font-size:18px; font-weight:bold; color:#333;">{total_assets:,.0f}</span>
+                        <span style="font-size:14px; color:#333;">{cash:,.0f}</span>
+                    </div>
+                    <div style="font-size:12px; margin-top:5px;">
+                        总盈亏: <span style="color:{p_color}; font-weight:bold;">{total_profit:+,.0f}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # 3. 功能标签页
+                tab_pos, tab_trade, tab_his = st.tabs(["我的持仓", "下单交易", "交易记录"])
+                
+                # --- Tab 1: 持仓列表 ---
+                with tab_pos:
+                    if not holdings:
+                        st.caption("暂无持仓，快去下单吧！")
+                    else:
+                        # 转换为DataFrame展示
+                        pos_data = []
+                        for h_code, h_val in holdings.items():
+                            p_now = curr_price if h_code == st.session_state.code else h_val['cost'] # 简化
+                            mkt = p_now * h_val['qty']
+                            pnl = (p_now - h_val['cost']) * h_val['qty']
+                            pnl_pct = (p_now - h_val['cost']) / h_val['cost'] * 100
+                            pos_data.append({
+                                "代码": h_code,
+                                "名称": h_val.get('name', h_code),
+                                "成本": f"{h_val['cost']:.2f}",
+                                "现价": f"{p_now:.2f}",
+                                "持仓": h_val['qty'],
+                                "盈亏": f"{pnl:+.0f}",
+                                "比例": f"{pnl_pct:+.2f}%"
+                            })
+                        st.dataframe(pd.DataFrame(pos_data), hide_index=True, use_container_width=True)
+
+                # --- Tab 2: 交易面板 ---
+                with tab_trade:
+                    tr_action = st.radio("操作方向", ["买入", "卖出"], horizontal=True, label_visibility="collapsed")
+                    
+                    if curr_price <= 0:
+                        st.error("当前无法获取实时价格，无法交易")
+                    else:
+                        # 交易表单
+                        tr_price = st.number_input("委托价格", value=curr_price, step=0.01, format="%.2f")
                         
-                    if st.button("卖出平仓", key="paper_sell"):
-                        del st.session_state.paper_holdings[st.session_state.code]
-                        save_user_holdings(user)
-                        st.success("已卖出！")
-                        st.rerun()
-                else:
-                    buy_qty = st.number_input("买入数量 (手)", min_value=1, max_value=100, value=1, step=1)
-                    if st.button("➕ 模拟买入", key="paper_buy"):
-                        st.session_state.paper_holdings[st.session_state.code] = {
-                            'cost': 0, 
-                            'qty': buy_qty * 100, 
-                            'date': datetime.now().strftime("%Y-%m-%d"),
-                            'name': ""
-                        }
-                        save_user_holdings(user)
-                        st.success("买入成功！")
-                        st.rerun()
+                        if tr_action == "买入":
+                            max_buy = int(cash // (tr_price * 100)) # 手数
+                            st.caption(f"最大可买: {max_buy} 手")
+                            buy_vol = st.number_input("买入数量 (手)", min_value=1, max_value=max(1, max_buy), value=1, step=1)
+                            
+                            if st.button("🔴 立即买入", type="primary", use_container_width=True):
+                                cost_amt = buy_vol * 100 * tr_price
+                                if cost_amt > cash:
+                                    st.error("资金不足！")
+                                else:
+                                    # 更新资金
+                                    st.session_state.paper_account['cash'] -= cost_amt
+                                    # 更新持仓
+                                    if st.session_state.code in holdings:
+                                        old = holdings[st.session_state.code]
+                                        old_cost = old['cost']
+                                        old_qty = old['qty']
+                                        new_qty = old_qty + (buy_vol * 100)
+                                        new_cost = (old_cost * old_qty + cost_amt) / new_qty
+                                        holdings[st.session_state.code]['qty'] = new_qty
+                                        holdings[st.session_state.code]['cost'] = new_cost
+                                    else:
+                                        holdings[st.session_state.code] = {
+                                            'name': get_name(st.session_state.code, "", None),
+                                            'qty': buy_vol * 100,
+                                            'cost': tr_price
+                                        }
+                                    # 记日志
+                                    st.session_state.paper_account['history'].append({
+                                        "time": datetime.now().strftime("%m-%d %H:%M"),
+                                        "code": st.session_state.code,
+                                        "action": "买入",
+                                        "price": tr_price,
+                                        "qty": buy_vol * 100,
+                                        "amt": -cost_amt
+                                    })
+                                    save_user_holdings(user)
+                                    st.success("买入成交！")
+                                    time.sleep(1)
+                                    st.rerun()
+                                    
+                        else: # 卖出
+                            curr_hold = holdings.get(st.session_state.code, None)
+                            if not curr_hold:
+                                st.warning("当前无持仓")
+                            else:
+                                max_sell = int(curr_hold['qty'] / 100)
+                                st.caption(f"最大可卖: {max_sell} 手")
+                                sell_vol = st.number_input("卖出数量 (手)", min_value=1, max_value=max(1, max_sell), value=1, step=1)
+                                
+                                if st.button("🟢 立即卖出", type="primary", use_container_width=True):
+                                    get_amt = sell_vol * 100 * tr_price
+                                    # 更新资金
+                                    st.session_state.paper_account['cash'] += get_amt
+                                    # 更新持仓
+                                    left_qty = curr_hold['qty'] - (sell_vol * 100)
+                                    if left_qty <= 0:
+                                        del holdings[st.session_state.code]
+                                    else:
+                                        holdings[st.session_state.code]['qty'] = left_qty
+                                    
+                                    # 记日志
+                                    st.session_state.paper_account['history'].append({
+                                        "time": datetime.now().strftime("%m-%d %H:%M"),
+                                        "code": st.session_state.code,
+                                        "action": "卖出",
+                                        "price": tr_price,
+                                        "qty": sell_vol * 100,
+                                        "amt": get_amt
+                                    })
+                                    save_user_holdings(user)
+                                    st.success("卖出成交！")
+                                    time.sleep(1)
+                                    st.rerun()
+
+                # --- Tab 3: 历史记录 ---
+                with tab_his:
+                    his = paper.get("history", [])
+                    if not his:
+                        st.caption("暂无交易记录")
+                    else:
+                        # 倒序展示
+                        st.dataframe(pd.DataFrame(his[::-1]), hide_index=True, use_container_width=True)
 
         if not is_admin:
             with st.expander("⭐ 我的自选股", expanded=False):
@@ -1102,12 +1234,6 @@ with st.spinner(random.choice(loading_tips)):
         st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
         df = generate_mock_data(days)
         is_demo = True
-
-if st.session_state.code in st.session_state.paper_holdings:
-    if st.session_state.paper_holdings[st.session_state.code]['cost'] == 0:
-        st.session_state.paper_holdings[st.session_state.code]['cost'] = df.iloc[-1]['close']
-        st.session_state.paper_holdings[st.session_state.code]['name'] = name
-        save_user_holdings(user) 
 
 try:
     # 基础指标计算

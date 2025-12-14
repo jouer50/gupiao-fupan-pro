@@ -24,7 +24,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V67.1 (全能复原版)",
+    page_title="阿尔法量研 Pro V67.2 (运营版)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -57,14 +57,17 @@ ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
-    /* 侧边栏按钮修复 */
+    /* 侧边栏优化 */
+    [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #eee; }
+    
+    /* 隐藏不需要的元素 */
     header[data-testid="stHeader"] { background-color: transparent !important; pointer-events: none; }
     header[data-testid="stHeader"] > div { pointer-events: auto; }
     [data-testid="stDecoration"] { display: none !important; }
     .stDeployButton { display: none !important; }
     [data-testid="stSidebarCollapsedControl"] { display: block !important; color: #000; background: rgba(255,255,255,0.8); border-radius:50%; }
     
-    /* 🍋 按钮：果冻黄 */
+    /* 按钮样式：果冻黄 */
     div.stButton > button {
         background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
         color: #5d4037; border: 2px solid #fff9c4; border-radius: 25px; 
@@ -75,14 +78,9 @@ ui_css = """
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5); }
     div.stButton > button[kind="secondary"] { background: #f0f0f0; color: #666; border: 1px solid #ddd; box-shadow: none; }
 
-    /* 卡片容器 */
+    /* 商业化组件样式 */
     .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     
-    /* 研报小标题 */
-    .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
-    .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
-
-    /* 商业化：大盘红绿灯 */
     .market-status-box {
         padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
         display: flex; align-items: center; justify-content: space-between;
@@ -92,7 +90,6 @@ ui_css = """
     .status-red { border-left-color: #e74c3c; background: #ffebee; }
     .status-yellow { border-left-color: #f1c40f; background: #fef9e7; }
 
-    /* 商业化：回测卡片 */
     .metric-card {
         background: white; padding: 15px; border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center; border: 1px solid #f0f0f0;
@@ -100,7 +97,6 @@ ui_css = """
     .metric-value { font-size: 24px; font-weight: 800; color: #e74c3c; }
     .metric-label { font-size: 12px; color: #7f8c8d; }
 
-    /* 股价大字 */
     .big-price-box { text-align: center; margin-bottom: 20px; }
     .price-main { font-size: 48px; font-weight: 900; }
     .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
@@ -110,13 +106,11 @@ ui_css = """
     .param-val { font-size: 20px; font-weight: 800; color: #2c3e50; }
     .param-lbl { font-size: 12px; color: #95a5a6; }
 
-    /* 策略卡片 */
     .strategy-card { background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
     .support-line { border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; font-size: 12px; color: #888; display: flex; justify-content: space-between; }
 
-    /* 趋势横幅 */
     .trend-banner { padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
     .trend-title { margin: 0; font-size: 16px; font-weight: 700; }
 
@@ -126,7 +120,7 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (管理员功能全量恢复)
+# 2. 数据库与工具 (保留完整功能)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -180,6 +174,7 @@ def batch_generate_keys(points, count):
         new_keys.append({"key": key, "points": points, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
     df = pd.concat([df, pd.DataFrame(new_keys)], ignore_index=True); save_keys(df); return len(new_keys)
 
+# 生成单张卡密
 def generate_key(points):
     key = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
     df = load_keys()
@@ -228,9 +223,7 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
 def process_ticker(code):
     code = str(code).strip().upper()
     if code.isdigit() and len(code) == 6:
-        # Tushare 格式: 600519.SH
         ts_fmt = f"{code}.SH" if code.startswith('6') else f"{code}.SZ"
-        # Baostock 格式: sh.600519
         bs_fmt = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
         return code, ts_fmt, bs_fmt
     return code, code, code
@@ -255,7 +248,7 @@ def get_name(code, token=None, proxy=None):
     try: return yf.Ticker(code).info.get('shortName', code)
     except: return code
 
-# 🚀 核心数据获取逻辑
+# 🚀 核心数据获取：Tushare 优先 -> Baostock 备用
 @st.cache_data(ttl=1800)
 def get_data_and_resample(code, timeframe, adjust, proxy=None):
     raw_code, ts_code, bs_code = process_ticker(code)
@@ -269,10 +262,8 @@ def get_data_and_resample(code, timeframe, adjust, proxy=None):
             pro = ts.pro_api()
             end_dt = datetime.now().strftime('%Y%m%d')
             start_dt = (datetime.now() - timedelta(days=700)).strftime('%Y%m%d')
-            
             with st.spinner(f"正在连接 Tushare 官方接口 ({ts_code})..."):
                 df_ts = pro.daily(ts_code=ts_code, start_date=start_dt, end_date=end_dt)
-                
             if not df_ts.empty:
                 df = df_ts.rename(columns={'trade_date': 'date', 'vol': 'volume'})
                 df['date'] = pd.to_datetime(df['date'])
@@ -280,9 +271,9 @@ def get_data_and_resample(code, timeframe, adjust, proxy=None):
                 df['pct_change'] = df['close'].pct_change() * 100
                 return df
         except Exception:
-            pass 
+            pass # Tushare 失败则静默切换
 
-    # 2. 备用 Baostock (免费)
+    # 2. 尝试 Baostock (免费备用)
     if is_ashare and df.empty:
         try:
             with st.spinner(f"切换至 Baostock 备用接口 ({bs_code})..."):
@@ -323,7 +314,7 @@ def get_data_and_resample(code, timeframe, adjust, proxy=None):
                 return df
         except: pass
 
-    st.sidebar.warning("⚠️ 数据源受限，已切换至【演示模式】")
+    st.sidebar.warning("⚠️ 数据源受限，已切换至【离线演示模式】")
     return generate_mock_data(365)
 
 @st.cache_data(ttl=3600)
@@ -343,7 +334,7 @@ def calc_full_indicators(df, ma_s, ma_l):
     
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
-    df['MA20'] = c.rolling(20).mean() # 修复 KeyError 关键
+    df['MA20'] = c.rolling(20).mean() # 用于画图
     df['MA60'] = c.rolling(60).mean() # 风控线
     
     low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
@@ -578,11 +569,33 @@ def analyze_score(df):
 # ==========================================
 init_db()
 
+# 登录逻辑 (分离 Tabs)
+if not st.session_state.get('logged_in'):
+    c1,c2,c3 = st.columns([1,2,1])
+    with c2:
+        st.markdown("<br><h1 style='text-align:center;'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
+        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
+        with tab1:
+            u = st.text_input("账号")
+            p = st.text_input("密码", type="password")
+            if st.button("🚀 登录"):
+                if verify_login(u, p): st.session_state["logged_in"]=True; st.session_state["user"]=u; st.rerun()
+                else: st.error("账号或密码错误")
+        with tab2:
+            nu = st.text_input("新账号")
+            np1 = st.text_input("设置密码", type="password")
+            if st.button("立即注册"):
+                suc, msg = register_user(nu, np1)
+                if suc: st.success(msg)
+                else: st.error(msg)
+    st.stop()
+
+# 侧边栏布局
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>V67.0 商业完全体</div>
+        <div class='brand-en'>V67.2 商业运营版</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -621,16 +634,20 @@ with st.sidebar:
 
         if st.button("🔄 刷新缓存"): st.cache_data.clear(); st.rerun()
 
-        # 💎 原有功能：充值
+        # 💎 商业化功能：真实支付逻辑
         if not is_admin:
             with st.expander("💎 充值中心", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
-                pay_opt = st.radio("充值面额", [20, 50, 100], horizontal=True)
-                if st.button("✅ 模拟支付"):
-                    new_key = generate_key(pay_opt)
-                    st.success("支付成功！您的卡密如下："); st.code(new_key, language="text")
-                k_in = st.text_input("输入卡密")
-                if st.button("兑换"):
+                st.write("##### 1. 扫码支付")
+                # 检查是否存在二维码文件，否则显示提示
+                if os.path.exists("alipay.png"):
+                    st.image("alipay.png", caption="请使用支付宝/微信扫码", width=200)
+                else:
+                    st.warning("请联系管理员获取充值二维码")
+                
+                st.write("##### 2. 输入卡密")
+                k_in = st.text_input("请输入您购买的卡密")
+                if st.button("立即兑换"):
                     s, m = redeem_key(user, k_in)
                     if s: st.success(m); time.sleep(1); st.rerun()
                     else: st.error(m)
@@ -648,65 +665,16 @@ with st.sidebar:
                 df_u = load_users(); st.dataframe(df_u[["username","quota"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份用户数据", csv, "users.csv")
-                uploaded_file = st.file_uploader("恢复用户数据", type="csv", key="restore_users")
-                if uploaded_file is not None:
-                    try:
-                        df_restore = pd.read_csv(uploaded_file)
-                        required = ["username", "password_hash", "watchlist", "quota"]
-                        if all(col in df_restore.columns for col in required):
-                            df_restore.to_csv(DB_FILE, index=False)
-                            st.success("✅ 恢复成功！")
-                            time.sleep(1); st.rerun()
-                        else: st.error("❌ 格式错误")
-                    except Exception as e: st.error(f"❌ 失败: {e}")
-                
-                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
-                if u_list:
-                    target = st.selectbox("选择用户", u_list)
-                    val = st.number_input("新积分", value=0)
-                    if st.button("更新积分"): update_user_quota(target, val); st.success("已更新")
+                target = st.selectbox("选择用户", df_u["username"].unique())
+                val = st.number_input("新积分", value=0)
+                if st.button("更新积分"): update_user_quota(target, val); st.success("已更新")
             with st.expander("卡密管理"):
                 st.dataframe(load_keys(), hide_index=True)
-
-        timeframe = st.selectbox("周期", ["日线", "周线", "月线"])
-        days = st.radio("范围", [30,60,120,250], 2, horizontal=True)
-        adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
-        
-        st.divider()
-        with st.expander("🎛️ 策略参数", expanded=False):
-            st.caption("调整均线参数，优化回测结果")
-            ma_s = st.slider("短期均线", 2, 20, 5)
-            ma_l = st.slider("长期均线", 10, 120, 20)
-        
-        st.markdown("### 🛠️ 指标开关")
-        c_flags = st.columns(2)
-        with c_flags[0]:
-            flags['ma'] = st.checkbox("MA", True)
-            flags['boll'] = st.checkbox("BOLL", True)
-            flags['vol'] = st.checkbox("VOL", True)
-            flags['macd'] = st.checkbox("MACD", True)
-        with c_flags[1]:
-            flags['kdj'] = st.checkbox("KDJ", True)
-            flags['gann'] = st.checkbox("江恩", False)
-            flags['fib'] = st.checkbox("斐波那契", True)
-            flags['chan'] = st.checkbox("缠论", True)
 
         st.divider()
         if st.button("退出登录"): st.session_state["logged_in"]=False; st.rerun()
     else:
-        st.info("请先登录系统")
-
-# 登录逻辑
-if not st.session_state.get('logged_in'):
-    c1,c2,c3 = st.columns([1,2,1])
-    with c2:
-        st.markdown("<br><h1 style='text-align:center;'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
-        u = st.text_input("账号"); p = st.text_input("密码", type="password")
-        if st.button("🚀 登录 / 注册"):
-            if verify_login(u, p): st.session_state["logged_in"]=True; st.session_state["user"]=u; st.rerun()
-            elif register_user(u, p)[0]: st.success("注册成功！请登录")
-            else: st.error("登录失败")
-    st.stop()
+        st.info("请先登录")
 
 # --- 主内容 ---
 is_demo = False
@@ -723,7 +691,7 @@ if st.session_state.code != st.session_state.paid_code:
     else:
         st.warning("👀 积分不足，已进入【演示模式】")
         is_demo = True
-        df = generate_mock_data(days)
+        df = generate_mock_data(days=365)
 
 if not is_demo:
     loading_tips = ["正在获取数据...", "计算技术指标...", "AI 策略生成中..."]
@@ -731,13 +699,13 @@ if not is_demo:
         df = get_data_and_resample(st.session_state.code, "", "qfq")
         if df.empty:
             st.warning("⚠️ 数据获取失败，切换至演示模式")
-            df = generate_mock_data(days)
+            df = generate_mock_data(days=365)
             is_demo = True
 
 df = calc_full_indicators(df, ma_s, ma_l)
 df = detect_patterns(df)
 
-# 🚦 商业化包装：红绿灯 (保留)
+# 🚦 商业化包装：红绿灯
 status, msg, css_cls = check_market_status(df)
 st.markdown(f"""
 <div class="market-status-box {css_cls}">
@@ -844,7 +812,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 📈 商业化包装：回测 (重点优化)
+# 📈 商业化包装回测 (重点优化)
 st.markdown("### 📈 策略回测表现 (近1年)")
 # 使用增强版回测逻辑
 ret, label, eq_df = run_smart_backtest(df, use_trend_filter=True)

@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V71 (Stable)",
+    page_title="阿尔法量研 Pro V72 (Stable)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -35,7 +35,7 @@ st.set_page_config(
 # 初始化 Session
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
-if "paid_code" not in st.session_state: st.session_state.paid_code = ""
+if "paid_code" not in st.session_state: st.session_state.paid_code = "" # 记录当前已付费解锁的股票代码
 
 # ✅ 模拟交易 Session (结构更新：{code: {'cost': float, 'qty': int, 'date': str, 'name': str}})
 if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {}
@@ -147,17 +147,25 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (保持不变)
+# 2. 数据库与工具 (升级版：支持持仓数据持久化)
 # ==========================================
 def init_db():
+    # 增加 paper_json 字段用于存储模拟持仓
     if not os.path.exists(DB_FILE):
-        df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry"])
+        df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
         df.to_csv(DB_FILE, index=False)
     else:
         df = pd.read_csv(DB_FILE)
-        if "vip_expiry" not in df.columns:
-            df["vip_expiry"] = ""
+        # 兼容性升级：如果旧数据库没有这些字段，自动添加
+        cols_needed = ["vip_expiry", "paper_json"]
+        updated = False
+        for c in cols_needed:
+            if c not in df.columns:
+                df[c] = ""
+                updated = True
+        if updated:
             df.to_csv(DB_FILE, index=False)
+            
     if not os.path.exists(KEYS_FILE):
         df_keys = pd.DataFrame(columns=["key", "points", "status", "created_at"])
         df_keys.to_csv(KEYS_FILE, index=False)
@@ -178,12 +186,36 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
 
 def load_users():
     try: 
-        df = pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str})
-        if "vip_expiry" not in df.columns: df["vip_expiry"] = ""
+        df = pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str, "paper_json": str})
         return df.fillna("")
-    except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry"])
+    except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
+
+def save_user_holdings(username):
+    """🔥 将当前 session 中的模拟持仓保存到数据库"""
+    if username == ADMIN_USER: return # 管理员不需要保存
+    df = load_users()
+    idx = df[df["username"] == username].index
+    if len(idx) > 0:
+        # 序列化为JSON字符串
+        holdings_json = json.dumps(st.session_state.paper_holdings)
+        df.loc[idx[0], "paper_json"] = holdings_json
+        save_users(df)
+
+def load_user_holdings(username):
+    """🔥 登录时从数据库加载持仓"""
+    if username == ADMIN_USER: return
+    df = load_users()
+    row = df[df["username"] == username]
+    if not row.empty:
+        json_str = str(row.iloc[0]["paper_json"])
+        if json_str and json_str != "nan":
+            try:
+                st.session_state.paper_holdings = json.loads(json_str)
+            except:
+                st.session_state.paper_holdings = {}
+
 def load_keys():
     try: return pd.read_csv(KEYS_FILE)
     except: return pd.DataFrame(columns=["key", "points", "status", "created_at"])
@@ -260,10 +292,11 @@ def register_user(u, p):
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0, "vip_expiry": ""}
+    # 🔥 新用户注册默认送10积分
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 10, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
-    return True, "注册成功"
+    return True, "注册成功，已获赠10积分！"
 
 def consume_quota(u):
     if u == ADMIN_USER: return True
@@ -775,7 +808,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V71</div>
+        <div class='brand-en'>AlphaQuant Pro V72</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -788,12 +821,32 @@ with st.sidebar:
         is_admin = (user == ADMIN_USER)
         is_vip, vip_msg = check_vip_status(user)
         
+        # 🔥 加载持仓数据
+        load_user_holdings(user)
+        
         if is_vip: st.success(f"👑 {vip_msg}")
         else: st.info(f"👤 普通用户 (积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]})")
 
+        # 🔥 权限逻辑升级：专业模式需付费
         st.markdown("### 👁️ 视觉模式")
-        view_mode = st.radio("显示模式", ["极简模式", "专业模式"], index=1, horizontal=True)
-        is_pro = (view_mode == "专业模式")
+        view_mode = st.radio("显示模式", ["极简模式", "专业模式"], index=0, horizontal=True)
+        
+        is_unlocked = False
+        if is_admin or is_vip or st.session_state.paid_code == st.session_state.code:
+            is_unlocked = True
+
+        if view_mode == "专业模式" and not is_unlocked:
+            st.warning("🔒 专业模式需解锁 (1积分/次)")
+            if st.button("🔓 立即解锁", key="sidebar_unlock", type="primary"):
+                if consume_quota(user):
+                    st.session_state.paid_code = st.session_state.code
+                    st.success("已解锁！")
+                    st.rerun()
+                else:
+                    st.error("积分不足，请充值")
+            is_pro = False # 未付费前强制保持极简效果
+        else:
+            is_pro = (view_mode == "专业模式")
         
         if not is_admin:
             st.markdown("### 🎯 每日精选策略")
@@ -805,17 +858,29 @@ with st.sidebar:
                     st.rerun()
             st.divider()
         
-        # 🔥 优化版模拟交易逻辑
+        # 🔥 优化版模拟交易逻辑 + 数据说明
         if not is_admin:
             with st.expander("🎮 模拟交易 (Paper Trading)", expanded=True):
+                # 🔥 新增功能说明与价值
+                with st.expander("📚 使用说明与功能价值", expanded=False):
+                    st.markdown("""
+                    **💡 功能价值：**
+                    1. **零风险试错**：验证您的策略是否有效，而无需投入真金白银。
+                    2. **盘感训练**：记录买卖逻辑，通过盈亏反馈修正交易心态。
+                    3. **数据永存**：您的持仓数据已云端备份，随时可查。
+
+                    **🛠️ 使用逻辑：**
+                    * **买入**：以当前最新价开仓，系统自动扣除虚拟本金。
+                    * **卖出**：平仓结算，自动计算收益率。
+                    """)
+                
                 curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
                 
-                # 获取当前价格（尝试从缓存或重新获取）
+                # 获取当前价格
                 curr_price = 0
                 try:
-                    # 简单获取当前价格，这里为了UI响应速度简化处理，实际逻辑在主界面会更精确
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
-                except: curr_price = 0 # 稍后在主界面如果为0会尝试修正
+                except: curr_price = 0 
                 
                 if curr_hold:
                     cost = curr_hold.get('cost', 0)
@@ -838,18 +903,19 @@ with st.sidebar:
                         
                     if st.button("卖出平仓", key="paper_sell"):
                         del st.session_state.paper_holdings[st.session_state.code]
+                        save_user_holdings(user) # 🔥 立即持久化保存
                         st.success("已卖出！")
                         st.rerun()
                 else:
                     buy_qty = st.number_input("买入数量 (手)", min_value=1, max_value=100, value=1, step=1)
                     if st.button("➕ 模拟买入", key="paper_buy"):
-                        # 这里价格只是占位，实际会在主界面渲染时更新为最新收盘价
                         st.session_state.paper_holdings[st.session_state.code] = {
                             'cost': 0, # 将在主逻辑中更新为当日收盘价
                             'qty': buy_qty * 100, 
                             'date': datetime.now().strftime("%Y-%m-%d"),
                             'name': ""
                         }
+                        save_user_holdings(user) # 🔥 立即持久化保存
                         st.success("买入成功！")
                         st.rerun()
 
@@ -912,9 +978,9 @@ with st.sidebar:
                     
             with st.expander("用户管理"):
                 df_u = load_users()
-                st.dataframe(df_u[["username","quota", "vip_expiry"]], hide_index=True)
+                st.dataframe(df_u[["username","quota", "vip_expiry", "paper_json"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
-                st.download_button("备份数据", csv, "backup.csv", "text/csv")
+                st.download_button("备份数据 (含模拟持仓)", csv, "backup.csv", "text/csv")
                 
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
@@ -935,7 +1001,7 @@ with st.sidebar:
         
         # 即使是极简模式，也允许调整均线参数，但隐藏了开关以保持界面整洁，默认全开
         if is_pro:
-            with st.expander("🎛️ 策略参数 (VIP)", expanded=False):
+            with st.expander("🎛️ 策略参数 (Pro)", expanded=True):
                 ma_s = st.slider("短期均线", 2, 20, 5)
                 ma_l = st.slider("长期均线", 10, 120, 20)
             
@@ -1005,6 +1071,7 @@ if st.session_state.code in st.session_state.paper_holdings:
     if st.session_state.paper_holdings[st.session_state.code]['cost'] == 0:
         st.session_state.paper_holdings[st.session_state.code]['cost'] = df.iloc[-1]['close']
         st.session_state.paper_holdings[st.session_state.code]['name'] = name
+        save_user_holdings(user) # 🔥 成本更新后也保存
 
 try:
     # 基础指标计算 (所有用户可见)
@@ -1050,7 +1117,8 @@ try:
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
 
-    # === 区域 2：深度内容 (VIP) ===
+    # === 区域 2：深度内容 (VIP/付费) ===
+    # 权限判断逻辑统一：如果是管理员，VIP，或已付费代码，则解锁
     has_access = False
     if is_admin: has_access = True
     elif is_vip: has_access = True
@@ -1075,7 +1143,7 @@ try:
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
     reason_html = "".join([f"<div>• {r}</div>" for r in reasons])
     
-    # 🔥🔥🔥 逻辑调整：极简模式下隐藏“最终建议”策略卡片 🔥🔥🔥
+    # 🔥🔥🔥 逻辑调整：仅 Pro 模式显示策略卡片
     if is_pro:
         st.markdown(f"""
         <div class="strategy-card">
@@ -1092,7 +1160,6 @@ try:
         </div>
         """, unsafe_allow_html=True)
     
-    # 🔥🔥🔥 逻辑调整：极简模式现在也可以看到回测（无需 if is_pro 判断）🔥🔥🔥
     st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
     
     # 运行回测
@@ -1173,10 +1240,10 @@ try:
         """)
 
     st.divider()
-    # 🔥🔥🔥 极简模式下保留技术线图 🔥🔥🔥
+    # 🔥🔥🔥 极简模式下保留技术线图
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
     
-    # 🔥🔥🔥 极简模式下保留核心动能/缠论研报 🔥🔥🔥
+    # 🔥🔥🔥 极简模式下保留核心动能/缠论研报 (但如果是未付费用户，这部分会被上面的 div class="locked-blur" 模糊掉)
     st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
 
     if not has_access:
@@ -1190,9 +1257,10 @@ try:
             <div class="lock-desc">包含：AI解读、买卖点位、缠论结构、机构研报</div>
         </div>
         """, unsafe_allow_html=True)
+        # 底部解锁按钮保留，逻辑与侧边栏一致
         c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
         with c_lock2:
-            if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", type="primary", use_container_width=True):
+            if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", key="main_unlock", type="primary", use_container_width=True):
                 if consume_quota(user):
                     st.session_state.paid_code = st.session_state.code
                     st.rerun()

@@ -438,7 +438,25 @@ with st.sidebar:
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
         is_vip, vip_msg = check_vip_status(user)
+        
+        # 🔥🔥🔥 修改开始：增加用户存在性检查，防止报错 🔥🔥🔥
+        df_users = load_users()
+        user_row = df_users[df_users['username'] == user]
+        
+        if not user_row.empty:
+            current_quota = user_row['quota'].iloc[0]
+            st.info(f"👤 {user} | {vip_msg} | 积分: {current_quota}")
+        else:
+            # 如果数据库里找不到当前用户（可能文件被删了），强制退出登录
+            st.warning("⚠️ 用户数据异常，请重新登录")
+            st.session_state["logged_in"] = False
+            time.sleep(1)
+            st.rerun()
+        # 🔥🔥🔥 修改结束 🔥🔥🔥
+
         load_user_holdings(user)
+        
+        # ... 后面的代码保持不变 ...
         
         st.info(f"👤 {user} | {vip_msg} | 积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
         

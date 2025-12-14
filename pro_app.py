@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import urllib.request
 import json
 import socket
+import base64
 
 # ✅ 0. 依赖库检查
 try:
@@ -25,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V66",
+    page_title="阿尔法量研 Pro V67 (AI Enhanced)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -35,6 +36,9 @@ st.set_page_config(
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
+
+# ✅ NEW: 模拟交易 Session 初始化 (Paper Trading)
+if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {} # {code: {'price': float, 'date': str}}
 
 # ✅ 全局变量兜底初始化
 ma_s = 5
@@ -58,7 +62,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 V66.0 CSS：原有果冻UI + 商业化增强 + 解释性UI
+# 🔥 V67.0 CSS：保持原有果冻UI，增加 AI 对话框样式
 ui_css = """
 <style>
     /* 全局背景 */
@@ -94,6 +98,15 @@ ui_css = """
     .section-header { display: flex; align-items: center; margin-bottom: 12px; margin-top: 8px; }
     .section-title { font-size: 17px; font-weight: 900; color: #333; margin-right: 5px; }
     .vip-badge { background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); color: #d32f2f; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; font-style: italic; }
+
+    /* ================= NEW: AI Copilot 对话框 ================= */
+    .ai-chat-box {
+        background: #f0f7ff; border-radius: 12px; padding: 15px; margin-bottom: 20px;
+        border-left: 5px solid #2962ff; box-shadow: 0 4px 12px rgba(41, 98, 255, 0.1);
+    }
+    .ai-avatar { font-size: 24px; margin-right: 10px; float: left; }
+    .ai-content { overflow: hidden; font-size: 15px; line-height: 1.6; color: #2c3e50; }
+    .ai-highlight { background: #fff3e0; padding: 0 4px; border-radius: 4px; color: #e65100; font-weight: bold; }
 
     /* ================= NEW: 大盘红绿灯 (Traffic Light) ================= */
     .market-status-box {
@@ -635,7 +648,39 @@ def generate_deep_report(df, name):
     """
     return html
 
-# ✅ 增加理由返回，用于解释性AI
+# ✅ NEW: AI Copilot 生成逻辑 (拟人化)
+def generate_ai_copilot_text(df, name):
+    c = df.iloc[-1]
+    
+    # 语气词库
+    openers = ["主人好！", "Hi~ 老板，", "数据汇报："]
+    mood = "neutral" # neutral, happy, worried
+    
+    # 逻辑判断
+    advice = ""
+    reason = ""
+    
+    if c['close'] > c['MA60']:
+        if c['MA_Short'] > c['MA_Long']:
+            advice = f"现在的 {name} 走势很漂亮，多头排列，你可以继续持有享受泡沫。"
+            mood = "happy"
+        else:
+            advice = f"虽然还在牛熊线上方，但短期有回调压力，别追高哦。"
+            mood = "neutral"
+    else:
+        advice = f"目前趋势偏弱，处于空头掌控中，建议多看少动，保住本金最重要。"
+        mood = "worried"
+        
+    # 技术细节
+    tech = ""
+    if c['RSI'] < 30: tech = "不过我看 RSI 已经超卖了，短期随时可能反弹，如果你是左侧交易者可以轻仓试错。"
+    elif c['RSI'] > 75: tech = "而且 RSI 有点过热了，小心主力骗炮出货，记得推高止损。"
+    
+    if c['VolRatio'] > 1.8: tech += " 另外，今天量能放得很大，主力有动作！"
+    
+    final_text = f"{random.choice(openers)} {advice} {tech} 切记，即使我看好，也要设好止损线 {c['close']*0.95:.2f} 保护自己。"
+    return final_text, mood
+
 def analyze_score(df):
     c = df.iloc[-1]; score=0; reasons=[]
     if c['MA_Short']>c['MA_Long']: score+=2; reasons.append("均线金叉 (短线看涨)")
@@ -804,6 +849,25 @@ def plot_chart(df, name, flags, ma_s, ma_l):
     fig.update_layout(height=600, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=-0.05))
     st.plotly_chart(fig, use_container_width=True)
 
+# ✅ NEW: 生成可下载的 HTML 研报
+def create_download_link(df, name):
+    html = f"""
+    <html>
+    <head><title>{name} - 研报</title></head>
+    <body style="font-family:sans-serif; padding:20px;">
+        <h1>{name} 投资分析报告</h1>
+        <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        <hr>
+        <h3>最新价格: {df.iloc[-1]['close']}</h3>
+        <h3>趋势判断: {'看涨' if df.iloc[-1]['close'] > df.iloc[-1]['MA60'] else '看跌'}</h3>
+        <p>此报告由阿尔法量研 Pro 生成。</p>
+    </body>
+    </html>
+    """
+    b64 = base64.b64encode(html.encode()).decode()
+    href = f'<a href="data:text/html;base64,{b64}" download="{name}_report.html" style="text-decoration:none; padding:8px 15px; background:#ff3b30; color:white; border-radius:5px; font-weight:bold;">📄 导出本周研报 (PDF/HTML)</a>'
+    return href
+
 # ==========================================
 # 5. 执行入口 (Logic)
 # ==========================================
@@ -813,7 +877,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro</div>
+        <div class='brand-en'>AlphaQuant Pro V67</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -825,6 +889,11 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
+        # ✅ NEW: 模式切换 (Visual Satisfaction)
+        st.markdown("### 👁️ 视觉模式")
+        view_mode = st.radio("显示复杂度", ["极简模式", "专业模式"], index=1, horizontal=True)
+        is_pro = (view_mode == "专业模式")
+        
         # 🌟 NEW: 每日精选池
         if not is_admin:
             st.markdown("### 🎯 每日精选策略")
@@ -835,6 +904,26 @@ with st.sidebar:
                     st.session_state.code = pick['code']
                     st.rerun()
             st.divider()
+        
+        # ✅ NEW: 模拟交易 (Paper Trading) - 心理按摩
+        if not is_admin:
+            with st.expander("🎮 模拟交易 (Paper Trading)", expanded=True):
+                st.caption("不敢真买？先模拟试试！")
+                curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
+                if curr_hold:
+                    st.info(f"持仓成本: {curr_hold['price']}\n\n买入时间: {curr_hold['date']}")
+                    if st.button("卖出止盈/止损", key="paper_sell"):
+                        del st.session_state.paper_holdings[st.session_state.code]
+                        st.success("已卖出！")
+                        st.rerun()
+                else:
+                    if st.button("➕ 模拟买入 (虚拟)", key="paper_buy"):
+                        st.session_state.paper_holdings[st.session_state.code] = {
+                            'price': 0, # 这里实际应该取当前价，因为是UI渲染前，暂存0，下一帧会刷新
+                            'date': datetime.now().strftime("%Y-%m-%d")
+                        }
+                        st.success("模拟买入成功！")
+                        st.rerun()
 
         if not is_admin:
             with st.expander("⭐ 我的自选股", expanded=False):
@@ -931,23 +1020,26 @@ with st.sidebar:
         adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
         
         st.divider()
-        with st.expander("🎛️ 策略参数", expanded=False):
-            st.caption("调整均线参数，优化回测结果")
-            ma_s = st.slider("短期均线", 2, 20, 5)
-            ma_l = st.slider("长期均线", 10, 120, 20)
         
-        st.markdown("### 🛠️ 指标开关")
-        c_flags = st.columns(2)
-        with c_flags[0]:
-            flags['ma'] = st.checkbox("MA", True)
-            flags['boll'] = st.checkbox("BOLL", True)
-            flags['vol'] = st.checkbox("VOL", True)
-            flags['macd'] = st.checkbox("MACD", True)
-        with c_flags[1]:
-            flags['kdj'] = st.checkbox("KDJ", True)
-            flags['gann'] = st.checkbox("江恩", False)
-            flags['fib'] = st.checkbox("斐波那契", True)
-            flags['chan'] = st.checkbox("缠论", True)
+        if is_pro:
+            with st.expander("🎛️ 策略参数 (VIP)", expanded=False):
+                st.caption("调整均线参数，优化回测结果")
+                ma_s = st.slider("短期均线", 2, 20, 5)
+                ma_l = st.slider("长期均线", 10, 120, 20)
+            
+            st.markdown("### 🛠️ 指标开关")
+            c_flags = st.columns(2)
+            with c_flags[0]:
+                flags['ma'] = st.checkbox("MA", True)
+                flags['boll'] = st.checkbox("BOLL", True)
+                flags['vol'] = st.checkbox("VOL", True)
+                flags['macd'] = st.checkbox("MACD", True)
+            with c_flags[1]:
+                flags['kdj'] = st.checkbox("KDJ", True)
+                flags['gann'] = st.checkbox("江恩", False)
+                flags['fib'] = st.checkbox("斐波那契", True)
+                flags['chan'] = st.checkbox("缠论", True)
+        
         st.divider()
         st.caption("免责声明：本系统仅供量化研究，不构成投资建议。")
         if st.button("退出登录"): st.session_state["logged_in"]=False; st.rerun()
@@ -1012,6 +1104,10 @@ if not is_demo:
             df = generate_mock_data(days)
             is_demo = True
 
+# 更新 Paper Trading 价格
+if st.session_state.code in st.session_state.paper_holdings:
+    st.session_state.paper_holdings[st.session_state.code]['price'] = df.iloc[-1]['close']
+
 try:
     funda = get_fundamentals(st.session_state.code, "")
     df = calc_full_indicators(df, ma_s, ma_l)
@@ -1027,6 +1123,19 @@ try:
                 <div class="status-text">{msg}</div>
                 <div class="status-sub">基于 MA60 牛熊线与波动率分析</div>
             </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ✅ NEW: AI Copilot 助理 (The AI Copilot) - 置顶核心位置
+    ai_text, ai_mood = generate_ai_copilot_text(df, name)
+    ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
+    st.markdown(f"""
+    <div class="ai-chat-box">
+        <div class="ai-avatar">{ai_icon}</div>
+        <div class="ai-content">
+            <span style="font-weight:bold; color:#2962ff;">AI 投顾助理：</span>
+            {ai_text}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1073,44 +1182,49 @@ try:
     </div>
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
-
+    
     # 投资亮点
     if not is_demo:
         price_pct, is_high_risk = calculate_risk_percentile(df)
     else:
         price_pct, is_high_risk = 50, False
 
-    st.markdown("<div class='section-header'><span class='section-title'>深度透视</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
-    
-    # 风险雷达
-    bar_color = "#ff3b30" if is_high_risk else "#00c853"
-    st.markdown(f"""
-    <div style="background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
-        <div class="risk-header">
-            <span>⚠️ 风险雷达 (历史分位)</span>
-            <span style="color: {bar_color}">{price_pct}%</span>
-        </div>
-        <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:{price_pct}%; background:{bar_color}"></div></div>
-        <div style="font-size: 12px; color: #666; margin-top: 5px;">当前价格处于近10年历史位置，{'高位预警！' if is_high_risk else '处于安全区间。'}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    # ✅ NEW: 研报导出按钮
+    st.markdown(create_download_link(df, name), unsafe_allow_html=True)
+    st.write("")
 
-    highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
-    hl_html = ""
-    for tag, color_cls, desc in highlights:
-        hl_html += f"""
-        <div class="highlight-item">
-            <div class="tag-box {color_cls}">{tag}</div>
-            <div class="tag-text">{desc}</div>
+    if is_pro:
+        st.markdown("<div class='section-header'><span class='section-title'>深度透视 (专业版)</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
+        
+        # 风险雷达
+        bar_color = "#ff3b30" if is_high_risk else "#00c853"
+        st.markdown(f"""
+        <div style="background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
+            <div class="risk-header">
+                <span>⚠️ 风险雷达 (历史分位)</span>
+                <span style="color: {bar_color}">{price_pct}%</span>
+            </div>
+            <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:{price_pct}%; background:{bar_color}"></div></div>
+            <div style="font-size: 12px; color: #666; margin-top: 5px;">当前价格处于近10年历史位置，{'高位预警！' if is_high_risk else '处于安全区间。'}</div>
         </div>
-        """
-    st.markdown(f"<div class='app-card'>{hl_html}</div>", unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    # 图表
-    plot_chart(df.tail(days), name, flags, ma_s, ma_l)
-    
-    # 深度研报
-    st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
+        highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
+        hl_html = ""
+        for tag, color_cls, desc in highlights:
+            hl_html += f"""
+            <div class="highlight-item">
+                <div class="tag-box {color_cls}">{tag}</div>
+                <div class="tag-text">{desc}</div>
+            </div>
+            """
+        st.markdown(f"<div class='app-card'>{hl_html}</div>", unsafe_allow_html=True)
+
+        # 图表 (仅在 Pro 模式显示)
+        plot_chart(df.tail(days), name, flags, ma_s, ma_l)
+        
+        # 深度研报
+        st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
     
     # 策略建议 & 解释性 AI (Explainable AI)
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df) # Unpack new reasons
@@ -1136,37 +1250,38 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    # 回测 (增强版：相对收益 + 近期胜率)
-    with st.expander("📚 新手必读：如何看懂回测报告？"):
-        st.markdown("""
-        **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。就像兵棋推演，先在沙盘上打赢了，再去实战。
-        **2. 核心指标解读**：
-        * **💰 相对收益 (Alpha)**：策略是否跑赢了傻傻拿着不动(Buy & Hold)？这是衡量策略是否优秀的核心标准。
-        * **🏆 近期胜率**：展示最近20次交易的胜负情况，更能反映当前市场的适应性。
-        """)
-        
-    with st.expander("⚖️ 历史回测数据 (Alpha增强版)", expanded=True):
-        # 默认开启趋势风控来优化展示数据
-        ret, win, mdd, _, _, eq, bench_ret, recent_win = run_backtest(df, use_trend_filter=True)
-        
-        c1, c2, c3 = st.columns(3)
-        
-        # 使用 Delta 展示相对强弱
-        alpha = ret - bench_ret
-        c1.metric("总收益 (Total)", f"{ret:.1f}%", delta=f"{alpha:.1f}% vs 基准", delta_color="normal")
-        c2.metric("胜率 (Win Rate)", f"{win:.0f}%", f"近20次: {recent_win:.0f}%")
-        c3.metric("最大回撤", f"{mdd:.1f}%")
-        
-        if alpha > 0:
-            st.success(f"🔥 **表现优异！** 该策略跑赢大盘 {alpha:.1f}%，具备超额收益能力。")
-        else:
-            st.info(f"🐢 **表现稳健。** 策略紧随大盘波动，建议结合基本面操作。")
+    if is_pro:
+        # 回测 (增强版：相对收益 + 近期胜率)
+        with st.expander("📚 新手必读：如何看懂回测报告？"):
+            st.markdown("""
+            **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。就像兵棋推演，先在沙盘上打赢了，再去实战。
+            **2. 核心指标解读**：
+            * **💰 相对收益 (Alpha)**：策略是否跑赢了傻傻拿着不动(Buy & Hold)？这是衡量策略是否优秀的核心标准。
+            * **🏆 近期胜率**：展示最近20次交易的胜负情况，更能反映当前市场的适应性。
+            """)
             
-        if not eq.empty:
-            f2 = go.Figure()
-            f2.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], fill='tozeroy', line=dict(color='#2962ff', width=1.5), name='策略净值'))
-            f2.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), showlegend=False)
-            st.plotly_chart(f2, use_container_width=True)
+        with st.expander("⚖️ 历史回测数据 (Alpha增强版)", expanded=True):
+            # 默认开启趋势风控来优化展示数据
+            ret, win, mdd, _, _, eq, bench_ret, recent_win = run_backtest(df, use_trend_filter=True)
+            
+            c1, c2, c3 = st.columns(3)
+            
+            # 使用 Delta 展示相对强弱
+            alpha = ret - bench_ret
+            c1.metric("总收益 (Total)", f"{ret:.1f}%", delta=f"{alpha:.1f}% vs 基准", delta_color="normal")
+            c2.metric("胜率 (Win Rate)", f"{win:.0f}%", f"近20次: {recent_win:.0f}%")
+            c3.metric("最大回撤", f"{mdd:.1f}%")
+            
+            if alpha > 0:
+                st.success(f"🔥 **表现优异！** 该策略跑赢大盘 {alpha:.1f}%，具备超额收益能力。")
+            else:
+                st.info(f"🐢 **表现稳健。** 策略紧随大盘波动，建议结合基本面操作。")
+                
+            if not eq.empty:
+                f2 = go.Figure()
+                f2.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], fill='tozeroy', line=dict(color='#2962ff', width=1.5), name='策略净值'))
+                f2.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), showlegend=False)
+                st.plotly_chart(f2, use_container_width=True)
 
 except Exception as e:
     st.error(f"Error: {e}")

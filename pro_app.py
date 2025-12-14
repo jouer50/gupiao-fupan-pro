@@ -23,7 +23,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V69 (完整商业版)",
+    page_title="阿尔法量研 Pro V70 (稳定版)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -35,7 +35,7 @@ if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {}
 
-# 全局变量兜底
+# 全局变量
 ma_s = 5
 ma_l = 20
 flags = {
@@ -46,18 +46,10 @@ flags = {
 # 核心常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v69.csv" # 升级版本号
+DB_FILE = "users_v70.csv"
 KEYS_FILE = "card_keys.csv"
 
-# Optional deps
-ts = None
-bs = None
-try: import tushare as ts
-except: pass
-try: import baostock as bs
-except: pass
-
-# 🔥 UI CSS
+# UI CSS
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -74,7 +66,6 @@ ui_css = """
         transition: all 0.2s; width: 100%;
     }
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5); }
-    div.stButton > button[kind="secondary"] { background: #f0f0f0; color: #666; border: 1px solid #ddd; box-shadow: none; }
     div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #2962ff 0%, #0039cb 100%);
         color: white; border: none; box-shadow: 0 4px 15px rgba(41, 98, 255, 0.4);
@@ -89,15 +80,12 @@ ui_css = """
     /* AI Chat */
     .ai-chat-box { background: #f0f7ff; border-radius: 12px; padding: 15px; margin-bottom: 20px; border-left: 5px solid #2962ff; box-shadow: 0 4px 12px rgba(41, 98, 255, 0.1); }
     .ai-avatar { font-size: 24px; margin-right: 10px; float: left; }
-    .ai-content { overflow: hidden; font-size: 15px; line-height: 1.6; color: #2c3e50; }
 
     /* Market Status */
     .market-status-box { padding: 12px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); }
     .status-green { background: #e8f5e9; color: #2e7d32; border-left: 5px solid #2e7d32; }
     .status-red { background: #ffebee; color: #c62828; border-left: 5px solid #c62828; }
     .status-yellow { background: #fffde7; color: #f9a825; border-left: 5px solid #f9a825; }
-    .status-icon { font-size: 24px; margin-right: 12px; }
-    .status-text { font-weight: 800; font-size: 16px; }
 
     /* Price Box */
     .big-price-box { text-align: center; margin-bottom: 20px; }
@@ -108,25 +96,20 @@ ui_css = """
     .rating-container { display: flex; justify-content: space-between; gap: 8px; }
     .rating-box { flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px; text-align: center; padding: 15px 2px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
     .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
-    .rating-label { font-size: 12px; color: #666; font-weight: 500; }
     .score-yellow { color: #ff9800 !important; }
 
     /* Highlights & Tags */
     .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
     .tag-box { background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; margin-right: 10px; white-space: nowrap; margin-top: 2px; }
     .tag-blue { background: #f0f7ff; color: #2962ff; }
-    .tag-text { font-size: 14px; color: #333; text-align: justify; }
     .hl-num { color: #ff3b30; font-weight: 700; padding: 0 2px; }
     
-    /* Strategy */
+    /* Strategy & Risk */
     .strategy-card { background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
-    .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
     .support-line { border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; font-size: 12px; color: #888; display: flex; justify-content: space-between; }
     .reason-box { background: #f8f9fa; border-radius: 8px; padding: 10px; margin-top: 8px; font-size: 13px; color: #555; }
     
-    /* Risk Radar */
-    .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
     .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
     .risk-bar-fill { height: 100%; border-radius: 3px; }
 
@@ -142,7 +125,7 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (全功能回归)
+# 2. 数据库与工具 (VIP管理逻辑增强)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -155,12 +138,8 @@ def init_db():
 def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
     try:
         if value is None: return default
-        if isinstance(value, (pd.Series, pd.DataFrame)):
-            if value.empty: return default
-            value = value.iloc[0]
-        if isinstance(value, str):
-            if value.strip() in ["", "N/A", "nan", "NaN"]: return default
-            value = float(value.replace(',', ''))
+        if isinstance(value, (pd.Series, pd.DataFrame)): value = value.iloc[0]
+        if isinstance(value, str): value = float(value.replace(',', ''))
         f_val = float(value)
         if np.isnan(f_val) or np.isinf(f_val): return default
         return fmt.format(f_val) + suffix
@@ -176,14 +155,12 @@ def load_users():
     except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
-
 def load_keys():
     try: return pd.read_csv(KEYS_FILE)
     except: return pd.DataFrame(columns=["key", "points", "status", "created_at"])
-
 def save_keys(df): df.to_csv(KEYS_FILE, index=False)
 
-# ✅ 恢复：批量生成卡密功能
+# 卡密生成
 def batch_generate_keys(points, count):
     df = load_keys()
     new_keys = []
@@ -236,13 +213,12 @@ def register_user(u, p):
     save_users(df)
     return True, "注册成功"
 
-# ✅ 恢复：删除用户功能
+# 用户管理
 def delete_user(target):
     df = load_users()
     df = df[df["username"] != target]
     save_users(df)
 
-# ✅ 恢复：更新积分功能
 def update_user_quota(target, new_q):
     df = load_users()
     idx = df[df["username"] == target].index
@@ -252,7 +228,7 @@ def update_user_quota(target, new_q):
         return True
     return False
 
-# VIP 逻辑
+# VIP 核心逻辑
 def check_is_vip(username):
     if username == ADMIN_USER: return True
     df = load_users()
@@ -283,23 +259,28 @@ def add_vip_days(username, days):
     idx = df[df["username"] == username].index[0]
     current_exp = str(df.loc[idx, "vip_expiry"])
     now = datetime.now()
-    
     if current_exp and current_exp != "nan":
         try:
             curr_date = datetime.strptime(current_exp, "%Y-%m-%d %H:%M:%S")
             start_date = max(now, curr_date)
         except: start_date = now
-    else:
-        start_date = now
-        
+    else: start_date = now
     new_exp = start_date + timedelta(days=days)
     df.loc[idx, "vip_expiry"] = new_exp.strftime("%Y-%m-%d %H:%M:%S")
     save_users(df)
     return True
 
+# ✅ NEW: 移除VIP权限
+def remove_vip(username):
+    df = load_users()
+    idx = df[df["username"] == username].index[0]
+    df.loc[idx, "vip_expiry"] = "" # 清空过期时间
+    save_users(df)
+    return True
+
 def consume_quota(u):
     if u == ADMIN_USER: return True
-    if check_is_vip(u): return True # VIP 不扣分
+    if check_is_vip(u): return True 
     df = load_users()
     idx = df[df["username"] == u].index
     if len(idx) > 0 and df.loc[idx[0], "quota"] > 0:
@@ -332,17 +313,16 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (全量回归)
+# 3. 股票逻辑 (修复数据获取)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
-def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
-def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
 def process_ticker(code):
     code = code.strip().upper()
     if code.isdigit() and len(code) < 6: return f"{code.zfill(4)}.HK"
     return code
 
 def generate_mock_data(days=365):
+    # 演示数据生成器 (Fall Back)
     dates = pd.date_range(end=datetime.today(), periods=days)
     close = [150.0]
     for _ in range(days-1): close.append(max(10, close[-1] + np.random.normal(0.1, 3.0)))
@@ -357,40 +337,56 @@ def generate_mock_data(days=365):
     df['MA60'] = df['close'].rolling(60).mean()
     return df
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=300) # 缩短缓存，确保数据新鲜
 def get_name(code, token, proxy=None):
-    clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
-    QUICK_MAP = {'600519':'贵州茅台','000858':'五粮液','601318':'中国平安','600036':'招商银行','300750':'宁德时代','002594':'比亚迪','601888':'中国中免','600276':'恒瑞医药','601857':'中国石油','601088':'中国神华','601988':'中国银行','601398':'工商银行','AAPL':'Apple','TSLA':'Tesla','NVDA':'NVIDIA','MSFT':'Microsoft','BABA':'Alibaba'}
-    if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
+    clean_code = code.strip().upper()
     try: return yf.Ticker(code).info.get('shortName', code)
     except: return code
 
+# ✅ 核心修复：数据获取逻辑
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
     raw_df = pd.DataFrame()
-    # 尽可能使用 yfinance 获取
+    
     try:
+        # 强制下载数据，不自动调整，避免列名混乱
         yf_df = yf.download(code, period="2y", interval="1d", progress=False, auto_adjust=False)
+        
         if not yf_df.empty:
-            if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
+            # ✅ 修复 MultiIndex 问题 (yfinance 新版特性)
+            if isinstance(yf_df.columns, pd.MultiIndex):
+                yf_df.columns = yf_df.columns.get_level_values(0)
+            
+            # 标准化列名
             yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
-            yf_df = yf_df.loc[:, ~yf_df.columns.duplicated()]
+            yf_df = yf_df.loc[:, ~yf_df.columns.duplicated()] # 去重
             yf_df.reset_index(inplace=True)
+            
             rename_map = {}
             for c in yf_df.columns:
-                if 'date' in c: rename_map[c] = 'date'
-                elif 'close' in c: rename_map[c] = 'close'
+                if 'date' in c or 'time' in c: rename_map[c] = 'date'
+                elif 'close' in c and 'adj' not in c: rename_map[c] = 'close'
                 elif 'open' in c: rename_map[c] = 'open'
                 elif 'high' in c: rename_map[c] = 'high'
                 elif 'low' in c: rename_map[c] = 'low'
                 elif 'volume' in c: rename_map[c] = 'volume'
+            
             yf_df.rename(columns=rename_map, inplace=True)
-            raw_df = yf_df[['date','open','high','low','close','volume']].copy()
-            for c in ['open','high','low','close','volume']: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
-            raw_df['pct_change'] = raw_df['close'].pct_change() * 100
-    except: pass
+            
+            # 必须包含核心列
+            required = ['date','open','high','low','close','volume']
+            if all(col in yf_df.columns for col in required):
+                raw_df = yf_df[required].copy()
+                for c in ['open','high','low','close','volume']:
+                    raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
+                raw_df['pct_change'] = raw_df['close'].pct_change() * 100
+                raw_df = raw_df.dropna() # 去除空值
+    except Exception as e:
+        # print(f"Data Fetch Error: {e}") # Debug only
+        pass
     
     if raw_df.empty: return raw_df
+    
     if timeframe == '日线': return raw_df
     rule = 'W' if timeframe == '周线' else 'M'
     raw_df.set_index('date', inplace=True)
@@ -415,8 +411,7 @@ def get_fundamentals(code, token):
 
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
-    try:
-        c = df['close']; h = df['high']; l = df['low']; v = df['volume']
+    try: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     except: return df
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
@@ -485,7 +480,6 @@ def get_daily_picks(user_watchlist):
         elif status == "hold": results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
     return results
 
-# ✅ 恢复：风险雷达计算
 def calculate_risk_percentile(df):
     if df is None or df.empty: return 0, False
     curr = df.iloc[-1]['close']
@@ -494,7 +488,6 @@ def calculate_risk_percentile(df):
     pct = (curr - low) / (high - low) * 100
     return round(pct, 1), pct > 85
 
-# ✅ 恢复：智能亮点提取
 def get_smart_highlights(df, funda, price_pct, is_high_risk):
     last = df.iloc[-1]
     highlights = []
@@ -607,7 +600,6 @@ def calculate_smart_score(df, funda):
     qual_score = min(10, qual_score)
     return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
 
-# ✅ 恢复：回测引擎
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, pd.DataFrame({'date':[], 'equity':[]}), 0.0
     df_bt = df.dropna().reset_index(drop=True)
@@ -648,7 +640,6 @@ def plot_chart(df, name, flags, ma_s, ma_l, is_simple=False):
             tops=df[df['F_Top']]; bots=df[df['F_Bot']]
             fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='顶分型'), 1, 1)
             fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='底分型'), 1, 1)
-            # 缠论连线
             chan_pts = []
             for i, row in df.iterrows():
                 if row['F_Top']: chan_pts.append({'d': row['date'], 'v': row['high'], 't': 'top'})
@@ -692,7 +683,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V69 (完整版)</div>
+        <div class='brand-en'>AlphaQuant Pro V70</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -760,17 +751,39 @@ with st.sidebar:
                             st.balloons(); st.success("🎉 开通成功！"); time.sleep(2); st.rerun()
                         else: st.error("积分不足")
 
-        # ✅ 恢复：管理员后台 (全量找回)
+        # ✅ NEW: 管理员后台 (含VIP管理)
         if is_admin:
             st.success("👑 管理员模式")
-            with st.expander("💳 批量发卡", expanded=True):
+            
+            # 1. VIP 管理 (NEW)
+            with st.expander("🎩 VIP 权限管理 (New!)", expanded=True):
+                df_u = load_users()
+                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
+                if u_list:
+                    vip_target = st.selectbox("选择用户进行VIP操作", u_list, key="vip_sel")
+                    c_vip1, c_vip2 = st.columns(2)
+                    with c_vip1:
+                        add_days = st.number_input("增加天数", 1, 365, 30, key="vip_add_days")
+                        if st.button("➕ 赋予/延长 VIP"):
+                            add_vip_days(vip_target, add_days)
+                            st.success(f"已给 {vip_target} 增加 {add_days} 天VIP"); time.sleep(1); st.rerun()
+                    with c_vip2:
+                        st.write(" ")
+                        st.write(" ")
+                        if st.button("🚫 取消 VIP 权限"):
+                            remove_vip(vip_target)
+                            st.warning(f"已取消 {vip_target} 的VIP"); time.sleep(1); st.rerun()
+            
+            # 2. 批量发卡
+            with st.expander("💳 批量发卡"):
                 points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
                 count_gen = st.number_input("数量", 1, 50, 10)
                 if st.button("批量生成"):
                     num = batch_generate_keys(points_gen, count_gen)
                     st.success(f"已生成 {num} 张卡密")
-            with st.expander("用户管理"):
-                df_u = load_users()
+            
+            # 3. 用户数据管理
+            with st.expander("👥 用户数据"):
                 st.dataframe(df_u[["username","quota","vip_expiry"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据", csv, "backup.csv", "text/csv")
@@ -782,16 +795,19 @@ with st.sidebar:
                             df_restore.to_csv(DB_FILE, index=False)
                             st.success("✅ 恢复成功！"); time.sleep(1); st.rerun()
                     except: st.error("❌ 格式错误")
-                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
+                
+                # 修改积分/删除用户
                 if u_list:
-                    target = st.selectbox("选择用户", u_list)
-                    val = st.number_input("新积分", value=0, step=10)
+                    target = st.selectbox("管理用户", u_list, key="user_manage")
+                    val = st.number_input("修改积分", value=0, step=10)
                     c1, c2 = st.columns(2)
                     with c1:
-                        if st.button("更新"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
+                        if st.button("更新积分"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
                     with c2:
-                        if st.button("删除"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
-            with st.expander("卡密管理"):
+                        if st.button("删除用户"): delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
+            
+            # 4. 卡密清理
+            with st.expander("🧹 卡密管理"):
                 df_k = load_keys()
                 if st.button("🗑️ 清理已用卡密"):
                     clean_df = df_k[df_k['status'] == 'unused']
@@ -810,7 +826,7 @@ with st.sidebar:
 if not st.session_state.get('logged_in'):
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
-        st.markdown("<h1 style='text-align:center'>AlphaQuant Pro V69</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align:center'>AlphaQuant Pro V70</h1>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
         with tab1:
             u = st.text_input("账号"); p = st.text_input("密码", type="password")
@@ -830,9 +846,13 @@ name = get_name(st.session_state.code, "", None)
 c1, c2 = st.columns([3, 1])
 with c1: st.title(f"📈 {name} ({st.session_state.code})")
 
-# 数据加载
+# 数据加载 (增强版，优先真实数据)
 df = get_data_and_resample(st.session_state.code, "", timeframe, adjust, None)
-if df.empty: df = generate_mock_data(days)
+
+# 如果获取失败，则使用模拟数据，并标记状态
+is_real_data = not df.empty
+if not is_real_data:
+    df = generate_mock_data(days)
 
 # 计算指标
 funda = get_fundamentals(st.session_state.code, "")
@@ -851,6 +871,9 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+if not is_real_data:
+    st.warning("⚠️ 网络数据获取失败，当前显示为【演示数据】。请检查股票代码或稍后重试。")
 
 l = df.iloc[-1]
 color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
@@ -904,7 +927,7 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    # ✅ 恢复：风险雷达 & 亮点Tag
+    # 风险雷达 & 亮点Tag
     price_pct, is_high_risk = calculate_risk_percentile(df)
     bar_color = "#ff3b30" if is_high_risk else "#00c853"
     st.markdown(f"""
@@ -936,7 +959,6 @@ else:
     </div>
     """, unsafe_allow_html=True)
     
-    # ✅ 恢复：回测数据
     with st.expander("⚖️ 历史回测数据 (Alpha增强版)", expanded=True):
         ret, win, mdd, eq, bench_ret = run_backtest(df)
         alpha = ret - bench_ret

@@ -64,7 +64,6 @@ try: import baostock as bs
 except: pass
 
 # 🔥 CSS 样式 (UI Fix & Optimization)
-# 重点修复：补全 .final-grid 等样式，确保决策卡片不乱码
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -128,73 +127,6 @@ ui_css = """
     .bt-neg { color: #2e7d32; }
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
-
-    /* 🔥 智能研报卡片样式 (关键修复) */
-    .final-card-container {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-left: 5px solid #2962ff;
-        border-radius: 8px;
-        padding: 20px;
-        margin-top: 20px;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-    }
-    .final-card-badge {
-        display: inline-block;
-        background: #f0f7ff; color: #2962ff; 
-        padding: 4px 12px;
-        border-radius: 20px; 
-        font-weight: 700; font-size: 12px;
-        margin-bottom: 10px;
-    }
-    .final-action-main {
-        font-size: 32px; font-weight: 900; margin: 10px 0;
-        color: #333; letter-spacing: -0.5px;
-    }
-    
-    /* 修复 Flex 布局，防止乱码 */
-    .final-grid {
-        display: flex; 
-        justify-content: space-between; 
-        border-top: 1px solid #f0f0f0; 
-        padding-top: 15px; 
-        margin-top: 15px;
-        width: 100%;
-    }
-    .final-item { 
-        flex: 1; 
-        text-align: center;
-        border-right: 1px solid #f0f0f0; 
-    }
-    .final-item:last-child { border-right: none; }
-    
-    .final-item-val { 
-        font-size: 18px; 
-        font-weight: 800; 
-        color: #333; 
-        display: block; 
-    }
-    .final-item-lbl { 
-        font-size: 11px; 
-        color: #888; 
-        margin-top: 4px; 
-        text-transform: uppercase; 
-    }
-    
-    .final-reasons {
-        margin-top: 15px; 
-        text-align: left; 
-        font-size: 13px; 
-        color: #555; 
-        background: #f9f9f9; 
-        padding: 10px; 
-        border-radius: 6px;
-    }
-    .disclaimer-box {
-        margin-top: 15px; padding: 8px; background-color: #fff8e1; color: #ff8f00;
-        font-size: 11px; border-radius: 6px; text-align: center; border: 1px solid #ffecb3;
-    }
 
     /* 锁定状态样式 */
     .locked-container { position: relative; overflow: hidden; }
@@ -746,68 +678,74 @@ def generate_ai_copilot_text(df, name):
     final_text = f"{random.choice(openers)} {advice} {tech} 切记，即使我看好，也要设好止损线 {c['close']*0.95:.2f} 保护自己。"
     return final_text, mood
 
-# ✅ 新增功能：AI 智能研报生成逻辑
-def generate_new_ai_report(df, name):
+# ✅ 新增：基于 CSS Grid 的稳定策略卡片
+def generate_strategy_card(df, name):
+    if df.empty: return ""
     c = df.iloc[-1]
-    # 计算逻辑
-    # 支撑位：取过去20日最低价作为强支撑
+    
+    # 1. 核心数据计算
     support = df['low'].tail(20).min()
-    # 压力位：取过去20日最高价
     resistance = df['high'].tail(20).max()
-    # ATR用于止损止盈
-    atr = c['ATR14']
-    # 止损：当前价格向下2倍ATR
-    stop_loss = c['close'] - 2.0 * atr
-    # 止盈：当前价格向上3倍ATR（盈亏比1.5:1）
-    take_profit = c['close'] + 3.0 * atr
-
-    # 逻辑说明文案
-    logic_points = []
-    logic_points.append(f"支撑位 ({support:.2f})：取自过去20个交易日的最低价，该位置具有较强多头防守意义。")
-    logic_points.append(f"压力位 ({resistance:.2f})：取自过去20个交易日的最高价，突破该位置需放量配合。")
-    logic_points.append(f"止损位 ({stop_loss:.2f})：基于ATR波动率算法计算（2倍ATR宽幅），防止正常波动洗盘。")
-    logic_points.append(f"止盈位 ({take_profit:.2f})：设置盈亏比为1.5:1，基于当前波动率测算的短期获利目标。")
-
-    if c['MA_Short'] > c['MA_Long']:
-        trend_str = "多头趋势 (看涨)"
-        trend_color = "#d32f2f" # Red for up
-    else:
-        trend_str = "空头/震荡 (谨慎)"
-        trend_color = "#2e7d32" # Green for down
-
-    # 构造 HTML
+    stop_loss = c['close'] - 2.0 * c['ATR14']
+    take_profit = c['close'] + 3.0 * c['ATR14']
+    
+    # 2. 策略逻辑判断
+    action = "观望 Wait"
+    position = "0成 (空仓)"
+    color = "#757575"
+    bg_color = "#f5f5f5"
+    
+    if c['MA_Short'] > c['MA_Long'] and c['close'] > c['MA60']:
+        action = "🟢 积极买入/加仓"
+        color = "#d32f2f"
+        bg_color = "#ffebee"
+        position = "6-8成"
+    elif c['MA_Short'] < c['MA_Long']:
+        action = "🔴 减仓/止盈"
+        color = "#2e7d32"
+        bg_color = "#e8f5e9"
+        position = "0-3成"
+    elif c['close'] < c['MA60']:
+        action = "⚠️ 反弹减持"
+        color = "#f9a825"
+        bg_color = "#fffde7"
+        position = "2-4成"
+        
+    # 3. 构建 HTML (Grid 布局)
     html = f"""
-    <div class="final-card-container">
-        <div class="final-card-badge" style="background:#e3f2fd; color:#1565c0;">🤖 AI 智能研报 (Smart Report)</div>
-        <div style="font-size:24px; font-weight:900; color:#333; margin:10px 0;">{name} 交易策略规划</div>
-        <div style="font-size:14px; color:{trend_color}; font-weight:bold; margin-bottom:15px;">当前主趋势判断：{trend_str}</div>
-
-        <div class="final-grid" style="background: #f8f9fa; border-radius: 8px; padding: 10px;">
-            <div class="final-item">
-                <div class="final-item-val" style="color:#2e7d32">{support:.2f}</div>
-                <div class="final-item-lbl">📉 强支撑位</div>
-            </div>
-             <div class="final-item">
-                <div class="final-item-val" style="color:#c62828">{resistance:.2f}</div>
-                <div class="final-item-lbl">📈 强压力位</div>
-            </div>
-            <div class="final-item">
-                <div class="final-item-val" style="color:#ff9800">{take_profit:.2f}</div>
-                <div class="final-item-lbl">💰 建议止盈</div>
-            </div>
-            <div class="final-item">
-                <div class="final-item-val" style="color:#333">{stop_loss:.2f}</div>
-                <div class="final-item-lbl">🛡️ 建议止损</div>
+    <div class="app-card" style="border-left: 5px solid {color};">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; padding-bottom:10px; border-bottom:1px solid #eee;">
+            <div style="font-size:18px; font-weight:900; color:#333;">🛡️ 交易计划 (Trading Plan)</div>
+            <div style="background:{bg_color}; color:{color}; padding:4px 12px; border-radius:4px; font-weight:bold; font-size:14px;">
+                建议仓位: {position}
             </div>
         </div>
-
-        <div class="final-reasons" style="margin-top:20px;">
-            <div style="font-weight:bold; margin-bottom:8px; color:#1565c0;">📊 数据逻辑与策略依据：</div>
-            {"".join([f"<div style='margin-bottom:4px; font-size:13px; color:#555;'>• {p}</div>" for p in logic_points])}
+        
+        <div style="text-align:center; margin-bottom:20px;">
+            <div style="font-size:12px; color:#999; margin-bottom:4px;">当前操作建议</div>
+            <div style="font-size:28px; font-weight:900; color:{color}; letter-spacing:1px;">{action}</div>
         </div>
 
-        <div class="disclaimer-box" style="margin-top:20px; font-style:italic;">
-            ⚖️ 免责声明：本报告由量化模型自动生成，支撑/压力位仅基于历史波动率测算，不代表未来绝对走势。市场有风险，投资需谨慎。
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div style="background:#fff5f5; padding:10px; border-radius:8px; text-align:center; border:1px solid #ffcdd2;">
+                <div style="font-size:12px; color:#b71c1c;">🎯 强压力位 (Resistance)</div>
+                <div style="font-size:18px; font-weight:bold; color:#333;">{resistance:.2f}</div>
+            </div>
+            <div style="background:#f1f8e9; padding:10px; border-radius:8px; text-align:center; border:1px solid #c8e6c9;">
+                <div style="font-size:12px; color:#1b5e20;">⚓ 强支撑位 (Support)</div>
+                <div style="font-size:18px; font-weight:bold; color:#333;">{support:.2f}</div>
+            </div>
+            <div style="background:#fff8e1; padding:10px; border-radius:8px; text-align:center; border:1px solid #ffecb3;">
+                <div style="font-size:12px; color:#f57f17;">💰 建议止盈 (Target)</div>
+                <div style="font-size:18px; font-weight:bold; color:#333;">{take_profit:.2f}</div>
+            </div>
+             <div style="background:#eceff1; padding:10px; border-radius:8px; text-align:center; border:1px solid #cfd8dc;">
+                <div style="font-size:12px; color:#455a64;">🛡️ 建议止损 (Stop)</div>
+                <div style="font-size:18px; font-weight:bold; color:#333;">{stop_loss:.2f}</div>
+            </div>
+        </div>
+        <div style="margin-top:15px; font-size:11px; color:#888; text-align:center;">
+            * 止损位基于2倍ATR波动率计算，压力支撑基于20日极值。
         </div>
     </div>
     """
@@ -1276,6 +1214,15 @@ try:
     
     st.divider()
 
+    # ✅ 新增：交易计划卡片 (在回测报告上方)
+    if is_pro:
+        # 如果是专业模式，显示交易计划
+        plan_html = generate_strategy_card(df, name)
+        st.markdown(plan_html, unsafe_allow_html=True)
+    else:
+        # 非专业模式，提示解锁
+        st.info("🔒 开启 [专业模式] 可查看具体的买卖点位、止盈止损价格及仓位建议。")
+
     # 回测看板
     st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
     ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
@@ -1322,11 +1269,6 @@ try:
                                         marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
-
-    # ✅ 修改：删除了旧的智能决策卡片，替换为 AI 智能研报模块
-    if is_pro:
-        report_html = generate_new_ai_report(df, name)
-        st.markdown(report_html, unsafe_allow_html=True)
 
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) # close blur

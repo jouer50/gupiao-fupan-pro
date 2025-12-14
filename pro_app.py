@@ -26,17 +26,17 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V79 (SimTrade+)",
+    page_title="阿尔法量研 Pro",
     layout="wide",
     page_icon="🔥",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded" 
+    # 注意：在移动端Sidebar会自动折叠，这是Streamlit特性
 )
 
 # 初始化 Session
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
-# 新增：用于控制交易数量输入的 Session
 if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
 
 # ✅ 模拟交易数据结构初始化
@@ -70,85 +70,158 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式
+# 🔥 CSS 样式 - 移动端丝滑体验深度优化版
 ui_css = """
 <style>
-    .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
-    header[data-testid="stHeader"] { background-color: transparent !important; pointer-events: none; }
-    header[data-testid="stHeader"] > div { pointer-events: auto; }
+    /* 全局重置与移动端适配 */
+    .stApp {
+        background-color: #f7f8fa; 
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Helvetica Neue", sans-serif;
+        touch-action: manipulation; /* 优化触摸响应 */
+    }
+    
+    /* 核心内容区去边距 - 解决"滑动头晕"问题 */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 3rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        max-width: 100% !important;
+    }
+
+    /* 隐藏 Streamlit 默认头部干扰 */
+    header[data-testid="stHeader"] { display: none !important; }
+    footer { display: none !important; }
     [data-testid="stDecoration"] { display: none !important; }
-    .stDeployButton { display: none !important; }
+
+    /* 侧边栏按钮优化 */
     [data-testid="stSidebarCollapsedControl"] {
-        display: block !important; position: fixed !important; top: 10px !important; left: 10px !important;
-        color: #000; background-color: rgba(255,255,255,0.9) !important; border-radius: 50%;
-        width: 40px; height: 40px; padding: 5px; z-index: 999999 !important; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        top: 10px !important; left: 10px !important;
+        background-color: white !important;
+        border-radius: 50%;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        z-index: 999999 !important;
     }
+
+    /* 按钮 - APP风格 */
     div.stButton > button {
-        background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
-        color: #5d4037; border: 2px solid #fff9c4; border-radius: 25px; 
-        padding: 0.6rem 1.2rem; font-weight: 800; font-size: 16px;
-        box-shadow: 0 4px 10px rgba(255, 179, 0, 0.4); 
-        transition: all 0.2s; width: 100%;
+        background: white;
+        color: #333;
+        border: 1px solid #e0e0e0;
+        border-radius: 12px; /* 更圆润 */
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        font-size: 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03); 
+        width: 100%;
+        height: auto;
+        min-height: 44px; /* 适配手指触摸高度 */
+        transition: all 0.15s ease-in-out;
     }
-    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5); }
+    div.stButton > button:active { transform: scale(0.98); background: #f5f5f5; }
+
+    /* 主要操作按钮 */
     div.stButton > button[kind="primary"] { 
-        background: linear-gradient(145deg, #2962ff 0%, #0039cb 100%); 
-        color: white; border: none; box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
+        background: linear-gradient(135deg, #007AFF 0%, #0056b3 100%); 
+        color: white; 
+        border: none; 
+        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
     }
-    .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
-    .vip-badge { background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); color: #d32f2f; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; font-style: italic; }
-    .ai-chat-box {
-        background: #f0f7ff; border-radius: 12px; padding: 15px; margin-bottom: 20px;
-        border-left: 5px solid #2962ff; box-shadow: 0 4px 12px rgba(41, 98, 255, 0.1);
+
+    /* 每日精选卡片优化 */
+    .pick-card-btn { margin-bottom: 8px !important; }
+
+    /* 卡片容器 */
+    .app-card { 
+        background-color: #ffffff; 
+        border-radius: 16px; 
+        padding: 16px; 
+        margin-bottom: 12px; 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03); 
+        border: 1px solid rgba(0,0,0,0.02);
     }
+
+    /* 状态栏优化 */
     .market-status-box {
-        padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
+        padding: 12px 16px; 
+        border-radius: 12px; 
+        margin-bottom: 16px;
         display: flex; align-items: center; justify-content: space-between;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     }
-    .status-green { background: #e8f5e9; color: #2e7d32; border-left: 5px solid #2e7d32; }
-    .status-red { background: #ffebee; color: #c62828; border-left: 5px solid #c62828; }
-    .status-yellow { background: #fffde7; color: #f9a825; border-left: 5px solid #f9a825; }
-    .status-text { font-weight: 800; font-size: 16px; }
-    .big-price-box { text-align: center; margin-bottom: 20px; }
-    .price-main { font-size: 48px; font-weight: 900; line-height: 1; letter-spacing: -1.5px; }
-    .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
-    .rating-container { display: flex; justify-content: space-between; gap: 8px; }
-    .rating-box { flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px; text-align: center; padding: 15px 2px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
-    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
-    .rating-label { font-size: 12px; color: #666; font-weight: 500; }
-    .score-yellow { color: #ff9800 !important; }
-    .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
-    .bt-container { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); margin-bottom: 20px; border: 1px solid #f0f0f0; }
-    .bt-header { font-size: 18px; font-weight: 800; color: #1d1d1f; margin-bottom: 15px; border-left: 4px solid #2962ff; padding-left: 10px; }
-    .bt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-    .bt-card { background: #f9f9f9; padding: 15px; border-radius: 10px; text-align: center; transition: all 0.3s; }
-    .bt-card:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); background: #fff; border: 1px solid #e0e0e0; }
-    .bt-val { font-size: 24px; font-weight: 900; color: #333; }
-    .bt-lbl { font-size: 12px; color: #666; margin-top: 5px; }
-    .bt-pos { color: #d32f2f; }
-    .bt-neu { color: #333; }
-    .bt-neg { color: #2e7d32; }
-    .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
-    .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
+    .status-green { background: #e8f5e9; color: #1b5e20; border-left: 4px solid #2e7d32; }
+    .status-red { background: #ffebee; color: #b71c1c; border-left: 4px solid #c62828; }
+    .status-yellow { background: #fffde7; color: #f57f17; border-left: 4px solid #fbc02d; }
+
+    /* 价格大字 */
+    .big-price-box { text-align: center; margin: 10px 0 20px 0; }
+    .price-main { font-size: 42px; font-weight: 800; line-height: 1; letter-spacing: -1px; font-family: "SF Pro Display", sans-serif; }
+    .price-sub { font-size: 15px; font-weight: 600; margin-left: 6px; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,0.05); }
+
+    /* 评分卡片 */
+    .rating-container { display: flex; justify-content: space-between; gap: 10px; }
+    .rating-box { 
+        flex: 1; background: #fff; 
+        border-radius: 12px; 
+        text-align: center; 
+        padding: 12px 5px; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03); 
+    }
+
+    /* 模拟交易小按钮组 */
+    .trade-btn-group { display: flex; gap: 4px; margin-bottom: 8px; }
+    .trade-btn-group button { 
+        flex: 1; 
+        font-size: 12px !important; 
+        padding: 4px !important; 
+        min-height: 32px !important; 
+        border-radius: 8px !important;
+    }
+
+    /* 锁定层样式 */
     .locked-container { position: relative; overflow: hidden; }
-    .locked-blur { filter: blur(6px); user-select: none; opacity: 0.6; pointer-events: none; }
+    .locked-blur { filter: blur(8px); user-select: none; opacity: 0.5; pointer-events: none; transition: filter 0.3s; }
     .locked-overlay {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: rgba(255, 255, 255, 0.4); z-index: 10;
+        background: rgba(255, 255, 255, 0.6); z-index: 10;
+        backdrop-filter: blur(2px);
     }
-    .lock-icon { font-size: 40px; margin-bottom: 10px; }
-    .lock-title { font-size: 18px; font-weight: 900; color: #333; margin-bottom: 5px; }
-    .lock-desc { font-size: 13px; color: #666; margin-bottom: 15px; }
-    [data-testid="metric-container"] { display: none; }
-    .deep-title { font-size: 16px; font-weight: 700; color: #1d1d1f; margin-bottom: 8px; border-left: 3px solid #ff9800; padding-left: 8px; }
-    .deep-text { font-size: 13px; color: #444; line-height: 1.6; }
     
-    /* 模拟交易优化样式 */
-    .trade-btn-group { display: flex; gap: 5px; margin-bottom: 10px; }
-    .trade-btn-group button { border-radius: 6px !important; padding: 2px 5px !important; font-size: 12px !important; border: 1px solid #eee !important; background: #fff !important; color: #333 !important; box-shadow: none !important; }
-    .trade-btn-group button:hover { background: #f0f0f0 !important; }
+    /* Expander 优化 */
+    .streamlit-expanderHeader {
+        background-color: #fff;
+        border-radius: 12px;
+        font-size: 15px;
+        font-weight: 600;
+        border: 1px solid #f0f0f0;
+    }
+    .streamlit-expanderContent {
+        background-color: #fafafa;
+        border-bottom-left-radius: 12px;
+        border-bottom-right-radius: 12px;
+        border: 1px solid #f0f0f0;
+        border-top: none;
+    }
+
+    /* AI 对话框 */
+    .ai-chat-box {
+        background: #f2f8ff; border-radius: 12px; padding: 15px; margin-bottom: 15px;
+        border-left: 4px solid #007AFF; 
+    }
+    
+    /* 隐藏不需要的默认元素 */
+    [data-testid="metric-container"] { display: none; }
+    
+    /* 策略报告 */
+    .bt-container { background: white; border-radius: 12px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 20px; }
+    .bt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; } /* 移动端改为2列 */
+    .bt-card { background: #f9f9f9; padding: 12px; border-radius: 10px; text-align: center; }
+    .bt-val { font-size: 20px; font-weight: 800; color: #333; }
+    .bt-lbl { font-size: 11px; color: #666; margin-top: 4px; }
+    .bt-pos { color: #d32f2f; }
+    .bt-neg { color: #2e7d32; }
+
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
@@ -581,18 +654,44 @@ def check_market_status(df):
     else:
         return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
 
+# ✅ 优化逻辑：基于技术指标筛选，而非随机
 def get_daily_picks(user_watchlist):
-    hot_stocks = ["600519", "NVDA", "TSLA", "300750", "002594", "AAPL"]
-    pool = list(set(hot_stocks + user_watchlist))
+    hot_stocks = ["600519", "NVDA", "TSLA", "300750", "AAPL"]
+    # 限制数量以防卡顿
+    pool = list(set(hot_stocks + user_watchlist))[:8] 
     results = []
-    for code in pool[:6]: 
-        name = get_name(code, "", None)
-        status = random.choice(["buy", "hold", "wait"])
-        if status == "buy":
-            results.append({"code": code, "name": name, "tag": "今日买点", "type": "tag-buy"})
-        elif status == "hold":
-            results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
-    return results
+    
+    for code in pool:
+        try:
+            # 简单拉取少量数据判断
+            df = get_data_and_resample(code, "", "日线", "", None)
+            if df.empty or len(df) < 30: continue
+            
+            # 计算简易指标
+            c = df['close']; ma20 = c.rolling(20).mean(); ma5 = c.rolling(5).mean()
+            delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
+            rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
+            rsi = 100 - (100/(1+rs))
+            
+            last = df.iloc[-1]
+            last_ma20 = ma20.iloc[-1]
+            last_ma5 = ma5.iloc[-1]
+            last_rsi = rsi.iloc[-1]
+            name = get_name(code, "", None)
+
+            # 策略逻辑
+            if last['close'] > last_ma20 and last_rsi < 45:
+                results.append({"code": code, "name": name, "tag": "🟢 回踩买点", "reason": "上升趋势回调+RSI超卖"})
+            elif last_ma5 > last_ma20 and ma5.iloc[-2] <= ma20.iloc[-2]:
+                results.append({"code": code, "name": name, "tag": "🚀 均线金叉", "reason": "MA5上穿MA20启动"})
+            elif last['close'] < last_ma20 and last_rsi > 70:
+                results.append({"code": code, "name": name, "tag": "🔴 高位预警", "reason": "熊市反弹+RSI超买"})
+            elif last['close'] > last_ma20:
+                results.append({"code": code, "name": name, "tag": "👀 多头观察", "reason": "站稳20日线"})
+                
+        except: continue
+        
+    return results[:5] # 只返回前5个
 
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
@@ -764,8 +863,8 @@ def calculate_smart_score(df, funda):
     return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
 
 def plot_chart(df, name, flags, ma_s, ma_l):
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
-    fig.update_layout(dragmode=False, margin=dict(l=10, r=10, t=10, b=10))
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2], vertical_spacing=0.02)
+    fig.update_layout(dragmode=False, margin=dict(l=0, r=0, t=10, b=10)) # 去除图表边距
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'), 1, 1)
     if flags.get('ma'):
         fig.add_trace(go.Scatter(x=df['date'], y=df['MA_Short'], name=f'MA{ma_s}', line=dict(width=1.2, color='#333333')), 1, 1)
@@ -834,10 +933,8 @@ with st.sidebar:
                 * 充值时请备注您的用户名。
                 * 有问题咨询微信公众号：`lubingxpiaoliuji`
                 """)
-                
                 if os.path.exists("alipay.png"):
                     st.image("alipay.png", caption="请使用支付宝扫码 (备注用户名)", width=200)
-                
                 st.markdown("---")
                 st.write("##### 卡密兑换")
                 k_in = st.text_input("输入卡密")
@@ -857,7 +954,6 @@ with st.sidebar:
         else: st.info(f"👤 普通用户")
 
         st.markdown("### 👁️ 视觉模式")
-        # ✅ 修改2: label_visibility="collapsed" 去除“显示模式”文字
         view_mode = st.radio("Display Mode", ["极简模式", "专业模式"], index=0, horizontal=True, label_visibility="collapsed")
         
         is_unlocked = False
@@ -878,13 +974,19 @@ with st.sidebar:
             is_pro = (view_mode == "专业模式")
         
         if not is_admin:
-            st.markdown("### 🎯 每日精选策略")
+            st.markdown("### 🎯 每日精选 (技术面筛选)")
             user_wl = get_user_watchlist(user)
-            picks = get_daily_picks(user_wl)
+            # 使用新的逻辑获取推荐
+            with st.spinner("AI正在扫描盘面..."):
+                picks = get_daily_picks(user_wl)
+            
             for pick in picks:
+                # 显示理由
+                st.caption(f"💡 {pick['reason']}")
                 if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}"):
                     st.session_state.code = pick['code']
                     st.rerun()
+                st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
             st.divider()
         
         # ✅✅✅✅✅✅✅✅✅ 模拟交易模块深度优化 (V79) ✅✅✅✅✅✅✅✅✅
@@ -1097,8 +1199,9 @@ with st.sidebar:
         
         st.divider()
         
+        # ✅ 修改：默认折叠策略参数，避免占用移动端宝贵空间
         if is_pro:
-            with st.expander("🎛️ 策略参数 (Pro)", expanded=True):
+            with st.expander("🎛️ 策略参数 (Pro)", expanded=False):
                 ma_s = st.slider("短期均线", 2, 20, 5)
                 ma_l = st.slider("长期均线", 10, 120, 20)
             
@@ -1176,8 +1279,8 @@ if not st.session_state.get('logged_in'):
 
 # --- 主内容区 ---
 name = get_name(st.session_state.code, "", None) 
-c1, c2 = st.columns([3, 1])
-with c1: st.title(f"📈 {name} ({st.session_state.code})")
+# 移动端不需要 c1, c2 分列，直接展示
+st.title(f"📈 {name} ({st.session_state.code})")
 
 is_demo = False
 loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
@@ -1237,7 +1340,7 @@ try:
     <div class="ai-chat-box">
         <div class="ai-avatar">{ai_icon}</div>
         <div class="ai-content">
-            <span style="font-weight:bold; color:#2962ff;">AI 投顾助理：</span>
+            <span style="font-weight:bold; color:#007AFF;">AI 投顾助理：</span>
             {ai_text}
         </div>
     </div>
@@ -1274,7 +1377,6 @@ try:
             <div class="bt-card">
                 <div class="bt-val bt-pos">+{ret:.1f}%</div>
                 <div class="bt-lbl">策略总回报</div>
-                <div class="bt-tag tag-alpha">Alpha</div>
             </div>
             <div class="bt-card">
                 <div class="bt-val bt-pos">{win:.1f}%</div>
@@ -1282,11 +1384,11 @@ try:
             </div>
             <div class="bt-card">
                 <div class="bt-val bt-neg">-{mdd:.1f}%</div>
-                <div class="bt-lbl">最大回撤 (Risk)</div>
+                <div class="bt-lbl">最大回撤</div>
             </div>
             <div class="bt-card">
                 <div class="bt-val bt-neu">{sharpe:.2f}</div>
-                <div class="bt-lbl">夏普比率 (Sharpe)</div>
+                <div class="bt-lbl">夏普比率</div>
             </div>
         </div>
         <div style="font-size:12px; color:#888; text-align:right;">* 回测区间包含 {len(eq)} 个交易日，对比基准为“买入持有”策略</div>
@@ -1303,7 +1405,7 @@ try:
             buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
             bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
                                         marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
-        bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
+        bt_fig.update_layout(height=350, margin=dict(l=0,r=0,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
     if not has_access:

@@ -70,115 +70,148 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (已针对移动端和果冻黄按钮优化)
+# 🔥 CSS 样式 (移动端 App 风格深度优化版)
 ui_css = """
 <style>
-    .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
-    header[data-testid="stHeader"] { background-color: transparent !important; pointer-events: none; }
-    header[data-testid="stHeader"] > div { pointer-events: auto; }
+    /* 全局背景与字体优化 - 更加原生 */
+    .stApp {
+        background-color: #f5f7f9; /* 更柔和的灰白背景 */
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; /* iOS 优先字体 */
+        touch-action: manipulation; /* 优化触控响应 */
+    }
+
+    /* 🚫 隐藏 Streamlit 默认顶部装饰条和 Header，实现沉浸式体验 */
+    header[data-testid="stHeader"] { display: none !important; }
     [data-testid="stDecoration"] { display: none !important; }
     .stDeployButton { display: none !important; }
-    
-    /* 📱 移动端优化：果冻黄侧边栏悬浮按钮 */
+
+    /* 📱 蓝色侧边栏悬浮按钮 - 简约稳定版 */
     [data-testid="stSidebarCollapsedControl"] {
         display: block !important;
         position: fixed !important;
-        top: 15px !important;   /* 稍微下移，避开刘海屏 */
-        left: 15px !important;
-        color: #5d4037 !important; /* 深褐色图标，对比度更佳 */
-        background: linear-gradient(135deg, #ffe082 0%, #ffb300 100%) !important; /* 果冻黄渐变 */
-        border-radius: 50% !important;
-        width: 48px !important;  /* 加大尺寸，方便手指点击 */
-        height: 48px !important;
-        padding: 10px !important;
+        top: 10px !important;
+        left: 10px !important;
+        background-color: #2962ff !important; /* 科技蓝 */
+        color: white !important;
+        border-radius: 8px !important; /* 简单的圆角矩形 */
+        width: 44px !important;
+        height: 44px !important;
+        padding: 8px !important;
         z-index: 999999 !important;
-        box-shadow: 0 4px 12px rgba(255, 179, 0, 0.5), inset 0 2px 3px rgba(255,255,255,0.6) !important; /* Q弹光泽与阴影 */
-        border: 2px solid #fffde7 !important;
-        transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important; /* 弹性动画 */
+        box-shadow: 0 4px 12px rgba(41, 98, 255, 0.3) !important;
+        border: none !important;
+        transition: opacity 0.2s;
     }
-    
-    /* 按钮点击时的回弹效果 */
     [data-testid="stSidebarCollapsedControl"]:active {
-        transform: scale(0.9) !important;
-    }
-    
-    /* 移动端页面顶部留白，防止内容被按钮遮挡 */
-    .block-container {
-        padding-top: 70px !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
+        opacity: 0.8; /* 点击时轻微变暗，提供反馈 */
     }
 
+    /* 📱 移动端布局核心优化：去除网页感 */
+    .block-container {
+        padding-top: 60px !important; /* 留出顶部按钮空间 */
+        padding-left: 12px !important; /* 减少两侧留白 */
+        padding-right: 12px !important;
+        padding-bottom: 30px !important;
+        max-width: 100% !important;
+    }
+    
+    /* 按钮优化：更大的点击区域 (Finger-friendly) */
     div.stButton > button {
-        background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
-        color: #5d4037; border: 2px solid #fff9c4; border-radius: 25px; 
-        padding: 0.6rem 1.2rem; font-weight: 800; font-size: 16px;
-        box-shadow: 0 4px 10px rgba(255, 179, 0, 0.4); 
-        transition: all 0.2s; width: 100%;
+        background: #ffffff;
+        color: #333; 
+        border: 1px solid #e0e0e0;
+        border-radius: 12px; /* iOS 风格圆角 */
+        padding: 0px 16px; 
+        height: 48px; /* 增加高度，易于点击 */
+        font-weight: 600;
+        font-size: 15px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.03); 
+        width: 100%;
+        margin-bottom: 4px;
+        transition: background 0.15s;
     }
-    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5); }
+    div.stButton > button:active {
+        background-color: #f0f0f0;
+        transform: scale(0.98);
+    }
+    
+    /* 主要操作按钮 (Primary) */
     div.stButton > button[kind="primary"] { 
-        background: linear-gradient(145deg, #2962ff 0%, #0039cb 100%); 
-        color: white; border: none; box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
+        background: #2962ff; 
+        color: white; 
+        border: none; 
+        box-shadow: 0 4px 12px rgba(41, 98, 255, 0.3);
     }
-    .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+
+    /* 卡片式设计 - 增强浮动感 */
+    .app-card { 
+        background-color: #ffffff; 
+        border-radius: 16px; /* 更大的圆角 */
+        padding: 18px; 
+        margin-bottom: 16px; 
+        box-shadow: 0 4px 16px rgba(0,0,0,0.04); /* 更柔和的扩散阴影 */
+        border: 1px solid rgba(0,0,0,0.02);
+    }
+
+    /* 其它组件样式保持 */
     .vip-badge { background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); color: #d32f2f; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; font-style: italic; }
     .ai-chat-box {
-        background: #f0f7ff; border-radius: 12px; padding: 15px; margin-bottom: 20px;
-        border-left: 5px solid #2962ff; box-shadow: 0 4px 12px rgba(41, 98, 255, 0.1);
+        background: #ffffff; border-radius: 16px; padding: 16px; margin-bottom: 20px;
+        border-left: 4px solid #2962ff; box-shadow: 0 4px 16px rgba(0,0,0,0.04);
     }
     .market-status-box {
-        padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
+        padding: 12px 16px; border-radius: 12px; margin-bottom: 20px;
         display: flex; align-items: center; justify-content: space-between;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
     }
-    .status-green { background: #e8f5e9; color: #2e7d32; border-left: 5px solid #2e7d32; }
-    .status-red { background: #ffebee; color: #c62828; border-left: 5px solid #c62828; }
-    .status-yellow { background: #fffde7; color: #f9a825; border-left: 5px solid #f9a825; }
-    .status-text { font-weight: 800; font-size: 16px; }
-    .big-price-box { text-align: center; margin-bottom: 20px; }
-    .price-main { font-size: 48px; font-weight: 900; line-height: 1; letter-spacing: -1.5px; }
-    .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
-    .rating-container { display: flex; justify-content: space-between; gap: 8px; }
-    .rating-box { flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px; text-align: center; padding: 15px 2px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
-    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
-    .rating-label { font-size: 12px; color: #666; font-weight: 500; }
+    .status-green { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #2e7d32; }
+    .status-red { background: #ffebee; color: #c62828; border-left: 4px solid #c62828; }
+    .status-yellow { background: #fffde7; color: #f9a825; border-left: 4px solid #f9a825; }
+    
+    .big-price-box { text-align: center; margin-bottom: 10px; margin-top: 10px; }
+    .price-main { font-size: 42px; font-weight: 800; line-height: 1; letter-spacing: -1px; }
+    .price-sub { font-size: 15px; font-weight: 600; margin-left: 5px; background: rgba(0,0,0,0.05); padding: 2px 8px; border-radius: 6px; vertical-align: middle;}
+    
+    .rating-container { display: flex; justify-content: space-between; gap: 10px; }
+    .rating-box { flex: 1; background: #fff; border-radius: 12px; text-align: center; padding: 12px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+    .rating-score { font-size: 24px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 4px; }
+    .rating-label { font-size: 11px; color: #888; font-weight: 500; }
     .score-yellow { color: #ff9800 !important; }
-    .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
-    .bt-container { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); margin-bottom: 20px; border: 1px solid #f0f0f0; }
-    .bt-header { font-size: 18px; font-weight: 800; color: #1d1d1f; margin-bottom: 15px; border-left: 4px solid #2962ff; padding-left: 10px; }
-    .bt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-    .bt-card { background: #f9f9f9; padding: 15px; border-radius: 10px; text-align: center; transition: all 0.3s; }
-    .bt-card:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); background: #fff; border: 1px solid #e0e0e0; }
-    .bt-val { font-size: 24px; font-weight: 900; color: #333; }
-    .bt-lbl { font-size: 12px; color: #666; margin-top: 5px; }
+    
+    .bt-container { background: white; border-radius: 16px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 20px; }
+    .bt-header { font-size: 16px; font-weight: 700; color: #1d1d1f; margin-bottom: 12px; border-left: 4px solid #2962ff; padding-left: 10px; }
+    .bt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+    .bt-card { background: #f9f9f9; padding: 10px 5px; border-radius: 8px; text-align: center; }
+    .bt-val { font-size: 18px; font-weight: 800; color: #333; }
+    .bt-lbl { font-size: 10px; color: #888; margin-top: 4px; }
     .bt-pos { color: #d32f2f; }
     .bt-neu { color: #333; }
     .bt-neg { color: #2e7d32; }
-    .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
-    .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
+    
     .locked-container { position: relative; overflow: hidden; }
-    .locked-blur { filter: blur(6px); user-select: none; opacity: 0.6; pointer-events: none; }
+    .locked-blur { filter: blur(8px); user-select: none; opacity: 0.5; pointer-events: none; }
     .locked-overlay {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: rgba(255, 255, 255, 0.4); z-index: 10;
+        background: rgba(255, 255, 255, 0.6); z-index: 10;
+        backdrop-filter: blur(4px); /* 毛玻璃效果 */
     }
-    .lock-icon { font-size: 40px; margin-bottom: 10px; }
-    .lock-title { font-size: 18px; font-weight: 900; color: #333; margin-bottom: 5px; }
-    .lock-desc { font-size: 13px; color: #666; margin-bottom: 15px; }
-    [data-testid="metric-container"] { display: none; }
-    .deep-title { font-size: 16px; font-weight: 700; color: #1d1d1f; margin-bottom: 8px; border-left: 3px solid #ff9800; padding-left: 8px; }
-    .deep-text { font-size: 13px; color: #444; line-height: 1.6; }
     
-    /* 模拟交易优化样式 */
-    .trade-btn-group { display: flex; gap: 5px; margin-bottom: 10px; }
-    .trade-btn-group button { border-radius: 6px !important; padding: 2px 5px !important; font-size: 12px !important; border: 1px solid #eee !important; background: #fff !important; color: #333 !important; box-shadow: none !important; }
-    .trade-btn-group button:hover { background: #f0f0f0 !important; }
-    
+    /* 模拟交易 Tab 优化 */
+    [data-testid="stTabs"] button {
+        flex: 1; font-weight: 600; color: #666; 
+        border-bottom: 2px solid transparent;
+        padding: 10px 0;
+    }
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        color: #2962ff;
+        border-bottom: 2px solid #2962ff;
+    }
+
     @media (max-width: 640px) {
         .price-main { font-size: 36px; }
-        .bt-grid { grid-template-columns: repeat(2, 1fr); }
+        .bt-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .stPlotlyChart { height: 400px !important; } /* 移动端图表高度限制 */
     }
 </style>
 """

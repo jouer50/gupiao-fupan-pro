@@ -14,6 +14,7 @@ import urllib.request
 import json
 import socket
 import base64
+import io
 
 # ✅ 0. 依赖库检查
 try:
@@ -26,7 +27,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V76 (Stable)",
+    page_title="阿尔法量研 Pro V74 (Custom)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -53,7 +54,6 @@ ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
 DB_FILE = "users_v69.csv" 
 KEYS_FILE = "card_keys.csv"
-WECHAT_VALID_CODE = "666888" # 模拟微信公众号返回的验证码
 
 # Optional deps
 ts = None
@@ -63,8 +63,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (UI Fix & Optimization)
-# 重点修复：补全 .final-grid 等样式，确保决策卡片不乱码
+# 🔥 CSS 样式 (保持原样并微调)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -129,73 +128,6 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 智能决策卡片样式 (关键修复) */
-    .final-card-container {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-left: 5px solid #2962ff;
-        border-radius: 8px;
-        padding: 20px;
-        margin-top: 20px;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-    }
-    .final-card-badge {
-        display: inline-block;
-        background: #f0f7ff; color: #2962ff; 
-        padding: 4px 12px;
-        border-radius: 20px; 
-        font-weight: 700; font-size: 12px;
-        margin-bottom: 10px;
-    }
-    .final-action-main {
-        font-size: 32px; font-weight: 900; margin: 10px 0;
-        color: #333; letter-spacing: -0.5px;
-    }
-    
-    /* 修复 Flex 布局，防止乱码 */
-    .final-grid {
-        display: flex; 
-        justify-content: space-between; 
-        border-top: 1px solid #f0f0f0; 
-        padding-top: 15px; 
-        margin-top: 15px;
-        width: 100%;
-    }
-    .final-item { 
-        flex: 1; 
-        text-align: center;
-        border-right: 1px solid #f0f0f0; 
-    }
-    .final-item:last-child { border-right: none; }
-    
-    .final-item-val { 
-        font-size: 18px; 
-        font-weight: 800; 
-        color: #333; 
-        display: block; 
-    }
-    .final-item-lbl { 
-        font-size: 11px; 
-        color: #888; 
-        margin-top: 4px; 
-        text-transform: uppercase; 
-    }
-    
-    .final-reasons {
-        margin-top: 15px; 
-        text-align: left; 
-        font-size: 13px; 
-        color: #555; 
-        background: #f9f9f9; 
-        padding: 10px; 
-        border-radius: 6px;
-    }
-    .disclaimer-box {
-        margin-top: 15px; padding: 8px; background-color: #fff8e1; color: #ff8f00;
-        font-size: 11px; border-radius: 6px; text-align: center; border: 1px solid #ffecb3;
-    }
-
     /* 锁定状态样式 */
     .locked-container { position: relative; overflow: hidden; }
     .locked-blur { filter: blur(6px); user-select: none; opacity: 0.6; pointer-events: none; }
@@ -210,6 +142,22 @@ ui_css = """
     [data-testid="metric-container"] { display: none; }
     .deep-title { font-size: 16px; font-weight: 700; color: #1d1d1f; margin-bottom: 8px; border-left: 3px solid #ff9800; padding-left: 8px; }
     .deep-text { font-size: 13px; color: #444; line-height: 1.6; }
+    
+    /* 🔥 新增底部交易看板样式 */
+    .trade-plan-container {
+        background: #fff; border-top: 4px solid #00c853; border-radius: 8px;
+        padding: 20px; margin-top: 20px; box-shadow: 0 -2px 15px rgba(0,0,0,0.05);
+    }
+    .tp-title { font-size: 20px; font-weight: 900; color: #333; margin-bottom: 15px; display: flex; align-items: center; }
+    .tp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .tp-box { background: #f5f7f9; padding: 10px; border-radius: 6px; text-align: center; }
+    .tp-val { font-size: 18px; font-weight: bold; color: #333; }
+    .tp-lbl { font-size: 12px; color: #777; margin-top: 4px; }
+    .risk-alert { 
+        margin-top: 30px; padding: 15px; background: #fff3e0; 
+        color: #e65100; border: 1px solid #ffe0b2; border-radius: 8px;
+        font-size: 12px; text-align: center; font-weight: bold;
+    }
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
@@ -290,7 +238,7 @@ def check_vip_status(username):
     row = df[df["username"] == username]
     if row.empty: return False, "非会员"
     expiry_str = str(row.iloc[0]["vip_expiry"])
-    if not expiry_str or expiry_str == "nan": return False, "非会员"
+    if not expiry_str or expiry_str == "nan": return False, "普通会员"
     try:
         exp_date = datetime.strptime(expiry_str, "%Y-%m-%d")
         if exp_date >= datetime.now():
@@ -331,9 +279,7 @@ def batch_generate_keys(points, count):
 def redeem_key(username, key_input):
     df_keys = load_keys()
     match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"] == "unused")]
-    
-    if match.empty: return False, "❌ 无效卡密或已被使用"
-    
+    if match.empty: return False, "❌ 无效卡密"
     points_to_add = int(match.iloc[0]["points"])
     df_keys.loc[match.index[0], "status"] = f"used_by_{username}"
     save_keys(df_keys)
@@ -351,7 +297,7 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
-def register_user(u, p, initial_quota=10):
+def register_user(u, p, initial_quota=0):
     if u == ADMIN_USER: return False, "保留账号"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
@@ -360,7 +306,7 @@ def register_user(u, p, initial_quota=10):
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
-    return True, f"注册成功，已获赠 {initial_quota} 积分！"
+    return True, "注册成功！"
 
 def consume_quota(u):
     if u == ADMIN_USER: return True
@@ -852,46 +798,55 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V76</div>
+        <div class='brand-en'>AlphaQuant Pro V74</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
     
-    if st.session_state.get('logged_in'):
+    # 🔥🔥🔥 1. 会员与充值中心 (上移至顶部，默认折叠)
+    if st.session_state.get('logged_in') and not (st.session_state["user"] == ADMIN_USER):
         user = st.session_state["user"]
-        is_admin = (user == ADMIN_USER)
-        
-        if not is_admin:
-            with st.expander("💎 会员与充值中心", expanded=False):
-                st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
-                st.markdown("""
-                **💰 充值说明 (1元 = 2积分)**
-                * 充值时请备注您的用户名。
-                * 有问题咨询微信公众号：`lubingxpiaoliuji`
-                """)
-                
-                # 回归到仅人工/扫码方式，删除了自动模拟发货
-                if os.path.exists("alipay.png"):
-                    st.image("alipay.png", caption="请使用支付宝扫码 (备注用户名)", width=200)
-                
-                st.markdown("---")
-                st.write("##### 卡密兑换")
-                k_in = st.text_input("输入卡密")
-                if st.button("兑换"):
-                    s, m = redeem_key(user, k_in)
-                    if s: st.success(m); time.sleep(1); st.rerun()
-                    else: st.error(m)
-
+        with st.expander("💎 充值与会员中心", expanded=False):
+            st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
+            
+            st.write("##### 1. 扫码充值")
+            # 增加10元选项
+            pay_opt = st.radio("充值面额", [10, 20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
+            
+            if os.path.exists("alipay.png"):
+                st.image("alipay.png", caption="请使用支付宝扫码", width=200)
+            else:
+                st.warning("请上传 alipay.png")
+            
+            st.markdown("""
+            **📢 充值说明：**
+            1. **兑换比例**：1元 = 2积分。
+            2. **会员套餐**：
+               - 充值 **30元** 兑换 **月卡会员** (VIP)
+               - 充值 **80元** 兑换 **季卡会员** (VIP)
+            3. **注意事项**：充值时请务必备注您的 **用户名**。
+            4. **客服咨询**：如有问题请关注微信公众号 **lubingxpiaoliuji** 咨询。
+            """)
+            
+            st.write("##### 2. 卡密兑换")
+            k_in = st.text_input("输入卡密")
+            if st.button("兑换"):
+                s, m = redeem_key(user, k_in)
+                if s: st.success(m); time.sleep(1); st.rerun()
+                else: st.error(m)
+    
     new_c = st.text_input("🔍 股票代码", st.session_state.code)
     if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
 
     if st.session_state.get('logged_in'):
+        user = st.session_state["user"]
+        is_admin = (user == ADMIN_USER)
         is_vip, vip_msg = check_vip_status(user)
         
         load_user_holdings(user)
         
-        if is_vip: st.success(f"👑 {vip_msg}")
-        else: st.info(f"👤 普通用户")
+        if is_vip: st.success(f"👑 {vip_msg} (VIP)")
+        else: st.info(f"👤 普通用户 (积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]})")
 
         st.markdown("### 👁️ 视觉模式")
         view_mode = st.radio("显示模式", ["极简模式", "专业模式"], index=0, horizontal=True)
@@ -932,14 +887,14 @@ with st.sidebar:
                     2. **盘感训练**：记录买卖逻辑，通过盈亏反馈修正交易心态。
                     3. **数据永存**：您的持仓数据已云端备份，随时可查。
                     """)
-                
+              
                 curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
-                
+              
                 curr_price = 0
                 try:
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
                 except: curr_price = 0 
-                
+              
                 if curr_hold:
                     cost = curr_hold.get('cost', 0)
                     qty = curr_hold.get('qty', 100)
@@ -958,7 +913,7 @@ with st.sidebar:
                         """, unsafe_allow_html=True)
                     else:
                         st.info(f"成本: {cost:.2f} | 数量: {qty}")
-                        
+                       
                     if st.button("卖出平仓", key="paper_sell"):
                         del st.session_state.paper_holdings[st.session_state.code]
                         save_user_holdings(user)
@@ -1008,38 +963,35 @@ with st.sidebar:
                             st.success(f"已更新 {vip_target} 的 VIP 权限！")
                             time.sleep(1); st.rerun()
                         else: st.error("更新失败")
-          
-            with st.expander("💳 卡密库存管理 (Stock)", expanded=True):
+           
+            with st.expander("💳 卡密生成"):
                 points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
                 count_gen = st.number_input("数量", 1, 50, 10)
-                if st.button("批量生成库存"):
+                if st.button("批量生成"):
                     num = batch_generate_keys(points_gen, count_gen)
-                    st.success(f"已入库 {num} 张卡密 (面值{points_gen})")
-                
-                # Show stock stats
-                try:
-                    df_k = load_keys()
-                    st.write("当前库存统计:")
-                    st.dataframe(df_k[df_k['status']=='unused'].groupby('points').size().reset_index(name='count'), hide_index=True)
-                except: pass
-                    
-            with st.expander("用户管理"):
-                uploaded_file = st.file_uploader("📂 导入用户数据 (CSV)", type=['csv'])
+                    st.success(f"已生成 {num} 张卡密")
+                   
+            with st.expander("👤 用户管理"):
+                # 🔥🔥🔥 管理员上传用户数据功能
+                uploaded_file = st.file_uploader("📂 上传用户数据 (覆盖 users.csv)", type="csv")
                 if uploaded_file is not None:
                     try:
-                        new_data = pd.read_csv(uploaded_file)
-                        current_data = load_users()
-                        combined = pd.concat([current_data, new_data]).drop_duplicates(subset=['username'], keep='last')
-                        save_users(combined)
-                        st.success(f"成功导入！当前总用户数: {len(combined)}")
+                        new_df = pd.read_csv(uploaded_file)
+                        # 简单校验必要列
+                        if "username" in new_df.columns:
+                            new_df.to_csv(DB_FILE, index=False)
+                            st.success("用户数据更新成功！")
+                            time.sleep(1); st.rerun()
+                        else:
+                            st.error("CSV 格式错误：缺少 username 列")
                     except Exception as e:
-                        st.error(f"导入失败: {e}")
+                        st.error(f"上传失败: {e}")
 
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota", "vip_expiry", "paper_json"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据 (含模拟持仓)", csv, "backup.csv", "text/csv")
-                
+              
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
                     target = st.selectbox("选择用户", u_list)
@@ -1052,7 +1004,8 @@ with st.sidebar:
                         if st.button("删除") and chk: delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
 
         timeframe = st.selectbox("周期", ["日线", "周线", "月线"])
-        days = st.radio("范围", [30,60,120,250], 2, horizontal=True)
+        # 🔥🔥🔥 增加 7 和 10 两个周期选项
+        days = st.radio("范围", [7, 10, 30, 60, 120, 250], 4, horizontal=True)
         adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
         
         st.divider()
@@ -1076,12 +1029,11 @@ with st.sidebar:
                 flags['chan'] = st.checkbox("缠论", True)
         
         st.divider()
-        st.caption("免责声明：本系统仅供量化研究，不构成投资建议。")
         if st.button("退出登录"): st.session_state["logged_in"]=False; st.rerun()
     else:
         st.info("请先登录系统")
 
-# 登录逻辑 (包含新增的注册逻辑)
+# 登录逻辑
 if not st.session_state.get('logged_in'):
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
@@ -1092,47 +1044,51 @@ if not st.session_state.get('logged_in'):
             <div class='brand-en'>AlphaQuant Pro</div>
         </div>
         """, unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
+        
+        # 🔥🔥🔥 注册系统升级：微信验证注册 + 普通注册
+        tab1, tab2, tab3 = st.tabs(["🔑 登录", "✨ 微信验证注册 (+20积分)", "📧 普通注册"])
+        
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
             if st.button("登录系统"):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
+        
         with tab2:
-            # 注册方式选择：微信在前，普通在后
-            reg_type = st.radio("选择注册方式", 
-                              ["微信公众号验证注册 (推荐)", "普通用户注册"], 
-                              horizontal=False)
+            st.info("🎁 关注公众号获取验证码，注册即送 20 积分！")
             
-            nu = st.text_input("新用户名")
-            np1 = st.text_input("设置密码", type="password")
-            
-            if "微信" in reg_type:
-                st.markdown("""
-                **1. 关注公众号 `lubingxingpiaoliuji`**<br>
-                **2. 发送“注册”获取验证码**<br>
-                <span style='color:#d32f2f; font-weight:bold'>🎁 成功注册即送 20 积分！</span>
-                """, unsafe_allow_html=True)
-                
-                if os.path.exists("qrcode.png"):
-                    st.image("qrcode.png", width=150)
-                
-                v_code = st.text_input("请输入验证码")
-                if st.button("验证并注册"):
-                    if v_code == WECHAT_VALID_CODE:
-                        suc, msg = register_user(nu.strip(), np1, initial_quota=20)
-                        if suc: st.success(msg)
-                        else: st.error(msg)
-                    else:
-                        st.error("验证码错误，请检查公众号回复。")
+            # 显示二维码 (确保 qrcode.png 存在)
+            if os.path.exists("qrcode.png"):
+                st.image("qrcode.png", width=150, caption="扫码关注公众号：lubingxpiaoliuji")
             else:
-                st.caption("⚠️ 普通注册不赠送积分。")
-                if st.button("立即注册 (普通)"):
-                    suc, msg = register_user(nu.strip(), np1, initial_quota=0)
-                    if suc: st.success(msg)
+                st.warning("请联系管理员上传 qrcode.png")
+                st.caption("公众号: lubingxpiaoliuji")
+            
+            wx_u = st.text_input("用户名 (微信注册)", key="wx_u")
+            wx_p = st.text_input("设置密码", type="password", key="wx_p")
+            verify_code = st.text_input("验证码 (发送'注册'获取)")
+            
+            if st.button("🎁 立即注册领积分"):
+                if not verify_code:
+                    st.error("请输入验证码")
+                # 模拟验证码校验逻辑 (实际需对接公众号接口)
+                elif len(verify_code) > 0: 
+                    # 这里假设任意非空验证码通过，实际可设置为固定码如 '666'
+                    suc, msg = register_user(wx_u.strip(), wx_p, initial_quota=20)
+                    if suc: st.success("🎉 注册成功，已获赠20积分！请登录。")
                     else: st.error(msg)
-
+                else:
+                    st.error("验证码错误")
+        
+        with tab3:
+            st.caption("普通注册无积分赠送")
+            nu = st.text_input("用户名", key="reg_u")
+            np1 = st.text_input("设置密码", type="password", key="reg_p")
+            if st.button("立即注册"):
+                suc, msg = register_user(nu.strip(), np1, initial_quota=0)
+                if suc: st.success(msg)
+                else: st.error(msg)
     st.stop()
 
 # --- 主内容区 ---
@@ -1214,7 +1170,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    # 核心分析数据准备
+    # 核心分析数据准备 (用于后续模块)
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
     
     # === 区域 2：深度内容 (VIP/付费解锁) ===
@@ -1282,7 +1238,37 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🚨 已删除：智能决策系统 (Smart Decision System) 模块
+    # 🔥🔥🔥 3. 新增底部交易计划模块 (替代原智能决策)
+    if is_pro:
+        st.markdown(f"""
+        <div class="trade-plan-container">
+            <div class="tp-title">🛡️ 交易计划与风控看板 (Trade Plan & Risk Control)</div>
+            <div class="tp-grid">
+                <div class="tp-box" style="border-bottom: 3px solid #ff3b30;">
+                    <div class="tp-val">{tp:.2f}</div>
+                    <div class="tp-lbl">🎯 目标止盈位</div>
+                </div>
+                <div class="tp-box" style="border-bottom: 3px solid #00c853;">
+                    <div class="tp-val">{sl:.2f}</div>
+                    <div class="tp-lbl">🛑 预警止损位</div>
+                </div>
+                <div class="tp-box" style="border-bottom: 3px solid #2962ff;">
+                    <div class="tp-val">{sup:.2f}</div>
+                    <div class="tp-lbl">🧱 下方支撑位</div>
+                </div>
+                <div class="tp-box" style="border-bottom: 3px solid #ff9800;">
+                    <div class="tp-val">{res:.2f}</div>
+                    <div class="tp-lbl">🔨 上方压力位</div>
+                </div>
+            </div>
+            
+            <div class="risk-alert">
+                ⚠️ <b>风险免责声明 (Disclaimer)：</b><br>
+                本系统所有数据、策略、关键位及AI分析结果仅基于历史数据计算，<b>仅供量化研究参考，不构成任何投资建议</b>。<br>
+                股市有风险，入市需谨慎。用户应独立判断市场风险，自负盈亏。
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) # close blur
@@ -1302,7 +1288,7 @@ try:
                     st.session_state.paid_code = st.session_state.code
                     st.rerun()
                 else: st.error("积分不足！")
-        
+       
 except Exception as e:
     st.error(f"Error: {e}")
     st.error(traceback.format_exc())

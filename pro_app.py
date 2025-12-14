@@ -70,7 +70,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式
+# 🔥 CSS 样式 (已针对移动端和果冻黄按钮优化)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -78,11 +78,37 @@ ui_css = """
     header[data-testid="stHeader"] > div { pointer-events: auto; }
     [data-testid="stDecoration"] { display: none !important; }
     .stDeployButton { display: none !important; }
+    
+    /* 📱 移动端优化：果冻黄侧边栏悬浮按钮 */
     [data-testid="stSidebarCollapsedControl"] {
-        display: block !important; position: fixed !important; top: 10px !important; left: 10px !important;
-        color: #000; background-color: rgba(255,255,255,0.9) !important; border-radius: 50%;
-        width: 40px; height: 40px; padding: 5px; z-index: 999999 !important; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        display: block !important;
+        position: fixed !important;
+        top: 15px !important;   /* 稍微下移，避开刘海屏 */
+        left: 15px !important;
+        color: #5d4037 !important; /* 深褐色图标，对比度更佳 */
+        background: linear-gradient(135deg, #ffe082 0%, #ffb300 100%) !important; /* 果冻黄渐变 */
+        border-radius: 50% !important;
+        width: 48px !important;  /* 加大尺寸，方便手指点击 */
+        height: 48px !important;
+        padding: 10px !important;
+        z-index: 999999 !important;
+        box-shadow: 0 4px 12px rgba(255, 179, 0, 0.5), inset 0 2px 3px rgba(255,255,255,0.6) !important; /* Q弹光泽与阴影 */
+        border: 2px solid #fffde7 !important;
+        transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important; /* 弹性动画 */
     }
+    
+    /* 按钮点击时的回弹效果 */
+    [data-testid="stSidebarCollapsedControl"]:active {
+        transform: scale(0.9) !important;
+    }
+    
+    /* 移动端页面顶部留白，防止内容被按钮遮挡 */
+    .block-container {
+        padding-top: 70px !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+
     div.stButton > button {
         background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
         color: #5d4037; border: 2px solid #fff9c4; border-radius: 25px; 
@@ -149,6 +175,11 @@ ui_css = """
     .trade-btn-group { display: flex; gap: 5px; margin-bottom: 10px; }
     .trade-btn-group button { border-radius: 6px !important; padding: 2px 5px !important; font-size: 12px !important; border: 1px solid #eee !important; background: #fff !important; color: #333 !important; box-shadow: none !important; }
     .trade-btn-group button:hover { background: #f0f0f0 !important; }
+    
+    @media (max-width: 640px) {
+        .price-main { font-size: 36px; }
+        .bt-grid { grid-template-columns: repeat(2, 1fr); }
+    }
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)

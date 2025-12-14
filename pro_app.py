@@ -19,14 +19,14 @@ import base64
 try:
     import yfinance as yf
 except ImportError:
-    st.error("🚨 严重错误：缺少 `yfinance` 库")
+    st.error("🚨 严重错误：缺少 `yfinance` 库，请 pip install yfinance")
     st.stop()
 
 # ==========================================
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V75 (Final)",
+    page_title="阿尔法量研 Pro V76",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -36,8 +36,6 @@ st.set_page_config(
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
-
-# ✅ 模拟交易 Session
 if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {}
 
 # ✅ 全局变量
@@ -51,7 +49,7 @@ flags = {
 # 核心常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v69.csv" 
+DB_FILE = "users_v76.csv" 
 KEYS_FILE = "card_keys.csv"
 
 # 🔥 公众号验证码 (请在公众号后台设置关键词回复为这个数字)
@@ -65,7 +63,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (V75 最终优化版)
+# 🔥 CSS 样式 (V76 优化版)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -340,22 +338,32 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
-def register_user(u, p, code_input):
+# 🔥🔥🔥 更新后的注册函数 (支持普通/公众号注册)
+def register_user(u, p, code_input, reg_type="normal"):
     if u == ADMIN_USER: return False, "保留账号"
     
-    # 🔥 验证码校验
-    if code_input != OFFICIAL_CODE:
-        return False, "❌ 验证码错误！请扫描二维码关注公众号回复【验证码】获取。"
-
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
+    
+    # 根据注册类型设定积分和验证逻辑
+    if reg_type == "wechat":
+        # 公众号注册：需要验证码，奖励20积分
+        if code_input != OFFICIAL_CODE:
+            return False, "❌ 验证码错误！请关注公众号回复【验证码】获取。"
+        init_quota = 20
+        welcome_msg = "🎉 微信注册成功，已获赠 20 积分！"
+    else:
+        # 普通注册：无需验证码，奖励5积分
+        init_quota = 5
+        welcome_msg = "✅ 普通注册成功，已获赠 5 积分！"
+
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    # 🔥 注册送 5 积分
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 5, "vip_expiry": "", "paper_json": "{}"}
+    
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": init_quota, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
-    return True, "注册成功，已获赠 5 积分！"
+    return True, welcome_msg
 
 def consume_quota(u):
     if u == ADMIN_USER: return True
@@ -855,7 +863,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V75</div>
+        <div class='brand-en'>AlphaQuant Pro V76</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1061,9 +1069,9 @@ with st.sidebar:
     else:
         st.info("请先登录系统")
 
-# 登录逻辑
+# 🔥🔥🔥 登录与注册逻辑 (重构版)
 if not st.session_state.get('logged_in'):
-    c1,c2,c3 = st.columns([1,2,1])
+    c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         st.markdown("""
         <br><br>
@@ -1072,29 +1080,52 @@ if not st.session_state.get('logged_in'):
             <div class='brand-en'>AlphaQuant Pro</div>
         </div>
         """, unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
+        
+        tab1, tab2 = st.tabs(["🔑 登录系统", "📝 新用户注册"])
+        
+        # --- 登录 Tab ---
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
-            if st.button("登录系统"):
-                if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
-                else: st.error("账号或密码错误")
+            if st.button("🚀 立即登录", use_container_width=True):
+                if verify_login(u.strip(), p):
+                    st.session_state["logged_in"] = True
+                    st.session_state["user"] = u.strip()
+                    st.session_state["paid_code"] = ""
+                    st.rerun()
+                else:
+                    st.error("账号或密码错误")
+        
+        # --- 注册 Tab (修改版) ---
         with tab2:
-            st.markdown("##### 👉 第一步：获取验证码")
-            if os.path.exists("qrcode.png"):
-                st.image("qrcode.png", width=150, caption="扫码回复【验证码】获取注册口令")
+            reg_method = st.radio("选择注册方式", ["普通注册 (赠5积分)", "公众号注册 (赠20积分🔥)"], horizontal=True)
+            
+            nu = st.text_input("设置新账号")
+            np1 = st.text_input("设置密码", type="password", key="reg_pass")
+            
+            nv_code = ""
+            if "公众号" in reg_method:
+                st.info("🎁 关注公众号回复【验证码】获取口令，享受 4倍 积分奖励！")
+                if os.path.exists("qrcode.png"):
+                    st.image("qrcode.png", width=150)
+                else:
+                    st.info("📲 请联系管理员上传公众号二维码 (qrcode.png)")
+                nv_code = st.text_input("输入验证码", placeholder="请输入公众号回复的数字")
+                reg_type_val = "wechat"
             else:
-                st.info("📲 请扫描公众号二维码（需管理员上传 qrcode.png），回复【验证码】获取。")
+                st.caption("ℹ️ 普通注册仅需设置账号密码，适合快速体验。")
+                reg_type_val = "normal"
             
-            st.markdown("##### 👉 第二步：填写信息")
-            nu = st.text_input("新用户 (无需手机号)")
-            np1 = st.text_input("设置密码", type="password")
-            nv_code = st.text_input("输入验证码")
-            
-            if st.button("立即注册"):
-                suc, msg = register_user(nu.strip(), np1, nv_code.strip())
-                if suc: st.success(msg)
-                else: st.error(msg)
+            if st.button("✨ 立即注册", type="primary", use_container_width=True):
+                if not nu or not np1:
+                    st.warning("账号和密码不能为空")
+                else:
+                    suc, msg = register_user(nu.strip(), np1, nv_code.strip(), reg_type=reg_type_val)
+                    if suc: 
+                        st.success(msg)
+                        time.sleep(1) # 给一点时间让用户看成功提示
+                    else: 
+                        st.error(msg)
     st.stop()
 
 # --- 主内容区 ---
@@ -1253,34 +1284,57 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 智能决策系统 (Final Card) - 优化版
+    # 🔥🔥🔥 智能决策系统 (Final Card) - 修复版
     if is_pro:
-        st.markdown(f"""
+        # 1. 先在外部处理好 reasons 的 HTML 拼接，避免 f-string 混乱
+        reasons_html = "".join([f"<div style='margin-top:4px;'>• {r}</div>" for r in reasons])
+        
+        # 2. 构建主 HTML 字符串
+        final_html = f"""
         <div class="final-card-container">
             <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
             <div class="final-action-main">{act}</div>
             
             <div class="final-grid">
-                <div><div class="final-item-val">{pos}</div><div class="final-item-lbl">建议仓位</div></div>
-                <div><div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div><div class="final-item-lbl">目标止盈</div></div>
-                <div><div class="final-item-val" style="color:#00c853">{sl:.2f}</div><div class="final-item-lbl">预警止损</div></div>
+                <div>
+                    <div class="final-item-val">{pos}</div>
+                    <div class="final-item-lbl">建议仓位</div>
+                </div>
+                <div>
+                    <div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div>
+                    <div class="final-item-lbl">目标止盈</div>
+                </div>
+                <div>
+                    <div class="final-item-val" style="color:#00c853">{sl:.2f}</div>
+                    <div class="final-item-lbl">预警止损</div>
+                </div>
             </div>
             
             <div class="final-grid-2">
-                <div><div class="final-item-val" style="font-size:18px;">{sup:.2f}</div><div class="final-item-lbl">下方支撑 (Support)</div></div>
-                <div><div class="final-item-val" style="font-size:18px;">{res:.2f}</div><div class="final-item-lbl">上方压力 (Resistance)</div></div>
+                <div>
+                    <div class="final-item-val" style="font-size:18px;">{sup:.2f}</div>
+                    <div class="final-item-lbl">下方支撑 (Support)</div>
+                </div>
+                <div>
+                    <div class="final-item-val" style="font-size:18px;">{res:.2f}</div>
+                    <div class="final-item-lbl">上方压力 (Resistance)</div>
+                </div>
             </div>
 
             <div class="final-reasons">
                 <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
-                {"".join([f"<div>• {r}</div>" for r in reasons])}
+                {reasons_html}
             </div>
             
             <div class="final-disclaimer">
-                ⚠️ 免责声明：AI智能分析结果仅供量化研究参考，不构成任何投资建议。<br>股市有风险，投资需谨慎。据此操作，风险自担。
+                ⚠️ 免责声明：AI智能分析结果仅供量化研究参考，不构成任何投资建议。<br>
+                股市有风险，投资需谨慎。据此操作，风险自担。
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """
+        
+        # 3. 渲染 HTML
+        st.markdown(final_html, unsafe_allow_html=True)
 
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) # close blur

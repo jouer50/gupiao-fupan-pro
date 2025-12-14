@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V70 (Ultimate)",
+    page_title="阿尔法量研 Pro V71 (Stable)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -37,7 +37,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 
-# ✅ 模拟交易 Session
+# ✅ 模拟交易 Session (结构更新：{code: {'cost': float, 'qty': int, 'date': str, 'name': str}})
 if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {}
 
 # ✅ 全局变量
@@ -62,7 +62,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (新增回测专业看板样式)
+# 🔥 CSS 样式
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -775,7 +775,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V70</div>
+        <div class='brand-en'>AlphaQuant Pro V71</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -792,7 +792,7 @@ with st.sidebar:
         else: st.info(f"👤 普通用户 (积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]})")
 
         st.markdown("### 👁️ 视觉模式")
-        view_mode = st.radio("显示复杂度", ["极简模式", "专业模式"], index=1, horizontal=True)
+        view_mode = st.radio("显示模式", ["极简模式", "专业模式"], index=1, horizontal=True)
         is_pro = (view_mode == "专业模式")
         
         if not is_admin:
@@ -805,23 +805,52 @@ with st.sidebar:
                     st.rerun()
             st.divider()
         
+        # 🔥 优化版模拟交易逻辑
         if not is_admin:
             with st.expander("🎮 模拟交易 (Paper Trading)", expanded=True):
-                st.caption("不敢真买？先模拟试试！")
                 curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
+                
+                # 获取当前价格（尝试从缓存或重新获取）
+                curr_price = 0
+                try:
+                    # 简单获取当前价格，这里为了UI响应速度简化处理，实际逻辑在主界面会更精确
+                    curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
+                except: curr_price = 0 # 稍后在主界面如果为0会尝试修正
+                
                 if curr_hold:
-                    st.info(f"持仓成本: {curr_hold['price']}\n\n买入时间: {curr_hold['date']}")
-                    if st.button("卖出止盈/止损", key="paper_sell"):
+                    cost = curr_hold.get('cost', 0)
+                    qty = curr_hold.get('qty', 100)
+                    if curr_price > 0:
+                        mkt_val = curr_price * qty
+                        profit = (curr_price - cost) * qty
+                        profit_pct = (curr_price - cost) / cost * 100
+                        p_color = "red" if profit > 0 else "green" # A股红涨绿跌
+                        st.markdown(f"""
+                        <div style="font-size:14px; margin-bottom:5px;">
+                            <b>持仓成本:</b> {cost:.2f}<br>
+                            <b>持仓数量:</b> {qty} 股<br>
+                            <b>持仓市值:</b> {mkt_val:.0f}<br>
+                            <b>浮动盈亏:</b> <span style='color:{p_color}; font-weight:bold'>{profit:.0f} ({profit_pct:.2f}%)</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.info(f"成本: {cost:.2f} | 数量: {qty}")
+                        
+                    if st.button("卖出平仓", key="paper_sell"):
                         del st.session_state.paper_holdings[st.session_state.code]
                         st.success("已卖出！")
                         st.rerun()
                 else:
-                    if st.button("➕ 模拟买入 (虚拟)", key="paper_buy"):
+                    buy_qty = st.number_input("买入数量 (手)", min_value=1, max_value=100, value=1, step=1)
+                    if st.button("➕ 模拟买入", key="paper_buy"):
+                        # 这里价格只是占位，实际会在主界面渲染时更新为最新收盘价
                         st.session_state.paper_holdings[st.session_state.code] = {
-                            'price': 0, 
-                            'date': datetime.now().strftime("%Y-%m-%d")
+                            'cost': 0, # 将在主逻辑中更新为当日收盘价
+                            'qty': buy_qty * 100, 
+                            'date': datetime.now().strftime("%Y-%m-%d"),
+                            'name': ""
                         }
-                        st.success("模拟买入成功！")
+                        st.success("买入成功！")
                         st.rerun()
 
         if not is_admin:
@@ -904,6 +933,7 @@ with st.sidebar:
         
         st.divider()
         
+        # 即使是极简模式，也允许调整均线参数，但隐藏了开关以保持界面整洁，默认全开
         if is_pro:
             with st.expander("🎛️ 策略参数 (VIP)", expanded=False):
                 ma_s = st.slider("短期均线", 2, 20, 5)
@@ -970,8 +1000,11 @@ with st.spinner(random.choice(loading_tips)):
         df = generate_mock_data(days)
         is_demo = True
 
+# 更新模拟持仓的成本逻辑 (如果在模拟买入时未获取到价格)
 if st.session_state.code in st.session_state.paper_holdings:
-    st.session_state.paper_holdings[st.session_state.code]['price'] = df.iloc[-1]['close']
+    if st.session_state.paper_holdings[st.session_state.code]['cost'] == 0:
+        st.session_state.paper_holdings[st.session_state.code]['cost'] = df.iloc[-1]['close']
+        st.session_state.paper_holdings[st.session_state.code]['name'] = name
 
 try:
     # 基础指标计算 (所有用户可见)
@@ -1041,105 +1074,110 @@ try:
     
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
     reason_html = "".join([f"<div>• {r}</div>" for r in reasons])
-    st.markdown(f"""
-    <div class="strategy-card">
-        <div class="strategy-title">🤖 最终建议：{act}</div>
-        <div class="strategy-grid">
-            <div class="strategy-col"><span class="st-lbl">仓位</span><span class="st-val" style="color:#333">{pos}</span></div>
-            <div class="strategy-col"><span class="st-lbl">止盈</span><span class="st-val" style="color:#ff3b30">{tp:.2f}</span></div>
-            <div class="strategy-col"><span class="st-lbl">止损</span><span class="st-val" style="color:#00c853">{sl:.2f}</span></div>
-        </div>
-        <div class="reason-box">
-            <div class="reason-title">💡 决策依据 (VIP)</div>
-            {reason_html}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
     
-    # 🔥🔥🔥 重点更新：专业级回测展示 🔥🔥🔥
+    # 🔥🔥🔥 逻辑调整：极简模式下隐藏“最终建议”策略卡片 🔥🔥🔥
     if is_pro:
-        st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
-        
-        # 运行回测
-        ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
-        
-        # 计算额外的高级指标 (仅用于展示)
-        try:
-            bench_ret = ((eq['benchmark'].iloc[-1] / 100000) - 1) * 100
-            alpha = ret - bench_ret
-            # 简单的夏普比率估算 (年化)
-            daily_returns = eq['equity'].pct_change().dropna()
-            sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() != 0 else 0
-        except:
-            bench_ret = 0; alpha = 0; sharpe = 0
-
-        # HTML 看板
         st.markdown(f"""
-        <div class="bt-container">
-            <div class="bt-grid">
-                <div class="bt-card">
-                    <div class="bt-val bt-pos">+{ret:.1f}%</div>
-                    <div class="bt-lbl">策略总回报</div>
-                    <div class="bt-tag tag-alpha">Alpha</div>
-                </div>
-                <div class="bt-card">
-                    <div class="bt-val bt-pos">{win:.1f}%</div>
-                    <div class="bt-lbl">实盘胜率</div>
-                </div>
-                <div class="bt-card">
-                    <div class="bt-val bt-neg">-{mdd:.1f}%</div>
-                    <div class="bt-lbl">最大回撤 (Risk)</div>
-                </div>
-                <div class="bt-card">
-                    <div class="bt-val bt-neu">{sharpe:.2f}</div>
-                    <div class="bt-lbl">夏普比率 (Sharpe)</div>
-                </div>
+        <div class="strategy-card">
+            <div class="strategy-title">🤖 最终建议：{act}</div>
+            <div class="strategy-grid">
+                <div class="strategy-col"><span class="st-lbl">仓位</span><span class="st-val" style="color:#333">{pos}</span></div>
+                <div class="strategy-col"><span class="st-lbl">止盈</span><span class="st-val" style="color:#ff3b30">{tp:.2f}</span></div>
+                <div class="strategy-col"><span class="st-lbl">止损</span><span class="st-val" style="color:#00c853">{sl:.2f}</span></div>
             </div>
-            <div style="font-size:12px; color:#888; text-align:right;">* 回测区间包含 {len(eq)} 个交易日，对比基准为“买入持有”策略</div>
+            <div class="reason-box">
+                <div class="reason-title">💡 决策依据 (VIP)</div>
+                {reason_html}
+            </div>
         </div>
         """, unsafe_allow_html=True)
+    
+    # 🔥🔥🔥 逻辑调整：极简模式现在也可以看到回测（无需 if is_pro 判断）🔥🔥🔥
+    st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
+    
+    # 运行回测
+    ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
+    
+    # 计算额外的高级指标 (仅用于展示)
+    try:
+        bench_ret = ((eq['benchmark'].iloc[-1] / 100000) - 1) * 100
+        alpha = ret - bench_ret
+        # 简单的夏普比率估算 (年化)
+        daily_returns = eq['equity'].pct_change().dropna()
+        sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() != 0 else 0
+    except:
+        bench_ret = 0; alpha = 0; sharpe = 0
 
-        # 交互式图表 (Plotly)
-        if not eq.empty:
-            bt_fig = make_subplots(rows=1, cols=1)
-            # 策略净值
-            bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
-                                     line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
-            # 基准净值
-            bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy&Hold)', 
-                                     line=dict(color='#9e9e9e', width=1.5, dash='dash')))
-            
-            # 标注买卖点
-            if len(buy_sigs) > 0:
-                # 获取买入点对应的净值
-                buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
-                bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                         marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
-            
-            bt_fig.update_layout(
-                title='资金曲线 vs 基准指数',
-                height=350, 
-                margin=dict(l=10,r=10,t=40,b=10),
-                legend=dict(orientation="h", y=1.1),
-                yaxis_title="账户净值",
-                hovermode="x unified"
-            )
-            st.plotly_chart(bt_fig, use_container_width=True)
+    # HTML 看板
+    st.markdown(f"""
+    <div class="bt-container">
+        <div class="bt-grid">
+            <div class="bt-card">
+                <div class="bt-val bt-pos">+{ret:.1f}%</div>
+                <div class="bt-lbl">策略总回报</div>
+                <div class="bt-tag tag-alpha">Alpha</div>
+            </div>
+            <div class="bt-card">
+                <div class="bt-val bt-pos">{win:.1f}%</div>
+                <div class="bt-lbl">实盘胜率</div>
+            </div>
+            <div class="bt-card">
+                <div class="bt-val bt-neg">-{mdd:.1f}%</div>
+                <div class="bt-lbl">最大回撤 (Risk)</div>
+            </div>
+            <div class="bt-card">
+                <div class="bt-val bt-neu">{sharpe:.2f}</div>
+                <div class="bt-lbl">夏普比率 (Sharpe)</div>
+            </div>
+        </div>
+        <div style="font-size:12px; color:#888; text-align:right;">* 回测区间包含 {len(eq)} 个交易日，对比基准为“买入持有”策略</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        # 策略原理解析
-        with st.expander("🔬 查看策略逻辑与科学性验证"):
-            st.markdown("""
-            **策略内核：趋势跟随 (Trend Following)**
-            
-            本系统采用经典的双均线交叉系统 (Dual Moving Average Crossover) 配合波动率过滤。
-            * **科学性**：通过大量历史数据验证，趋势策略在具有长尾分布的金融市场中具有正期望值。
-            * **风控机制**：最大回撤控制在合理范围内，通过死叉强制离场机制，避免了类似2015年股灾的毁灭性打击。
-            * **超额收益 (Alpha)**：通过规避震荡期的磨损和捕捉主升浪，实现超越基准指数的收益。
-            """)
+    # 交互式图表 (Plotly)
+    if not eq.empty:
+        bt_fig = make_subplots(rows=1, cols=1)
+        # 策略净值
+        bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
+                                    line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
+        # 基准净值
+        bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy&Hold)', 
+                                    line=dict(color='#9e9e9e', width=1.5, dash='dash')))
+        
+        # 标注买卖点
+        if len(buy_sigs) > 0:
+            # 获取买入点对应的净值
+            buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
+            bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
+                                        marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
+        
+        bt_fig.update_layout(
+            title='资金曲线 vs 基准指数',
+            height=350, 
+            margin=dict(l=10,r=10,t=40,b=10),
+            legend=dict(orientation="h", y=1.1),
+            yaxis_title="账户净值",
+            hovermode="x unified"
+        )
+        st.plotly_chart(bt_fig, use_container_width=True)
 
-        st.divider()
-        plot_chart(df.tail(days), name, flags, ma_s, ma_l)
-        st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
+    # 策略原理解析
+    with st.expander("🔬 查看策略逻辑与科学性验证"):
+        st.markdown("""
+        **策略内核：趋势跟随 (Trend Following)**
+        
+        本系统采用经典的双均线交叉系统 (Dual Moving Average Crossover) 配合波动率过滤。
+        * **科学性**：通过大量历史数据验证，趋势策略在具有长尾分布的金融市场中具有正期望值。
+        * **风控机制**：最大回撤控制在合理范围内，通过死叉强制离场机制，避免了类似2015年股灾的毁灭性打击。
+        * **超额收益 (Alpha)**：通过规避震荡期的磨损和捕捉主升浪，实现超越基准指数的收益。
+        """)
+
+    st.divider()
+    # 🔥🔥🔥 极简模式下保留技术线图 🔥🔥🔥
+    plot_chart(df.tail(days), name, flags, ma_s, ma_l)
+    
+    # 🔥🔥🔥 极简模式下保留核心动能/缠论研报 🔥🔥🔥
+    st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
 
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) # close blur

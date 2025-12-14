@@ -25,7 +25,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro",
+    page_title="阿尔法量研 Pro V62",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="auto"
@@ -58,36 +58,24 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 V61.1 CSS：侧边栏按钮修复 + 黄色果冻UI
+# 🔥 V62.0 CSS：侧边栏按钮修复 + 黄色果冻UI + AI 增强样式
 ui_css = """
 <style>
     /* 全局背景 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
     /* ================= 核心修复：侧边栏按钮 ================= */
-    /* 1. Header 必须显示，但设为透明 */
     header[data-testid="stHeader"] {
         background-color: transparent !important;
         visibility: visible !important;
-        pointer-events: none; /* 让点击穿透 Header */
+        pointer-events: none; 
     }
     header[data-testid="stHeader"] > div {
         pointer-events: auto;
     }
+    [data-testid="stDecoration"] { display: none !important; visibility: hidden !important; }
+    .stDeployButton { display: none !important; visibility: hidden !important; }
     
-    /* 2. 隐藏 Header 里的彩条装饰 */
-    [data-testid="stDecoration"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    
-    /* 3. 隐藏 Deploy 按钮 */
-    .stDeployButton {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    
-    /* 4. 强制显示左上角折叠按钮 (黑箭头+白底) */
     [data-testid="stSidebarCollapsedControl"] {
         display: block !important;
         position: fixed !important;
@@ -101,29 +89,14 @@ ui_css = """
         z-index: 999999 !important;
         box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
-    /* 兼容旧版选择器 */
-    [data-testid="collapsedControl"] {
-        display: block !important;
-        position: fixed !important;
-        top: 10px !important;
-        left: 10px !important;
-        color: #000000 !important;
-        background-color: rgba(255,255,255,0.9) !important;
-        border-radius: 50%;
-        z-index: 999999 !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    
-    /* 隐藏页脚 */
+
     footer {display: none !important;}
-    
-    /* 顶部间距适配 */
     .block-container {padding-top: 3.5rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem; padding-right: 0.8rem;}
 
     /* ================= 🍋 按钮：果冻黄 (Jelly Gold) ================= */
     div.stButton > button {
         background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
-        color: #5d4037; /* 深褐文字 */
+        color: #5d4037; 
         border: 2px solid #fff9c4; 
         border-radius: 25px; 
         padding: 0.6rem 1.2rem;
@@ -226,6 +199,9 @@ ui_css = """
     .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
     .brand-slogan { font-size: 12px; color: #999; margin-bottom: 20px; }
     
+    /* AI 建议框 */
+    .ai-box { background-color: #fff8e1; padding: 10px; border-radius: 5px; border-left: 4px solid #ffc107; margin-top: 10px; font-size: 13px; color: #5d4037;}
+
     /* 覆盖原生 Metric */
     [data-testid="metric-container"] { display: none; }
 </style>
@@ -573,34 +549,86 @@ def get_drawing_lines(df):
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
-def run_backtest(df):
-    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    needed = ['MA_Short', 'MA_Long', 'close', 'date']
-    if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+# ==========================================
+# V62 新增：AI 参数自动优选
+# ==========================================
+def auto_optimize_params(df):
+    """暴力轮询寻找最优均线组合"""
+    best_ret = -999
+    best_s = 5
+    best_l = 20
+    
+    # 缩小搜索范围以保证速度
+    search_short = [3, 5, 10]
+    search_long = [20, 30, 60]
+    
+    for s in search_short:
+        for l in search_long:
+            if s >= l: continue
+            # 临时计算指标
+            temp_df = df.copy()
+            temp_df['MA_S_Test'] = temp_df['close'].rolling(s).mean()
+            temp_df['MA_L_Test'] = temp_df['close'].rolling(l).mean()
+            
+            # 简易快速回测逻辑 (复用简化版)
+            ret, _, _, _, _, _, _, _ = run_backtest(temp_df, ma_col_s='MA_S_Test', ma_col_l='MA_L_Test')
+            
+            if ret > best_ret:
+                best_ret = ret
+                best_s = s
+                best_l = l
+                
+    return best_s, best_l, best_ret
+
+# ==========================================
+# V62 修改：run_backtest (增加 Alpha 计算)
+# ==========================================
+def run_backtest(df, ma_col_s='MA_Short', ma_col_l='MA_Long'):
+    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]}), 0.0, 0.0
+    # 动态列名适配
+    needed = [ma_col_s, ma_col_l, 'close', 'date']
+    if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame(), 0.0, 0.0
+    
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
-    if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame(), 0.0, 0.0
 
     capital = 100000; position = 0
     buy_signals = []; sell_signals = []; equity = [capital]; dates = [df_bt.iloc[0]['date']]
     
+    # 记录买入并持有策略 (Benchmark)
+    start_price = df_bt.iloc[0]['close']
+    
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
+        
+        # 策略逻辑
+        if prev[ma_col_s] <= prev[ma_col_l] and curr[ma_col_s] > curr[ma_col_l] and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
-        elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
+        elif prev[ma_col_s] >= prev[ma_col_l] and curr[ma_col_s] < curr[ma_col_l] and position > 0:
             capital = position * price; position = 0; sell_signals.append(date)
+            
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
         
-    final = equity[-1]; ret = (final - 100000) / 100000 * 100
+    final = equity[-1]
+    ret = (final - 100000) / 100000 * 100
+    
+    # 计算基准收益 (Buy & Hold)
+    end_price = df_bt.iloc[-1]['close']
+    benchmark_ret = (end_price - start_price) / start_price * 100
+    
+    # 计算 Alpha (超额收益)
+    alpha = ret - benchmark_ret
+    
     win_rate = 50 + (ret / 10); win_rate = max(10, min(90, win_rate))
     eq_series = pd.Series(equity)
     cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax
     max_dd = drawdown.min() * 100
     eq_df = pd.DataFrame({'date': dates, 'equity': equity})
-    return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
+    
+    return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df, benchmark_ret, alpha
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
@@ -760,10 +788,34 @@ def plot_chart(df, name, flags, ma_s, ma_l):
         for k,v in ga.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(width=0.8, dash='dot', color='rgba(128,128,128,0.3)'), name=f'Gann {k}', showlegend=False), 1, 1)
     if flags.get('fib'):
         for k,v in fi.items(): fig.add_hline(y=v, line_dash='dash', line_color='#ff9800', row=1, col=1)
+
+    # V62 升级：缠论笔的绘制
     if flags.get('chan'):
+        # 1. 绘制分型点
         tops=df[df['F_Top']]; bots=df[df['F_Bot']]
         fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='顶分型'), 1, 1)
         fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='底分型'), 1, 1)
+        
+        # 2. 连接分型构成“笔”
+        chan_points = []
+        for idx, row in df.iterrows():
+            if row['F_Top']: chan_points.append({'date': row['date'], 'val': row['high'], 'type': 'top'})
+            elif row['F_Bot']: chan_points.append({'date': row['date'], 'val': row['low'], 'type': 'bot'})
+        
+        if chan_points:
+            filtered_chan = [chan_points[0]]
+            for p in chan_points[1:]:
+                if p['type'] != filtered_chan[-1]['type']:
+                    filtered_chan.append(p)
+                else:
+                    if p['type'] == 'top' and p['val'] > filtered_chan[-1]['val']:
+                        filtered_chan[-1] = p
+                    elif p['type'] == 'bot' and p['val'] < filtered_chan[-1]['val']:
+                        filtered_chan[-1] = p
+            
+            c_dates = [x['date'] for x in filtered_chan]
+            c_vals = [x['val'] for x in filtered_chan]
+            fig.add_trace(go.Scatter(x=c_dates, y=c_vals, mode='lines', line=dict(color='#2962ff', width=2, dash='solid'), name='缠论笔'), 1, 1)
 
     colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
     if flags.get('vol'): fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), 2, 1)
@@ -787,9 +839,9 @@ init_db()
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
-        <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro</div>
-        <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
+        <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro V62</span></div>
+        <div class='brand-en'>AlphaQuant AI</div>
+        <div class='brand-slogan'>AI 驱动的智能量化系统</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -926,7 +978,7 @@ if not st.session_state.get('logged_in'):
         <br><br>
         <div style='text-align: center;'>
             <h1 class='brand-title'>阿尔法量研回测系统 Pro</h1>
-            <div class='brand-en'>AlphaQuant Pro</div>
+            <div class='brand-en'>AlphaQuant Pro V62</div>
         </div>
         """, unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
@@ -981,7 +1033,7 @@ try:
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
-    # 核心大字展示 (V55.0)
+    # 核心大字展示
     l = df.iloc[-1]
     color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
     st.markdown(f"""
@@ -997,7 +1049,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    # 趋势横幅 (回归)
+    # 趋势横幅
     t_txt, t_col = main_uptrend_check(df)
     bg = "#fff0f0" if t_col=="success" else "#f0f9eb" if t_col=="warning" else "#e6f7ff"
     tc = "#ff3b30" if t_col=="success" else "#00c853" if t_col=="warning" else "#2962ff"
@@ -1079,26 +1131,56 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    # 回测
-    with st.expander("📚 新手必读：如何看懂回测报告？"):
-        st.markdown("""
-        **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。就像兵棋推演，先在沙盘上打赢了，再去实战。
-        **2. 核心指标解读**：
-        * **💰 总收益率**：策略在这段时间内赚了多少钱。正数越大约好，代表爆发力。
-        * **🏆 胜率**：交易获胜的次数占比。**>50%** 说明策略有效，**>70%** 是极品策略。胜率高，心态才稳。
-        * **📉 交易次数**：策略是否活跃。次数过少（如<5次）可能只是运气好，样本量不足，仅供参考。
-        **3. 价值所在**：拒绝“凭感觉”炒股，用真实历史数据验证策略的有效性，让你买入更安心！
-        """)
+    # ==========================================
+    # V62.0 升级：AI 策略实验室 (替换旧版回测)
+    # ==========================================
+    
+    # 1. 计算 AI 优选参数
+    opt_s, opt_l, opt_ret = auto_optimize_params(df)
+
+    # 2. 运行当前用户设置的回测
+    ret, win, mdd, _, _, eq, benchmark, alpha = run_backtest(df, 'MA_Short', 'MA_Long')
+    
+    with st.expander("⚖️ 历史回测诊断 (策略实验室)", expanded=True):
+        st.caption("AI 根据过去5年数据模拟交易，验证策略有效性。")
         
-    with st.expander("⚖️ 历史回测数据", expanded=True):
-        ret, win, mdd, _, _, eq = run_backtest(df)
-        c1, c2, c3 = st.columns(3)
-        c1.metric("收益", f"{ret:.1f}%"); c2.metric("胜率", f"{win:.0f}%"); c3.metric("回撤", f"{mdd:.1f}%")
+        # A. 核心数据展示
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("策略总收益", f"{ret:.1f}%", delta_color="off")
+        c2.metric("同期持股收益", f"{benchmark:.1f}%")
+        # 重点展示 Alpha
+        c3.metric("跑赢大盘 (Alpha)", f"{alpha:.1f}%", delta=f"{alpha:.1f}%", delta_color="normal")
+        c4.metric("最大回撤", f"{mdd:.1f}%")
+        
+        # B. AI 话术安抚与建议
+        st.divider()
+        if ret < 0 and alpha > 0:
+            st.info(f"💡 **AI 点评**：虽然策略绝对收益为负，但您跑赢了市场 **{alpha:.1f}%**！在下跌趋势中，少亏就是赚。")
+        elif ret < 0:
+            st.warning(f"⚠️ **AI 预警**：当前 {ma_s}/{ma_l} 参数在近期表现不佳。")
+            # 只有当 AI 跑出来的更好时，才显示推荐
+            if opt_ret > ret:
+                st.markdown(f"""
+                <div class="ai-box">
+                🤖 <b>AI 发现更优参数</b>：<br>
+                建议尝试调整均线为 <b>MA{opt_s}</b> (短) 和 <b>MA{opt_l}</b> (长)。<br>
+                使用该参数，历史收益可提升至 <b>{opt_ret:.1f}%</b>。
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.success("🎉 **太棒了**：当前策略表现优异，实现了正收益！")
+
+        # C. 权益曲线图
         if not eq.empty:
             f2 = go.Figure()
-            f2.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], fill='tozeroy', line=dict(color='#2962ff', width=1.5)))
-            f2.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(showgrid=False), yaxis=dict(showgrid=False))
+            f2.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值',
+                                    fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)', 
+                                    line=dict(color='#2962ff', width=2)))
+            f2.update_layout(height=250, margin=dict(l=0,r=0,t=10,b=0), 
+                             hovermode="x unified",
+                             xaxis=dict(showgrid=False), yaxis=dict(showgrid=False, title='资金曲线'))
             st.plotly_chart(f2, use_container_width=True)
 
 except Exception as e:
     st.error(f"Error: {e}")
+    st.error(traceback.format_exc())

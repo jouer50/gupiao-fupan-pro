@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V75",
+    page_title="阿尔法量研 Pro V76 (Stable)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -63,8 +63,8 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (UI Simplified & Enhanced)
-# 修改点：移除了复杂的 .final-card-container 特效，改为极简工程风格
+# 🔥 CSS 样式 (UI Fix & Optimization)
+# 重点修复：补全 .final-grid 等样式，确保决策卡片不乱码
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -129,7 +129,7 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 简化后的智能决策卡片 (Simple & Clean) */
+    /* 🔥 智能决策卡片样式 (关键修复) */
     .final-card-container {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -152,16 +152,44 @@ ui_css = """
         font-size: 32px; font-weight: 900; margin: 10px 0;
         color: #333; letter-spacing: -0.5px;
     }
+    
+    /* 修复 Flex 布局，防止乱码 */
     .final-grid {
-        display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0; padding-top: 15px; margin-top: 15px;
+        display: flex; 
+        justify-content: space-between; 
+        border-top: 1px solid #f0f0f0; 
+        padding-top: 15px; 
+        margin-top: 15px;
+        width: 100%;
     }
-    .final-item { flex: 1; border-right: 1px solid #f0f0f0; }
+    .final-item { 
+        flex: 1; 
+        text-align: center;
+        border-right: 1px solid #f0f0f0; 
+    }
     .final-item:last-child { border-right: none; }
-    .final-item-val { font-size: 18px; font-weight: 800; color: #333; }
-    .final-item-lbl { font-size: 11px; color: #888; margin-top: 4px; text-transform: uppercase; }
+    
+    .final-item-val { 
+        font-size: 18px; 
+        font-weight: 800; 
+        color: #333; 
+        display: block; 
+    }
+    .final-item-lbl { 
+        font-size: 11px; 
+        color: #888; 
+        margin-top: 4px; 
+        text-transform: uppercase; 
+    }
     
     .final-reasons {
-        margin-top: 15px; text-align: left; font-size: 13px; color: #555; background: #f9f9f9; padding: 10px; border-radius: 6px;
+        margin-top: 15px; 
+        text-align: left; 
+        font-size: 13px; 
+        color: #555; 
+        background: #f9f9f9; 
+        padding: 10px; 
+        border-radius: 6px;
     }
     .disclaimer-box {
         margin-top: 15px; padding: 8px; background-color: #fff8e1; color: #ff8f00;
@@ -300,36 +328,12 @@ def batch_generate_keys(points, count):
     save_keys(df)
     return len(new_keys)
 
-# 🔥 新增：自动从库中提取卡密（模拟发货）
-def fetch_unused_key(points):
-    df = load_keys()
-    # 查找指定面额且未使用的卡密
-    mask = (df['points'] == int(points)) & (df['status'] == 'unused')
-    available = df[mask]
-    
-    if available.empty:
-        return None, "🚫 该面额库存不足，请提醒管理员生成。"
-    
-    # 提取第一个
-    idx = available.index[0]
-    key_val = df.loc[idx, 'key']
-    
-    # 标记为已售出/已交付 (sold_delivered)
-    df.loc[idx, 'status'] = 'sold_delivered'
-    save_keys(df)
-    return key_val, "✅ 购买成功！您的卡密如下："
-
 def redeem_key(username, key_input):
     df_keys = load_keys()
-    # 支持未使用(unused)和刚刚自动发货(sold_delivered)的卡密
-    match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"].isin(["unused", "sold_delivered"]))]
+    match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"] == "unused")]
     
     if match.empty: return False, "❌ 无效卡密或已被使用"
     
-    # 防止重复使用，一旦兑换，标记为 used_by_USER
-    if str(match.iloc[0]["status"]).startswith("used_by"):
-        return False, "❌ 卡密已被使用"
-
     points_to_add = int(match.iloc[0]["points"])
     df_keys.loc[match.index[0], "status"] = f"used_by_{username}"
     save_keys(df_keys)
@@ -347,7 +351,6 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
-# 修改注册函数，支持自定义初始积分
 def register_user(u, p, initial_quota=10):
     if u == ADMIN_USER: return False, "保留账号"
     df = load_users()
@@ -849,12 +852,11 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V75</div>
+        <div class='brand-en'>AlphaQuant Pro V76</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
     
-    # 🔥🔥🔥 移动位置：会员与充值中心 (默认折叠)
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
@@ -868,22 +870,9 @@ with st.sidebar:
                 * 有问题咨询微信公众号：`lubingxpiaoliuji`
                 """)
                 
-                # 🔥🔥🔥 新增：自动发货模块
-                st.markdown("#### 🚀 自动发卡/购买")
-                buy_points = st.selectbox("选择面额", [20, 50, 100, 200, 500], format_func=lambda x: f"{x}积分 (￥{x/2:.0f})")
-                if st.button("💳 模拟支付并自动发货"):
-                    key_got, msg_got = fetch_unused_key(buy_points)
-                    if key_got:
-                        st.success(msg_got)
-                        st.code(key_got)
-                        st.caption("请复制上方卡密，粘贴至下方输入框兑换")
-                    else:
-                        st.error(msg_got)
-
-                st.markdown("---")
-                
+                # 回归到仅人工/扫码方式，删除了自动模拟发货
                 if os.path.exists("alipay.png"):
-                    st.image("alipay.png", caption="或使用支付宝扫码 (人工)", width=200)
+                    st.image("alipay.png", caption="请使用支付宝扫码 (备注用户名)", width=200)
                 
                 st.markdown("---")
                 st.write("##### 卡密兑换")
@@ -1035,7 +1024,6 @@ with st.sidebar:
                 except: pass
                    
             with st.expander("用户管理"):
-                # 🔥🔥🔥 新增：管理员上传用户数据
                 uploaded_file = st.file_uploader("📂 导入用户数据 (CSV)", type=['csv'])
                 if uploaded_file is not None:
                     try:
@@ -1112,7 +1100,7 @@ if not st.session_state.get('logged_in'):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
-            # 🔥🔥🔥 修改点：微信注册在前，普通注册在后
+            # 注册方式选择：微信在前，普通在后
             reg_type = st.radio("选择注册方式", 
                               ["微信公众号验证注册 (推荐)", "普通用户注册"], 
                               horizontal=False)
@@ -1294,7 +1282,7 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 最终建议卡片 (Smart Decision) - UI 已简化为工程风格
+    # 🔥🔥🔥 最终建议卡片 (Smart Decision) - 修复乱码问题
     if is_pro:
         st.markdown(f"""
         <div class="final-card-container">

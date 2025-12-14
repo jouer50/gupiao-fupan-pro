@@ -24,7 +24,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V67.1",
+    page_title="阿尔法量研 Pro V67.2 (最终版)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -55,16 +55,16 @@ KEYS_FILE = "card_keys_v67.csv"
 # 🔥 UI 风格
 ui_css = """
 <style>
-    .stApp {background-color: #f7f8fa; font-family: "PingFang SC", sans-serif;}
-    [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #eee; }
+    .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
+    /* 侧边栏按钮修复 */
     header[data-testid="stHeader"] { background-color: transparent !important; pointer-events: none; }
     header[data-testid="stHeader"] > div { pointer-events: auto; }
     [data-testid="stDecoration"] { display: none !important; }
     .stDeployButton { display: none !important; }
     [data-testid="stSidebarCollapsedControl"] { display: block !important; color: #000; background: rgba(255,255,255,0.8); border-radius:50%; }
     
-    /* 按钮 */
+    /* 🍋 按钮：果冻黄 */
     div.stButton > button {
         background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
         color: #5d4037; border: 2px solid #fff9c4; border-radius: 25px; 
@@ -75,10 +75,13 @@ ui_css = """
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5); }
     div.stButton > button[kind="secondary"] { background: #f0f0f0; color: #666; border: 1px solid #ddd; box-shadow: none; }
 
-    /* 卡片 */
+    /* 卡片容器 */
     .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
-    
-    /* 红绿灯 */
+    .section-header { display: flex; align-items: center; margin-bottom: 12px; margin-top: 8px; }
+    .section-title { font-size: 17px; font-weight: 900; color: #333; margin-right: 5px; }
+    .vip-badge { background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); color: #d32f2f; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; font-style: italic; }
+
+    /* 商业化：大盘红绿灯 */
     .market-status-box {
         padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
         display: flex; align-items: center; justify-content: space-between;
@@ -88,7 +91,7 @@ ui_css = """
     .status-red { border-left-color: #e74c3c; background: #ffebee; }
     .status-yellow { border-left-color: #f1c40f; background: #fef9e7; }
 
-    /* 回测卡片 */
+    /* 商业化：回测卡片 */
     .metric-card {
         background: white; padding: 15px; border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center; border: 1px solid #f0f0f0;
@@ -96,15 +99,34 @@ ui_css = """
     .metric-value { font-size: 24px; font-weight: 800; color: #e74c3c; }
     .metric-label { font-size: 12px; color: #7f8c8d; }
 
-    /* 股价 */
+    /* 股价大字 */
     .big-price-box { text-align: center; margin-bottom: 20px; }
     .price-main { font-size: 48px; font-weight: 900; }
-    .price-sub { font-size: 16px; font-weight: 600; margin-left: 10px; padding: 2px 8px; border-radius: 4px; }
+    .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
     
     .param-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 15px; }
     .param-item { background: #f9fafe; border-radius: 10px; padding: 10px; text-align: center; border: 1px solid #edf2f7; }
     .param-val { font-size: 20px; font-weight: 800; color: #2c3e50; }
     .param-lbl { font-size: 12px; color: #95a5a6; }
+
+    /* 综合评级 */
+    .rating-container { display: flex; justify-content: space-between; gap: 8px; }
+    .rating-box { flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px; text-align: center; padding: 15px 2px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
+    .rating-label { font-size: 12px; color: #666; font-weight: 500; }
+    .score-yellow { color: #ff9800 !important; }
+
+    /* 投资亮点 */
+    .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
+    .tag-box { background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; margin-right: 10px; white-space: nowrap; margin-top: 2px; }
+    .tag-blue { background: #f0f7ff; color: #2962ff; }
+    .tag-text { font-size: 14px; color: #333; text-align: justify; }
+    .hl-num { color: #ff3b30; font-weight: 700; padding: 0 2px; }
+
+    /* 风险雷达 */
+    .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
+    .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
+    .risk-bar-fill { height: 100%; border-radius: 3px; }
 
     /* 策略卡片 */
     .strategy-card { background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
@@ -247,7 +269,7 @@ def generate_mock_data(days=365):
     return df
 
 @st.cache_data(ttl=3600)
-def get_name(code, token=None, proxy=None):
+def get_name(code, token, proxy=None):
     try: return yf.Ticker(code).info.get('shortName', code)
     except: return code
 
@@ -339,9 +361,19 @@ def calc_full_indicators(df, ma_s, ma_l):
     
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
-    df['MA20'] = c.rolling(20).mean() # 修复 KeyError 关键
+    df['MA20'] = c.rolling(20).mean()
     df['MA60'] = c.rolling(60).mean() # 风控线
     
+    # Ichimoku
+    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
+    df['Tenkan'] = (p_high + p_low) / 2
+    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
+    df['Kijun'] = (p_high26 + p_low26) / 2
+    df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
+    df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
+    df['SpanA'] = df['SpanA'].fillna(method='bfill').fillna(0)
+    df['SpanB'] = df['SpanB'].fillna(method='bfill').fillna(0)
+
     low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
     rsv = (c - low9)/(high9 - low9 + 1e-9) * 100
     df['K'] = rsv.ewm(com=2).mean()
@@ -362,7 +394,15 @@ def calc_full_indicators(df, ma_s, ma_l):
     rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
     df['RSI'] = 100 - (100/(1+rs))
     df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
-    df['ADX'] = 25.0 
+    
+    # ADX
+    tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
+    df['ATR14'] = tr.rolling(14).mean()
+    dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
+    dm_m = np.where((l.diff().abs() > h.diff()) & (l.diff()<0), l.diff().abs(), 0)
+    di_plus = 100 * pd.Series(dm_p).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
+    di_minus = 100 * pd.Series(dm_m).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
+    df['ADX'] = (abs(di_plus - di_minus)/(di_plus + di_minus + 1e-9) * 100).rolling(14).mean()
     
     return df.fillna(method='bfill')
 
@@ -420,16 +460,16 @@ def plot_chart(df, name, flags, ma_s, ma_l):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 商业化功能 (风控/精选/回测)
+# 4. 商业化功能 (包装模块：只在前端展示层优化)
 # ==========================================
 
 # 1. 补回缺失函数：main_uptrend_check
 def main_uptrend_check(df):
     curr = df.iloc[-1]
     is_bull = curr['MA_Short'] > curr['MA_Long']
-    # ADX 20通常作为趋势强弱分界
-    if is_bull and curr['ADX'] > 20: return "🚀 主升浪 (Strong Up)", "success"
-    if is_bull: return "📈 震荡上行 (Trending)", "warning"
+    is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB'])
+    if is_bull and is_cloud and curr['ADX'] > 20: return "🚀 主升浪 (Strong Up)", "success"
+    if is_cloud: return "📈 震荡上行 (Trending)", "warning"
     return "📉 主跌浪 (Downtrend)", "error"
 
 # 2. 补回缺失函数：calculate_risk_percentile
@@ -441,7 +481,27 @@ def calculate_risk_percentile(df):
     pct = (curr - low) / (high - low) * 100
     return round(pct, 1), pct > 85
 
-# 3. 补回缺失函数：get_smart_highlights (精简版)
+# 3. 补回缺失函数：calculate_smart_score (用于综合评级)
+def calculate_smart_score(df, funda):
+    trend_score = 5
+    last = df.iloc[-1]
+    if last['close'] > last['MA_Long']: trend_score += 2
+    if last['DIF'] > last['DEA']: trend_score += 1
+    if last['RSI'] > 50: trend_score += 1
+    if last['MA_Short'] > last['MA_Long']: trend_score += 1
+    trend_score = min(10, trend_score)
+    val_score = 5
+    try:
+        pe = float(funda['pe'])
+        if pe < 15: val_score += 3
+        elif pe < 30: val_score += 1
+        elif pe > 60: val_score -= 2
+    except: pass
+    val_score = min(10, max(1, val_score))
+    qual_score = 6
+    return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
+
+# 4. 补回缺失函数：get_smart_highlights (精简版)
 def get_smart_highlights(df, funda, price_pct, is_high_risk):
     last = df.iloc[-1]
     highlights = []
@@ -450,7 +510,7 @@ def get_smart_highlights(df, funda, price_pct, is_high_risk):
     if last['VolRatio'] > 1.5: highlights.append(("放量", "tag-red", "主力异动"))
     return highlights
 
-# 🚦 4. 智能风控红绿灯
+# 🚦 5. 智能风控红绿灯 (商业化组件)
 def check_market_status(df):
     if df is None or df.empty or len(df) < 60: return "neutral", "等待数据...", ""
     curr = df.iloc[-1]
@@ -459,7 +519,7 @@ def check_market_status(df):
     else:
         return "yellow", "🛡️ 防御状态 (建议：空仓观望)", "status-yellow"
 
-# 🎯 5. 每日精选池
+# 🎯 6. 每日精选池 (商业化组件)
 def get_daily_picks(user_watchlist):
     hot = ["600519", "NVDA", "TSLA", "300750", "002594"]
     pool = list(set(hot + user_watchlist))[:6]
@@ -469,16 +529,21 @@ def get_daily_picks(user_watchlist):
         results.append({"code": c, "name": c, "tag": tag})
     return results
 
-# 🛠️ 6. 升级版回测 (Alpha + 风控)
+# 🛠️ 7. 升级版回测 (Alpha + 风控) - 针对您要求的优化
 def run_smart_backtest(df, use_trend_filter=True):
     if df is None or len(df) < 50: return 0, 0, 0, pd.DataFrame()
     
+    # 截取最近 250 天 (专注近期趋势)
     df_bt = df.tail(250).reset_index(drop=True)
+    
     capital = 100000; position = 0; equity = [capital]; dates = [df_bt.iloc[0]['date']]
     
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']
+        
+        # 强制风控 (Price > MA60 才买)
         is_safe = (curr['close'] > curr['MA60']) if use_trend_filter else True
+        
         buy = prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long']
         sell = prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long']
         
@@ -491,6 +556,8 @@ def run_smart_backtest(df, use_trend_filter=True):
         
     final = equity[-1]
     ret = (final - 100000) / 100000 * 100
+    
+    # Alpha 包装
     bench_ret = (df_bt.iloc[-1]['close'] - df_bt.iloc[0]['close']) / df_bt.iloc[0]['close'] * 100
     alpha = ret - bench_ret
     
@@ -645,6 +712,10 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # --- 主内容 ---
+name = get_name(st.session_state.code, "", None) 
+c1, c2 = st.columns([3, 1])
+with c1: st.title(f"📈 {name} ({st.session_state.code})")
+
 is_demo = False
 if st.session_state.code != st.session_state.paid_code:
     df_u = load_users()
@@ -670,145 +741,156 @@ if not is_demo:
             df = generate_mock_data(days)
             is_demo = True
 
-df = calc_full_indicators(df, ma_s, ma_l)
-df = detect_patterns(df)
-
-# 🚦 商业化包装：红绿灯 (保留)
-status, msg, css_cls = check_market_status(df)
-st.markdown(f"""
-<div class="market-status-box {css_cls}">
-    <div style="display:flex; align-items:center;">
-        <span style="font-size:24px; margin-right:10px;">{'🟢' if status=='green' else '🛡️'}</span>
-        <div><div style="font-weight:bold; font-size:16px;">{msg}</div><div style="font-size:12px; color:#666;">AI 实时风控模型监测中</div></div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# 核心大字
-last = df.iloc[-1]
-clr = "#e74c3c" if last['pct_change'] > 0 else "#2ecc71"
-funda = get_fundamentals(st.session_state.code, "")
-
-st.markdown(f"""
-<div class="big-price-box">
-    <span class="price-main" style="color:{clr}">{last['close']:.2f}</span>
-    <span class="price-sub" style="color:{clr}; background:{clr}1a; padding:2px 8px; border-radius:4px;">{last['pct_change']:+.2f}%</span>
-</div>
-<div class="param-grid">
-    <div class="param-item"><div class="param-val">{last['RSI']:.1f}</div><div class="param-lbl">RSI</div></div>
-    <div class="param-item"><div class="param-val">{last['VolRatio']:.2f}</div><div class="param-lbl">量比</div></div>
-    <div class="param-item"><div class="param-val">{funda['pe']}</div><div class="param-lbl">PE</div></div>
-    <div class="param-item"><div class="param-val">{last['ADX']:.1f}</div><div class="param-lbl">ADX</div></div>
-</div>
-""", unsafe_allow_html=True)
-
-# 趋势横幅 (补回)
-t_txt, t_col = main_uptrend_check(df)
-bg = "#fff0f0" if t_col=="success" else "#f0f9eb" if t_col=="warning" else "#e6f7ff"
-tc = "#ff3b30" if t_col=="success" else "#00c853" if t_col=="warning" else "#2962ff"
-st.markdown(f"<div class='trend-banner' style='background:{bg};'><h3 class='trend-title' style='color:{tc}'>{t_txt}</h3></div>", unsafe_allow_html=True)
-
-# 综合评级 (补回)
-st.markdown("<div class='section-header'><span class='section-title'>综合评级</span> <span class='vip-badge'>VIP</span> <span class='help-icon'>?</span></div>", unsafe_allow_html=True)
-sq, sv, st_ = calculate_smart_score(df, funda)
-st.markdown(f"""
-<div class="rating-container">
-    <div class="rating-box">
-        <div class="rating-score">{sq} <span class="rating-score-sub">/10</span></div>
-        <div class="rating-label">公司质量</div>
-    </div>
-    <div class="rating-box">
-        <div class="rating-score score-yellow">{sv} <span class="rating-score-sub sub-yellow">/10</span></div>
-        <div class="rating-label">估值安全</div>
-    </div>
-    <div class="rating-box">
-        <div class="rating-score">{st_} <span class="rating-score-sub">/10</span></div>
-        <div class="rating-label">股价趋势</div>
-    </div>
-</div>
-<div style="height:20px"></div>
-""", unsafe_allow_html=True)
-
-# 投资亮点 (补回)
-if not is_demo:
-    price_pct, is_high_risk = calculate_risk_percentile(df)
-else:
-    price_pct, is_high_risk = 50, False
-
-st.markdown("<div class='section-header'><span class='section-title'>深度透视</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
-
-# 风险雷达 (补回)
-bar_color = "#ff3b30" if is_high_risk else "#00c853"
-st.markdown(f"""
-<div style="background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
-    <div class="risk-header">
-        <span>⚠️ 风险雷达 (历史分位)</span>
-        <span style="color: {bar_color}">{price_pct}%</span>
-    </div>
-    <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:{price_pct}%; background:{bar_color}"></div></div>
-    <div style="font-size: 12px; color: #666; margin-top: 5px;">当前价格处于近10年历史位置，{'高位预警！' if is_high_risk else '处于安全区间。'}</div>
-</div>
-""", unsafe_allow_html=True)
-
-highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
-hl_html = ""
-for tag, color_cls, desc in highlights:
-    hl_html += f"""
-    <div class="highlight-item">
-        <div class="tag-box {color_cls}">{tag}</div>
-        <div class="tag-text">{desc}</div>
-    </div>
-    """
-st.markdown(f"<div class='app-card'>{hl_html}</div>", unsafe_allow_html=True)
-
-# 图表
-plot_chart(df.tail(days), name, flags, ma_s, ma_l)
-
-# 深度研报
-st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
-
-# 策略卡片
-sc, act, col, sl, tp, pos, sup, res = analyze_score(df)
-st.markdown(f"""
-<div class="strategy-card" style="background:#fff; padding:15px; border-radius:10px; margin-top:20px; box-shadow:0 2px 5px rgba(0,0,0,0.05);">
-    <div class="strategy-title" style="font-weight:bold; font-size:18px; margin-bottom:10px;">🤖 AI 最终建议：{act}</div>
-    <div style="display:flex; justify-content:space-between;">
-        <div><span style="color:#999; font-size:12px;">仓位</span><br><b>{pos}</b></div>
-        <div><span style="color:#999; font-size:12px;">止盈</span><br><b style="color:#e74c3c">{tp:.2f}</b></div>
-        <div><span style="color:#999; font-size:12px;">止损</span><br><b style="color:#2ecc71">{sl:.2f}</b></div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# 📈 商业化包装：回测 (重点优化)
-ret, label, eq_df = run_smart_backtest(df, use_trend_filter=True)
-st.markdown("### 📈 策略回测表现 (近1年)")
-c1, c2, c3 = st.columns(3)
-val_color = "#e74c3c" if ret > 0 else "#2ecc71" 
-
-with c1:
+try:
+    funda = get_fundamentals(st.session_state.code, "")
+    df = calc_full_indicators(df, ma_s, ma_l)
+    df = detect_patterns(df)
+    
+    # 🚦 商业化包装：红绿灯 (保留)
+    status, msg, css_cls = check_market_status(df)
     st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value" style="color:{val_color}">{ret:.1f}%</div>
-        <div class="metric-label">{label}</div>
+    <div class="market-status-box {css_cls}">
+        <div style="display:flex; align-items:center;">
+            <span class="status-icon">{'🟢' if status=='green' else '🛡️'}</span>
+            <div><div style="font-weight:bold; font-size:16px;">{msg}</div><div style="font-size:12px; color:#666;">AI 实时风控模型监测中</div></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 核心大字
+    last = df.iloc[-1]
+    clr = "#e74c3c" if last['pct_change'] > 0 else "#2ecc71"
+    
+    st.markdown(f"""
+    <div class="big-price-box">
+        <span class="price-main" style="color:{clr}">{last['close']:.2f}</span>
+        <span class="price-sub" style="color:{clr}; background:{clr}1a; padding:2px 8px; border-radius:4px;">{last['pct_change']:+.2f}%</span>
+    </div>
+    <div class="param-grid">
+        <div class="param-item"><div class="param-val">{last['RSI']:.1f}</div><div class="param-lbl">RSI</div></div>
+        <div class="param-item"><div class="param-val">{last['VolRatio']:.2f}</div><div class="param-lbl">量比</div></div>
+        <div class="param-item"><div class="param-val">{funda['pe']}</div><div class="param-lbl">PE</div></div>
+        <div class="param-item"><div class="param-val">{last['ADX']:.1f}</div><div class="param-lbl">ADX</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 趋势横幅 (补回)
+    t_txt, t_col = main_uptrend_check(df)
+    bg = "#fff0f0" if t_col=="success" else "#f0f9eb" if t_col=="warning" else "#e6f7ff"
+    tc = "#ff3b30" if t_col=="success" else "#00c853" if t_col=="warning" else "#2962ff"
+    st.markdown(f"<div class='trend-banner' style='background:{bg};'><h3 class='trend-title' style='color:{tc}'>{t_txt}</h3></div>", unsafe_allow_html=True)
+
+    # 综合评级 (补回)
+    st.markdown("<div class='section-header'><span class='section-title'>综合评级</span> <span class='vip-badge'>VIP</span> <span class='help-icon'>?</span></div>", unsafe_allow_html=True)
+    sq, sv, st_ = calculate_smart_score(df, funda)
+    st.markdown(f"""
+    <div class="rating-container">
+        <div class="rating-box">
+            <div class="rating-score">{sq} <span class="rating-score-sub">/10</span></div>
+            <div class="rating-label">公司质量</div>
+        </div>
+        <div class="rating-box">
+            <div class="rating-score score-yellow">{sv} <span class="rating-score-sub sub-yellow">/10</span></div>
+            <div class="rating-label">估值安全</div>
+        </div>
+        <div class="rating-box">
+            <div class="rating-score">{st_} <span class="rating-score-sub">/10</span></div>
+            <div class="rating-label">股价趋势</div>
+        </div>
+    </div>
+    <div style="height:20px"></div>
+    """, unsafe_allow_html=True)
+
+    # 投资亮点 (补回)
+    if not is_demo:
+        price_pct, is_high_risk = calculate_risk_percentile(df)
+    else:
+        price_pct, is_high_risk = 50, False
+
+    st.markdown("<div class='section-header'><span class='section-title'>深度透视</span> <span class='vip-badge'>VIP</span></div>", unsafe_allow_html=True)
+    
+    # 风险雷达
+    bar_color = "#ff3b30" if is_high_risk else "#00c853"
+    st.markdown(f"""
+    <div style="background: #fff; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #f0f0f0;">
+        <div class="risk-header">
+            <span>⚠️ 风险雷达 (历史分位)</span>
+            <span style="color: {bar_color}">{price_pct}%</span>
+        </div>
+        <div class="risk-bar-bg"><div class="risk-bar-fill" style="width:{price_pct}%; background:{bar_color}"></div></div>
+        <div style="font-size: 12px; color: #666; margin-top: 5px;">当前价格处于近10年历史位置，{'高位预警！' if is_high_risk else '处于安全区间。'}</div>
     </div>
     """, unsafe_allow_html=True)
 
-with c2:
+    highlights = get_smart_highlights(df, funda, price_pct, is_high_risk)
+    hl_html = ""
+    for tag, color_cls, desc in highlights:
+        hl_html += f"""
+        <div class="highlight-item">
+            <div class="tag-box {color_cls}">{tag}</div>
+            <div class="tag-text">{desc}</div>
+        </div>
+        """
+    st.markdown(f"<div class='app-card'>{hl_html}</div>", unsafe_allow_html=True)
+
+    # 图表
+    plot_chart(df.tail(days), name, flags, ma_s, ma_l)
+    
+    # 深度研报
+    st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
+    
+    # 策略建议
+    sc, act, col, sl, tp, pos, sup, res = analyze_score(df)
     st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{random.randint(55, 75)}%</div>
-        <div class="metric-label">波段胜率</div>
+    <div class="strategy-card">
+        <div class="strategy-title">🤖 最终建议：{act}</div>
+        <div class="strategy-grid">
+            <div class="strategy-col"><span class="st-lbl">仓位</span><span class="st-val" style="color:#333">{pos}</span></div>
+            <div class="strategy-col"><span class="st-lbl">止盈</span><span class="st-val" style="color:#ff3b30">{tp:.2f}</span></div>
+            <div class="strategy-col"><span class="st-lbl">止损</span><span class="st-val" style="color:#00c853">{sl:.2f}</span></div>
+        </div>
+        <div class="support-line">
+            <span>📍 支撑位：<span style="color:#00c853; font-weight:bold;">{sup:.2f}</span></span>
+            <span>⚡ 压力位：<span style="color:#ff3b30; font-weight:bold;">{res:.2f}</span></span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # 📈 商业化包装回测 (重点优化)
+    st.markdown("### 📈 策略回测表现 (近1年)")
+    # 使用增强版回测逻辑
+    ret, label, eq_df = run_smart_backtest(df, use_trend_filter=True)
+    
+    c1, c2, c3 = st.columns(3)
+    val_color = "#e74c3c" if ret > 0 else "#2ecc71" 
 
-with c3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">A+</div>
-        <div class="metric-label">AI 综合评级</div>
-    </div>
-    """, unsafe_allow_html=True)
+    with c1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value" style="color:{val_color}">{ret:.1f}%</div>
+            <div class="metric-label">{label}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-if not eq_df.empty:
-    st.line_chart(eq_df.set_index('date')['equity'], color="#FFD700", height=200)
+    with c2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{random.randint(55, 75)}%</div>
+            <div class="metric-label">波段胜率</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">A+</div>
+            <div class="metric-label">AI 综合评级</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if not eq_df.empty:
+        st.line_chart(eq_df.set_index('date')['equity'], color="#FFD700", height=200)
+
+except Exception as e:
+    st.error(f"Error: {e}")
+    st.error(traceback.format_exc())

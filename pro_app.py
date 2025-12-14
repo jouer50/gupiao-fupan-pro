@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V76",
+    page_title="阿尔法量研 Pro V77 (Fixed)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -49,10 +49,10 @@ flags = {
 # 核心常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v76.csv" 
+DB_FILE = "users_v77.csv" 
 KEYS_FILE = "card_keys.csv"
 
-# 🔥 公众号验证码 (请在公众号后台设置关键词回复为这个数字)
+# 🔥 公众号验证码
 OFFICIAL_CODE = "8888" 
 
 # Optional deps
@@ -63,7 +63,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (V76 优化版)
+# 🔥 CSS 样式
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -128,7 +128,7 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 升级版最终建议卡片样式 (优化版) */
+    /* 🔥 升级版最终建议卡片样式 */
     .final-card-container {
         background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
         border: 2px solid #2962ff;
@@ -164,7 +164,6 @@ ui_css = """
     .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
     .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
     
-    /* 优化：第二行 Grid (支撑/压力) 使用浅色背景区分 */
     .final-grid-2 {
         display: flex; justify-content: space-around; margin-top: 15px;
         background: rgba(240, 247, 255, 0.5);
@@ -179,7 +178,6 @@ ui_css = """
         background: #fff; padding: 10px; border-radius: 8px;
     }
     
-    /* 优化：免责声明字体更小，颜色更淡 */
     .final-disclaimer {
         margin-top: 15px; font-size: 11px; color: #aaa; text-align: center;
         border-top: 1px solid #eee; padding-top: 8px; line-height: 1.4;
@@ -338,7 +336,7 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
-# 🔥🔥🔥 更新后的注册函数 (支持普通/公众号注册)
+# 🔥 注册函数 (普通/公众号双模式)
 def register_user(u, p, code_input, reg_type="normal"):
     if u == ADMIN_USER: return False, "保留账号"
     
@@ -863,7 +861,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V76</div>
+        <div class='brand-en'>AlphaQuant Pro V77</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1286,54 +1284,49 @@ try:
 
     # 🔥🔥🔥 智能决策系统 (Final Card) - 修复版
     if is_pro:
-        # 1. 先在外部处理好 reasons 的 HTML 拼接，避免 f-string 混乱
+        # 1. 预处理原因列表
         reasons_html = "".join([f"<div style='margin-top:4px;'>• {r}</div>" for r in reasons])
         
-        # 2. 构建主 HTML 字符串
+        # 2. 构建 HTML (❌去掉了所有缩进❌，防止被误识别为代码块)
         final_html = f"""
-        <div class="final-card-container">
-            <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
-            <div class="final-action-main">{act}</div>
-            
-            <div class="final-grid">
-                <div>
-                    <div class="final-item-val">{pos}</div>
-                    <div class="final-item-lbl">建议仓位</div>
-                </div>
-                <div>
-                    <div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div>
-                    <div class="final-item-lbl">目标止盈</div>
-                </div>
-                <div>
-                    <div class="final-item-val" style="color:#00c853">{sl:.2f}</div>
-                    <div class="final-item-lbl">预警止损</div>
-                </div>
-            </div>
-            
-            <div class="final-grid-2">
-                <div>
-                    <div class="final-item-val" style="font-size:18px;">{sup:.2f}</div>
-                    <div class="final-item-lbl">下方支撑 (Support)</div>
-                </div>
-                <div>
-                    <div class="final-item-val" style="font-size:18px;">{res:.2f}</div>
-                    <div class="final-item-lbl">上方压力 (Resistance)</div>
-                </div>
-            </div>
-
-            <div class="final-reasons">
-                <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
-                {reasons_html}
-            </div>
-            
-            <div class="final-disclaimer">
-                ⚠️ 免责声明：AI智能分析结果仅供量化研究参考，不构成任何投资建议。<br>
-                股市有风险，投资需谨慎。据此操作，风险自担。
-            </div>
-        </div>
-        """
-        
-        # 3. 渲染 HTML
+<div class="final-card-container">
+<div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
+<div class="final-action-main">{act}</div>
+<div class="final-grid">
+<div>
+<div class="final-item-val">{pos}</div>
+<div class="final-item-lbl">建议仓位</div>
+</div>
+<div>
+<div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div>
+<div class="final-item-lbl">目标止盈</div>
+</div>
+<div>
+<div class="final-item-val" style="color:#00c853">{sl:.2f}</div>
+<div class="final-item-lbl">预警止损</div>
+</div>
+</div>
+<div class="final-grid-2">
+<div>
+<div class="final-item-val" style="font-size:18px;">{sup:.2f}</div>
+<div class="final-item-lbl">下方支撑 (Support)</div>
+</div>
+<div>
+<div class="final-item-val" style="font-size:18px;">{res:.2f}</div>
+<div class="final-item-lbl">上方压力 (Resistance)</div>
+</div>
+</div>
+<div class="final-reasons">
+<div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
+{reasons_html}
+</div>
+<div class="final-disclaimer">
+⚠️ 免责声明：AI智能分析结果仅供量化研究参考，不构成任何投资建议。<br>
+股市有风险，投资需谨慎。据此操作，风险自担。
+</div>
+</div>
+"""
+        # 3. 渲染
         st.markdown(final_html, unsafe_allow_html=True)
 
     if not has_access:

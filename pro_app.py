@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V73 (Stable)",
+    page_title="阿尔法量研 Pro V74 (Stable)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -54,6 +54,9 @@ ADMIN_PASS = "123456"
 DB_FILE = "users_v69.csv" 
 KEYS_FILE = "card_keys.csv"
 
+# 🔥 公众号验证码配置 (在此修改你的验证码)
+OFFICIAL_CODE = "8888" 
+
 # Optional deps
 ts = None
 bs = None
@@ -62,7 +65,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (新增了 .final-card 相关的精美样式)
+# 🔥 CSS 样式 (升级了 Final Card 样式以容纳新数据)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -161,9 +164,21 @@ ui_css = """
     }
     .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
     .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+    
+    /* 新增：第二行 Grid (支撑/压力) */
+    .final-grid-2 {
+        display: flex; justify-content: space-around; margin-top: 10px;
+        border-top: 1px dashed #cce0ff; padding-top: 15px;
+    }
+
     .final-reasons {
-        margin-top: 20px; padding-top: 15px; border-top: 1px dashed #cce0ff;
+        margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;
         text-align: left; font-size: 13px; color: #555;
+    }
+    
+    .final-disclaimer {
+        margin-top: 15px; font-size: 10px; color: #999; text-align: center;
+        border-top: 1px solid #eee; padding-top: 8px;
     }
 
     /* 锁定状态样式 */
@@ -319,16 +334,22 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
-def register_user(u, p):
+def register_user(u, p, code_input):
     if u == ADMIN_USER: return False, "保留账号"
+    
+    # 🔥 验证码校验
+    if code_input != OFFICIAL_CODE:
+        return False, "❌ 验证码错误！请扫描二维码关注公众号回复【验证码】获取。"
+
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 10, "vip_expiry": "", "paper_json": "{}"}
+    # 🔥 注册送 5 积分
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 5, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
-    return True, "注册成功，已获赠10积分！"
+    return True, "注册成功，已获赠 5 积分！"
 
 def consume_quota(u):
     if u == ADMIN_USER: return True
@@ -820,7 +841,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V73</div>
+        <div class='brand-en'>AlphaQuant Pro V74</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1045,10 +1066,19 @@ if not st.session_state.get('logged_in'):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
-            nu = st.text_input("新用户")
+            st.markdown("##### 👉 第一步：获取验证码")
+            if os.path.exists("qrcode.png"):
+                st.image("qrcode.png", width=150, caption="扫码回复【验证码】获取注册口令")
+            else:
+                st.info("📲 请扫描公众号二维码（需管理员上传 qrcode.png），回复【验证码】获取。")
+            
+            st.markdown("##### 👉 第二步：填写信息")
+            nu = st.text_input("新用户 (无需手机号)")
             np1 = st.text_input("设置密码", type="password")
+            nv_code = st.text_input("输入验证码")
+            
             if st.button("立即注册"):
-                suc, msg = register_user(nu.strip(), np1)
+                suc, msg = register_user(nu.strip(), np1, nv_code.strip())
                 if suc: st.success(msg)
                 else: st.error(msg)
     st.stop()
@@ -1135,7 +1165,7 @@ try:
     # 核心分析数据准备
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
     
-    # 🔥🔥🔥 新增功能模块：关键位与风控 (默认折叠)
+    # 🔥🔥🔥 默认风控模块保留
     with st.expander("🛡️ 关键位与风控 (Support & Resistance)", expanded=False):
         sr_cols = st.columns(4)
         sr_cols[0].metric("支撑位 (Support)", f"{sup:.2f}", help="近20日最低价")
@@ -1162,7 +1192,7 @@ try:
     
     st.divider()
 
-    # 🔥🔥🔥 调整顺序：回测看板放倒数第二
+    # 3. 回测看板
     st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
     ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
     try:
@@ -1209,20 +1239,32 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 调整顺序：最终建议卡片放最后，并应用美化后的样式
+    # 🔥🔥🔥 智能决策系统 (Final Card) - 升级版
+    # 包含了：操作建议、仓位、止盈止损、支撑压力、风险提示
     if is_pro:
         st.markdown(f"""
         <div class="final-card-container">
             <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
             <div class="final-action-main">{act}</div>
+            
             <div class="final-grid">
                 <div><div class="final-item-val">{pos}</div><div class="final-item-lbl">建议仓位</div></div>
                 <div><div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div><div class="final-item-lbl">目标止盈</div></div>
                 <div><div class="final-item-val" style="color:#00c853">{sl:.2f}</div><div class="final-item-lbl">预警止损</div></div>
             </div>
+            
+            <div class="final-grid-2">
+                <div><div class="final-item-val" style="font-size:18px;">{sup:.2f}</div><div class="final-item-lbl">下方支撑 (Support)</div></div>
+                <div><div class="final-item-val" style="font-size:18px;">{res:.2f}</div><div class="final-item-lbl">上方压力 (Resistance)</div></div>
+            </div>
+
             <div class="final-reasons">
                 <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
                 {"".join([f"<div>• {r}</div>" for r in reasons])}
+            </div>
+            
+            <div class="final-disclaimer">
+                ⚠️ 免责声明：AI智能分析结果仅供量化研究参考，不构成任何投资建议。<br>股市有风险，投资需谨慎。据此操作，风险自担。
             </div>
         </div>
         """, unsafe_allow_html=True)

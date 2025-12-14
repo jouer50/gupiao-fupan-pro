@@ -12,9 +12,9 @@ import traceback
 from datetime import datetime, timedelta
 import urllib.request
 import json
-import base64
+from PIL import Image
 
-# ✅ 0. 依赖库检查
+# ✅ 0. 依赖库检查与配置
 try:
     import yfinance as yf
 except ImportError:
@@ -25,7 +25,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V74 (VIP版)",
+    page_title="阿尔法量研 Pro V75 (实盘支付版)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -367,9 +367,10 @@ def register_user(u, p, reg_type="normal", invite_code=""):
     # 注册逻辑分流
     init_quota = 0
     if reg_type == "wechat":
-        # 模拟公众号验证码逻辑
+        # 公众号验证码逻辑
+        # 实际部署时可修改此验证码逻辑
         if invite_code != "666888":
-            return False, "验证码错误！请关注公众号回复'注册'获取。"
+            return False, "验证码错误！请关注公众号【lubingxingpiaoliuji】回复'注册'获取。"
         init_quota = 20
     else:
         # 普通注册，无赠送
@@ -876,7 +877,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V74</div>
+        <div class='brand-en'>AlphaQuant Pro V75</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -997,27 +998,24 @@ with st.sidebar:
         if st.button("🔄 刷新缓存"): st.cache_data.clear(); st.rerun()
 
         if not is_admin:
-            with st.expander("💎 充值与会员", expanded=False):
+            with st.expander("💎 充值与会员 (实盘支付)", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
-                st.write("##### 1. 在线支付 (自动发货)")
-                pay_opt = st.radio("充值面额", [20, 30, 80], horizontal=True, 
-                                   format_func=lambda x: f"￥{x} (积分)" if x==20 else f"￥{x} (月卡VIP)" if x==30 else f"￥{x} (季卡VIP)")
+                st.write("##### 1. 扫码支付 (支持支付宝)")
                 
-                # 模拟支付发货逻辑
-                if st.button(f"模拟支付 ￥{pay_opt}", type="primary"):
-                    if pay_opt == 20:
-                        new_key = batch_generate_keys(200, 1, type="points")[0] # 20元200分
-                    elif pay_opt == 30:
-                        new_key = batch_generate_keys(30, 1, type="days")[0] # 月卡30天
-                    elif pay_opt == 80:
-                        new_key = batch_generate_keys(90, 1, type="days")[0] # 季卡90天
-                    st.success("支付成功！您的卡密如下：")
-                    st.code(new_key)
-                    st.caption("请复制下方卡密并在“兑换”框中激活")
+                # 🔥 实盘支付修改：展示支付宝二维码
+                try:
+                    st.image("alipay.png", caption="支付宝扫码支付", width=200)
+                except Exception:
+                    st.warning("⚠️ 收款码加载失败，请联系管理员")
 
+                st.write("**支付说明：**")
+                st.caption("1. 扫码支付对应金额 (20元/200积分, 30元/月卡, 80元/季卡)")
+                st.caption(f"2. 支付备注请填写您的用户名：**{user}**")
+                st.caption("3. 支付后请添加管理员微信或等待后台发放卡密")
+                
                 st.divider()
-                st.write("##### 2. 兑换")
-                k_in = st.text_input("输入卡密")
+                st.write("##### 2. 卡密兑换")
+                k_in = st.text_input("输入管理员发放的卡密")
                 if st.button("立即激活"):
                     s, m = redeem_key(user, k_in)
                     if s: st.success(m); time.sleep(1); st.rerun()
@@ -1026,7 +1024,6 @@ with st.sidebar:
         if is_admin:
             st.success("👑 管理员模式")
             
-            # 🔥 新增：数据库上传恢复功能
             with st.expander("📂 数据维护", expanded=True):
                 up_file_users = st.file_uploader("上传 Users CSV", type=['csv'])
                 if up_file_users and st.button("恢复用户库"):
@@ -1128,14 +1125,20 @@ if not st.session_state.get('logged_in'):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
-            # 🔥 注册分流逻辑
+            # 🔥 注册分流逻辑 (含真实二维码)
             reg_method = st.radio("注册方式", ["普通注册 (极简模式)", "公众号注册 (送20积分)"], horizontal=True)
             nu = st.text_input("新用户")
             np1 = st.text_input("设置密码", type="password")
             invite_code = ""
             
             if "公众号" in reg_method:
-                st.info("💡 请关注公众号【阿尔法量研】回复“注册”获取验证码")
+                # 🔥 实盘注册修改：展示公众号二维码
+                try:
+                    st.image("qrcodr.png", caption="扫码关注公众号【lubingxingpiaoliuji】", width=150)
+                except:
+                    st.warning("⚠️ 二维码加载失败，请直接搜索公众号 ID: lubingxingpiaoliuji")
+                    
+                st.info("💡 关注后回复“注册”获取验证码")
                 invite_code = st.text_input("输入验证码 (模拟码: 666888)")
                 
             if st.button("立即注册"):
@@ -1227,7 +1230,7 @@ try:
     # 核心分析数据准备
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
     
-    # 🔥🔥🔥 功能增强：支撑位与风控 (默认折叠)
+    # 🔥 关键位与风控 (默认折叠)
     with st.expander("🛡️ 关键位与风控 (Support & Resistance)", expanded=False):
         sr_cols = st.columns(4)
         sr_cols[0].metric("支撑位 (Support)", f"{sup:.2f}", help="近20日最低价")
@@ -1301,9 +1304,13 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 最终建议卡片增强 (增加支撑/压力位)
+    # 🔥🔥🔥 最终建议卡片修复版 (修复乱码显示问题)
     if is_pro:
-        st.markdown(f"""
+        # 构建理由部分的 HTML 字符串
+        reasons_html = "".join([f"<div>• {r}</div>" for r in reasons])
+        
+        # 使用明确的变量构建 HTML，避免 f-string 解析错误
+        final_card_html = f"""
         <div class="final-card-container">
             <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
             <div class="final-action-main">{act}</div>
@@ -1328,13 +1335,14 @@ try:
 
             <div class="final-reasons">
                 <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
-                {"".join([f"<div>• {r}</div>" for r in reasons])}
+                {reasons_html}
             </div>
             <div class="disclaimer-box">
                 ⚠️ 免责声明：以上数据仅基于技术指标自动计算，不构成任何投资建议。股市有风险，入市需谨慎。
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """
+        st.markdown(final_card_html, unsafe_allow_html=True)
 
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) # close blur

@@ -25,7 +25,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V65",
+    page_title="阿尔法量研 Pro V66",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -58,7 +58,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 V65.0 CSS：原有果冻UI + 商业化增强 + 解释性UI
+# 🔥 V66.0 CSS：原有果冻UI + 商业化增强 + 解释性UI
 ui_css = """
 <style>
     /* 全局背景 */

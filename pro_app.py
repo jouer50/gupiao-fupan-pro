@@ -25,7 +25,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V75 (实盘支付版)",
+    page_title="阿尔法量研 Pro V76 (实盘优化版)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -127,7 +127,7 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 升级版最终建议卡片样式 */
+    /* 🔥 升级版最终建议卡片样式 - 修复版 */
     .final-card-container {
         background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
         border: 2px solid #2962ff;
@@ -161,15 +161,22 @@ ui_css = """
     }
     .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
     .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
-    .final-reasons {
-        margin-top: 20px; padding-top: 15px; border-top: 1px dashed #cce0ff;
-        text-align: left; font-size: 13px; color: #555;
-    }
+    
+    /* 修复乱码的关键 CSS */
     .final-support-grid {
-        display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top:10px;
-        background: #fff; padding:10px; border-radius:8px; border:1px solid #eee;
+        display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;
+        background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #e0e0e0;
     }
-
+    .final-reasons {
+        margin-top: 20px; padding: 15px; border-top: 1px dashed #cce0ff;
+        text-align: left; background-color: rgba(240, 247, 255, 0.5); border-radius: 8px;
+    }
+    .reason-item {
+        font-size: 13px; color: #555; margin-bottom: 4px; padding-left: 10px; border-left: 2px solid #2962ff;
+    }
+    .support-item { text-align: center; }
+    .support-val { font-size: 18px; font-weight: 900; color: #1d1d1f; margin: 5px 0; }
+    
     /* 锁定状态样式 */
     .locked-container { position: relative; overflow: hidden; }
     .locked-blur { filter: blur(6px); user-select: none; opacity: 0.6; pointer-events: none; }
@@ -368,9 +375,11 @@ def register_user(u, p, reg_type="normal", invite_code=""):
     init_quota = 0
     if reg_type == "wechat":
         # 公众号验证码逻辑
-        # 实际部署时可修改此验证码逻辑
-        if invite_code != "666888":
-            return False, "验证码错误！请关注公众号【lubingxingpiaoliuji】回复'注册'获取。"
+        # 实盘设置：预设一个验证码，例如 "8888" 或 "6666"
+        # 不再显示模拟码提示
+        valid_codes = ["666888", "8888", "alpha2025"]
+        if invite_code not in valid_codes:
+            return False, "验证码错误！请关注公众号获取最新代码。"
         init_quota = 20
     else:
         # 普通注册，无赠送
@@ -877,7 +886,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V75</div>
+        <div class='brand-en'>AlphaQuant Pro V76</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -934,14 +943,14 @@ with st.sidebar:
                     2. **盘感训练**：记录买卖逻辑，通过盈亏反馈修正交易心态。
                     3. **数据永存**：您的持仓数据已云端备份，随时可查。
                     """)
-                
+               
                 curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
-                
+               
                 curr_price = 0
                 try:
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
                 except: curr_price = 0 
-                
+               
                 if curr_hold:
                     cost = curr_hold.get('cost', 0)
                     qty = curr_hold.get('qty', 100)
@@ -960,7 +969,7 @@ with st.sidebar:
                         """, unsafe_allow_html=True)
                     else:
                         st.info(f"成本: {cost:.2f} | 数量: {qty}")
-                        
+                       
                     if st.button("卖出平仓", key="paper_sell"):
                         del st.session_state.paper_holdings[st.session_state.code]
                         save_user_holdings(user)
@@ -1001,18 +1010,19 @@ with st.sidebar:
             with st.expander("💎 充值与会员 (实盘支付)", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
                 st.write("##### 1. 扫码支付 (支持支付宝)")
-                
+               
                 # 🔥 实盘支付修改：展示支付宝二维码
                 try:
                     st.image("alipay.png", caption="支付宝扫码支付", width=200)
                 except Exception:
                     st.warning("⚠️ 收款码加载失败，请联系管理员")
 
-                st.write("**支付说明：**")
-                st.caption("1. 扫码支付对应金额 (20元/200积分, 30元/月卡, 80元/季卡)")
-                st.caption(f"2. 支付备注请填写您的用户名：**{user}**")
-                st.caption("3. 支付后请添加管理员微信或等待后台发放卡密")
-                
+                st.write("**💰 充值说明：**")
+                st.markdown("**1元 = 2积分**")
+                st.caption("例如：支付 20元 = 40积分 (实盘版)")
+                st.caption("月卡30元 / 季卡80元")
+                st.error(f"⚠️ **重要提示：** 支付时请务必备注您的用户名：**{user}**，否则无法自动到账！")
+               
                 st.divider()
                 st.write("##### 2. 卡密兑换")
                 k_in = st.text_input("输入管理员发放的卡密")
@@ -1051,7 +1061,7 @@ with st.sidebar:
             
             with st.expander("💳 卡密生成"):
                 type_gen = st.selectbox("类型", ["积分卡", "天数卡(VIP)"])
-                val_gen = st.number_input("面值 (分/天)", 10, 1000, 30)
+                val_gen = st.number_input("面值 (分/天)", 10, 1000, 40)
                 count_gen = st.number_input("数量", 1, 50, 5)
                 if st.button("批量生成"):
                     t_param = "days" if "天数" in type_gen else "points"
@@ -1125,7 +1135,7 @@ if not st.session_state.get('logged_in'):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
-            # 🔥 注册分流逻辑 (含真实二维码)
+            # 🔥 注册分流逻辑 (实盘优化版)
             reg_method = st.radio("注册方式", ["普通注册 (极简模式)", "公众号注册 (送20积分)"], horizontal=True)
             nu = st.text_input("新用户")
             np1 = st.text_input("设置密码", type="password")
@@ -1134,12 +1144,14 @@ if not st.session_state.get('logged_in'):
             if "公众号" in reg_method:
                 # 🔥 实盘注册修改：展示公众号二维码
                 try:
-                    st.image("qrcodr.png", caption="扫码关注公众号【lubingxingpiaoliuji】", width=150)
+                    # 修正图片文件名为 qrcode.png
+                    st.image("qrcode.png", caption="扫码关注公众号【lubingxingpiaoliuji】", width=150)
                 except:
-                    st.warning("⚠️ 二维码加载失败，请直接搜索公众号 ID: lubingxingpiaoliuji")
-                    
+                    st.warning("⚠️ 暂无二维码，请搜索公众号 ID: lubingxingpiaoliuji")
+                
                 st.info("💡 关注后回复“注册”获取验证码")
-                invite_code = st.text_input("输入验证码 (模拟码: 666888)")
+                # 移除了模拟码的提示文字，看起来更真实
+                invite_code = st.text_input("请输入验证码")
                 
             if st.button("立即注册"):
                 r_type = "wechat" if "公众号" in reg_method else "normal"
@@ -1304,16 +1316,18 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 最终建议卡片修复版 (修复乱码显示问题)
+    # 🔥🔥🔥 智能决策系统 (乱码修复优化版)
     if is_pro:
-        # 构建理由部分的 HTML 字符串
-        reasons_html = "".join([f"<div>• {r}</div>" for r in reasons])
-        
-        # 使用明确的变量构建 HTML，避免 f-string 解析错误
+        # 在 Python 中构建 HTML 列表，避免直接 f-string 混淆
+        reasons_list_html = ""
+        for r in reasons:
+            reasons_list_html += f"<div class='reason-item'>• {r}</div>"
+            
         final_card_html = f"""
         <div class="final-card-container">
             <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
             <div class="final-action-main">{act}</div>
+            
             <div class="final-grid">
                 <div><div class="final-item-val">{pos}</div><div class="final-item-lbl">建议仓位</div></div>
                 <div><div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div><div class="final-item-lbl">目标止盈</div></div>
@@ -1321,22 +1335,23 @@ try:
             </div>
             
             <div class="final-support-grid">
-                 <div>
+                 <div class="support-item">
                     <div style="font-size:12px;color:#666;">🛡️ 下方支撑 (Support)</div>
-                    <div style="font-size:16px;font-weight:bold;color:#1d1d1f;">{sup:.2f}</div>
+                    <div class="support-val">{sup:.2f}</div>
                     <div style="font-size:10px;color:#999;">基于20日唐奇安下轨</div>
                  </div>
-                 <div>
+                 <div class="support-item">
                     <div style="font-size:12px;color:#666;">⚔️ 上方压力 (Resistance)</div>
-                    <div style="font-size:16px;font-weight:bold;color:#1d1d1f;">{res:.2f}</div>
+                    <div class="support-val">{res:.2f}</div>
                     <div style="font-size:10px;color:#999;">基于20日唐奇安上轨</div>
                  </div>
             </div>
 
             <div class="final-reasons">
-                <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
-                {reasons_html}
+                <div style="font-weight:bold; margin-bottom:8px; color:#333;">💡 决策因子分析：</div>
+                {reasons_list_html}
             </div>
+            
             <div class="disclaimer-box">
                 ⚠️ 免责声明：以上数据仅基于技术指标自动计算，不构成任何投资建议。股市有风险，入市需谨慎。
             </div>

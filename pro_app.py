@@ -678,7 +678,7 @@ def generate_ai_copilot_text(df, name):
     final_text = f"{random.choice(openers)} {advice} {tech} 切记，即使我看好，也要设好止损线 {c['close']*0.95:.2f} 保护自己。"
     return final_text, mood
 
-# ✅ 新增：基于 CSS Grid 的稳定策略卡片
+# ✅ 极致简化版策略卡片：使用纯 HTML 表格，拒绝花哨CSS
 def generate_strategy_card(df, name):
     if df.empty: return ""
     c = df.iloc[-1]
@@ -691,62 +691,33 @@ def generate_strategy_card(df, name):
     
     # 2. 策略逻辑判断
     action = "观望 Wait"
-    position = "0成 (空仓)"
-    color = "#757575"
-    bg_color = "#f5f5f5"
+    position = "0成"
     
     if c['MA_Short'] > c['MA_Long'] and c['close'] > c['MA60']:
-        action = "🟢 积极买入/加仓"
-        color = "#d32f2f"
-        bg_color = "#ffebee"
+        action = "🟢 积极买入"
         position = "6-8成"
     elif c['MA_Short'] < c['MA_Long']:
-        action = "🔴 减仓/止盈"
-        color = "#2e7d32"
-        bg_color = "#e8f5e9"
+        action = "🔴 减仓止盈"
         position = "0-3成"
     elif c['close'] < c['MA60']:
         action = "⚠️ 反弹减持"
-        color = "#f9a825"
-        bg_color = "#fffde7"
         position = "2-4成"
         
-    # 3. 构建 HTML (Grid 布局)
+    # 3. 纯表格输出，无CSS Grid
     html = f"""
-    <div class="app-card" style="border-left: 5px solid {color};">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; padding-bottom:10px; border-bottom:1px solid #eee;">
-            <div style="font-size:18px; font-weight:900; color:#333;">🛡️ 交易计划 (Trading Plan)</div>
-            <div style="background:{bg_color}; color:{color}; padding:4px 12px; border-radius:4px; font-weight:bold; font-size:14px;">
-                建议仓位: {position}
-            </div>
-        </div>
-        
-        <div style="text-align:center; margin-bottom:20px;">
-            <div style="font-size:12px; color:#999; margin-bottom:4px;">当前操作建议</div>
-            <div style="font-size:28px; font-weight:900; color:{color}; letter-spacing:1px;">{action}</div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-            <div style="background:#fff5f5; padding:10px; border-radius:8px; text-align:center; border:1px solid #ffcdd2;">
-                <div style="font-size:12px; color:#b71c1c;">🎯 强压力位 (Resistance)</div>
-                <div style="font-size:18px; font-weight:bold; color:#333;">{resistance:.2f}</div>
-            </div>
-            <div style="background:#f1f8e9; padding:10px; border-radius:8px; text-align:center; border:1px solid #c8e6c9;">
-                <div style="font-size:12px; color:#1b5e20;">⚓ 强支撑位 (Support)</div>
-                <div style="font-size:18px; font-weight:bold; color:#333;">{support:.2f}</div>
-            </div>
-            <div style="background:#fff8e1; padding:10px; border-radius:8px; text-align:center; border:1px solid #ffecb3;">
-                <div style="font-size:12px; color:#f57f17;">💰 建议止盈 (Target)</div>
-                <div style="font-size:18px; font-weight:bold; color:#333;">{take_profit:.2f}</div>
-            </div>
-             <div style="background:#eceff1; padding:10px; border-radius:8px; text-align:center; border:1px solid #cfd8dc;">
-                <div style="font-size:12px; color:#455a64;">🛡️ 建议止损 (Stop)</div>
-                <div style="font-size:18px; font-weight:bold; color:#333;">{stop_loss:.2f}</div>
-            </div>
-        </div>
-        <div style="margin-top:15px; font-size:11px; color:#888; text-align:center;">
-            * 止损位基于2倍ATR波动率计算，压力支撑基于20日极值。
-        </div>
+    <div class="app-card">
+        <h4 style="margin-top:0;">🛡️ 交易计划: {action} (仓位: {position})</h4>
+        <table width="100%" border="1" cellspacing="0" cellpadding="8" style="text-align: center; border-collapse: collapse; border: 1px solid #ddd;">
+            <tr>
+                <td width="50%" style="background-color: #f9f9f9;">🎯 压力位 (Resistance)<br><b style="font-size:16px;">{resistance:.2f}</b></td>
+                <td width="50%" style="background-color: #f9f9f9;">⚓ 支撑位 (Support)<br><b style="font-size:16px;">{support:.2f}</b></td>
+            </tr>
+            <tr>
+                <td>💰 建议止盈 (Target)<br><b style="font-size:16px;">{take_profit:.2f}</b></td>
+                <td>🛡️ 建议止损 (Stop)<br><b style="font-size:16px;">{stop_loss:.2f}</b></td>
+            </tr>
+        </table>
+        <div style="font-size: 12px; color: gray; margin-top: 5px;">* 止损基于2倍ATR波动率，压力支撑基于20日极值</div>
     </div>
     """
     return html
@@ -1214,13 +1185,11 @@ try:
     
     st.divider()
 
-    # ✅ 新增：交易计划卡片 (在回测报告上方)
+    # ✅ 新增：交易计划卡片 (纯Table实现)
     if is_pro:
-        # 如果是专业模式，显示交易计划
         plan_html = generate_strategy_card(df, name)
         st.markdown(plan_html, unsafe_allow_html=True)
     else:
-        # 非专业模式，提示解锁
         st.info("🔒 开启 [专业模式] 可查看具体的买卖点位、止盈止损价格及仓位建议。")
 
     # 回测看板

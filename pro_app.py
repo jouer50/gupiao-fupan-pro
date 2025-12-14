@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V70 (Alpha Strategy)",
+    page_title="阿尔法量研 Pro V70.1 (Fix)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -62,7 +62,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式：增加回测美化与锁定样式
+# 🔥 CSS 样式
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -319,7 +319,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (保持 V69 修复版的高可用性)
+# 3. 股票逻辑 (修复版)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -532,7 +532,6 @@ def get_daily_picks(user_watchlist):
             results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
     return results
 
-# ✅ NEW: 回测逻辑升级 (计算Alpha)
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, 0.0, pd.DataFrame({'date':[], 'equity':[]})
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
@@ -560,12 +559,12 @@ def run_backtest(df):
     final = equity[-1]
     strategy_ret = (final - 100000) / 100000 * 100
     
-    # ✅ 计算基准收益 (大盘/个股Buy&Hold)
+    # 计算基准收益 (大盘/个股Buy&Hold)
     start_price = df_bt.iloc[0]['close']
     end_price = df_bt.iloc[-1]['close']
     benchmark_ret = (end_price - start_price) / start_price * 100
     
-    # ✅ 计算Alpha
+    # 计算Alpha
     alpha = strategy_ret - benchmark_ret
     
     # 简单的最大回撤
@@ -599,12 +598,16 @@ def generate_ai_copilot_text(df, name):
     advice = "多头排列，继续持有。" if c['MA_Short'] > c['MA_Long'] else "空头趋势，建议观望。"
     return f"主人好！我是您的AI投顾。{advice} 注意 RSI 目前数值为 {c['RSI']:.1f}。", "happy" if c['pct_change']>0 else "neutral"
 
+# 🔥 FIX: Added 'color' back to return tuple to match calling code unpacking
 def analyze_score(df):
     c = df.iloc[-1]; score=0; reasons=[]
     if c['MA_Short']>c['MA_Long']: score+=2; reasons.append("均线金叉")
     else: score-=2; reasons.append("均线死叉")
+    
     action = "积极买入" if score>=0 else "减仓/卖出"
-    return score, action, c['close']-c['ATR14']*2, c['close']+c['ATR14']*3, "50%", c['low']*0.95, c['high']*1.05, reasons
+    color = "success" if score>=0 else "error"  # Fixed logic
+    
+    return score, action, color, c['close']-c['ATR14']*2, c['close']+c['ATR14']*3, "50%", c['low']*0.95, c['high']*1.05, reasons
 
 def calculate_smart_score(df, funda):
     return 8.5, 7.0, 6.5 # Mock scores for speed
@@ -627,7 +630,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V70</div>
+        <div class='brand-en'>AlphaQuant Pro V70.1</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -643,7 +646,6 @@ with st.sidebar:
         if is_vip: st.success(f"👑 {vip_msg}")
         else: st.info(f"👤 普通用户 (积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]})")
 
-        # ✅ NEW: 模式切换
         st.markdown("### 👁️ 模式选择")
         view_mode = st.radio("选择查看模式", ["极简模式 (Free)", "专业模式 (VIP/Paid)"], index=0)
         is_pro_mode = "专业" in view_mode
@@ -712,33 +714,6 @@ with st.sidebar:
         if st.button("退出登录"): st.session_state["logged_in"]=False; st.rerun()
     else:
         st.info("请先登录系统")
-
-# 登录逻辑
-if not st.session_state.get('logged_in'):
-    c1,c2,c3 = st.columns([1,2,1])
-    with c2:
-        st.markdown("""
-        <br><br>
-        <div style='text-align: center;'>
-            <h1 class='brand-title'>阿尔法量研回测系统 Pro</h1>
-            <div class='brand-en'>AlphaQuant Pro</div>
-        </div>
-        """, unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
-        with tab1:
-            u = st.text_input("账号")
-            p = st.text_input("密码", type="password")
-            if st.button("登录系统"):
-                if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
-                else: st.error("账号或密码错误")
-        with tab2:
-            nu = st.text_input("新用户")
-            np1 = st.text_input("设置密码", type="password")
-            if st.button("立即注册"):
-                suc, msg = register_user(nu.strip(), np1)
-                if suc: st.success(msg)
-                else: st.error(msg)
-    st.stop()
 
 # --- 主内容区 ---
 name = get_name(st.session_state.code, "", None) 

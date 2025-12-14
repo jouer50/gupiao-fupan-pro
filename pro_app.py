@@ -30,7 +30,6 @@ st.set_page_config(
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded" 
-    # 注意：在移动端Sidebar会自动折叠，这是Streamlit特性
 )
 
 # 初始化 Session
@@ -70,17 +69,17 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 - 移动端丝滑体验深度优化版
+# 🔥 CSS 样式 - 移动端丝滑体验深度优化版 (已修复侧边栏按钮可见性)
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
     .stApp {
         background-color: #f7f8fa; 
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Helvetica Neue", sans-serif;
-        touch-action: manipulation; /* 优化触摸响应 */
+        touch-action: manipulation;
     }
     
-    /* 核心内容区去边距 - 解决"滑动头晕"问题 */
+    /* 核心内容区去边距 */
     .block-container {
         padding-top: 1rem !important;
         padding-bottom: 3rem !important;
@@ -89,18 +88,35 @@ ui_css = """
         max-width: 100% !important;
     }
 
-    /* 隐藏 Streamlit 默认头部干扰 */
-    header[data-testid="stHeader"] { display: none !important; }
+    /* 隐藏 Streamlit 默认头部干扰，但保留空间给按钮 */
+    header[data-testid="stHeader"] { 
+        background-color: transparent !important;
+        height: 3rem !important;
+    }
     footer { display: none !important; }
     [data-testid="stDecoration"] { display: none !important; }
 
-    /* 侧边栏按钮优化 */
+    /* ✅ 修复：侧边栏折叠按钮 (移动端左上角) */
     [data-testid="stSidebarCollapsedControl"] {
-        top: 10px !important; left: 10px !important;
-        background-color: white !important;
-        border-radius: 50%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        z-index: 999999 !important;
+        position: fixed !important;
+        top: 12px !important; 
+        left: 12px !important;
+        background-color: #ffffff !important;
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 50% !important;
+        color: #333333 !important; /* 强制深色图标 */
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+        z-index: 9999999 !important; /* 最高层级 */
+        width: 40px !important;
+        height: 40px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] svg {
+        fill: #333333 !important;
+        width: 20px !important;
+        height: 20px !important;
     }
 
     /* 按钮 - APP风格 */
@@ -108,14 +124,14 @@ ui_css = """
         background: white;
         color: #333;
         border: 1px solid #e0e0e0;
-        border-radius: 12px; /* 更圆润 */
+        border-radius: 12px;
         padding: 0.5rem 1rem;
         font-weight: 600;
         font-size: 15px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.03); 
         width: 100%;
         height: auto;
-        min-height: 44px; /* 适配手指触摸高度 */
+        min-height: 44px;
         transition: all 0.15s ease-in-out;
     }
     div.stButton > button:active { transform: scale(0.98); background: #f5f5f5; }
@@ -127,9 +143,6 @@ ui_css = """
         border: none; 
         box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
     }
-
-    /* 每日精选卡片优化 */
-    .pick-card-btn { margin-bottom: 8px !important; }
 
     /* 卡片容器 */
     .app-card { 
@@ -158,25 +171,8 @@ ui_css = """
     .price-main { font-size: 42px; font-weight: 800; line-height: 1; letter-spacing: -1px; font-family: "SF Pro Display", sans-serif; }
     .price-sub { font-size: 15px; font-weight: 600; margin-left: 6px; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,0.05); }
 
-    /* 评分卡片 */
-    .rating-container { display: flex; justify-content: space-between; gap: 10px; }
-    .rating-box { 
-        flex: 1; background: #fff; 
-        border-radius: 12px; 
-        text-align: center; 
-        padding: 12px 5px; 
-        box-shadow: 0 2px 8px rgba(0,0,0,0.03); 
-    }
-
     /* 模拟交易小按钮组 */
     .trade-btn-group { display: flex; gap: 4px; margin-bottom: 8px; }
-    .trade-btn-group button { 
-        flex: 1; 
-        font-size: 12px !important; 
-        padding: 4px !important; 
-        min-height: 32px !important; 
-        border-radius: 8px !important;
-    }
 
     /* 锁定层样式 */
     .locked-container { position: relative; overflow: hidden; }
@@ -196,26 +192,18 @@ ui_css = """
         font-weight: 600;
         border: 1px solid #f0f0f0;
     }
-    .streamlit-expanderContent {
-        background-color: #fafafa;
-        border-bottom-left-radius: 12px;
-        border-bottom-right-radius: 12px;
-        border: 1px solid #f0f0f0;
-        border-top: none;
-    }
-
+    
     /* AI 对话框 */
     .ai-chat-box {
         background: #f2f8ff; border-radius: 12px; padding: 15px; margin-bottom: 15px;
         border-left: 4px solid #007AFF; 
     }
     
-    /* 隐藏不需要的默认元素 */
     [data-testid="metric-container"] { display: none; }
     
     /* 策略报告 */
     .bt-container { background: white; border-radius: 12px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 20px; }
-    .bt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; } /* 移动端改为2列 */
+    .bt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; } 
     .bt-card { background: #f9f9f9; padding: 12px; border-radius: 10px; text-align: center; }
     .bt-val { font-size: 20px; font-weight: 800; color: #333; }
     .bt-lbl { font-size: 11px; color: #666; margin-top: 4px; }
@@ -654,44 +642,74 @@ def check_market_status(df):
     else:
         return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
 
-# ✅ 优化逻辑：基于技术指标筛选，而非随机
+# ✅ 优化：基于MACD, RSI, VOL, BOLL, KDJ筛选“今日金股”
 def get_daily_picks(user_watchlist):
-    hot_stocks = ["600519", "NVDA", "TSLA", "300750", "AAPL"]
-    # 限制数量以防卡顿
-    pool = list(set(hot_stocks + user_watchlist))[:8] 
-    results = []
+    # 基础池：热门股 + 用户自选
+    hot_stocks = ["600519", "NVDA", "TSLA", "300750", "AAPL", "000858", "601318", "MSFT"]
+    pool = list(set(hot_stocks + user_watchlist))[:10] # 限制数量防卡顿
+    
+    best_stock = None
+    max_score = -1
     
     for code in pool:
         try:
-            # 简单拉取少量数据判断
+            # 获取数据并计算指标
             df = get_data_and_resample(code, "", "日线", "", None)
             if df.empty or len(df) < 30: continue
+            df = calc_full_indicators(df, 5, 20)
             
-            # 计算简易指标
-            c = df['close']; ma20 = c.rolling(20).mean(); ma5 = c.rolling(5).mean()
-            delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
-            rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
-            rsi = 100 - (100/(1+rs))
+            c = df.iloc[-1] # 当天
+            p = df.iloc[-2] # 前一天
+            score = 0
+            reasons = []
             
-            last = df.iloc[-1]
-            last_ma20 = ma20.iloc[-1]
-            last_ma5 = ma5.iloc[-1]
-            last_rsi = rsi.iloc[-1]
-            name = get_name(code, "", None)
-
-            # 策略逻辑
-            if last['close'] > last_ma20 and last_rsi < 45:
-                results.append({"code": code, "name": name, "tag": "🟢 回踩买点", "reason": "上升趋势回调+RSI超卖"})
-            elif last_ma5 > last_ma20 and ma5.iloc[-2] <= ma20.iloc[-2]:
-                results.append({"code": code, "name": name, "tag": "🚀 均线金叉", "reason": "MA5上穿MA20启动"})
-            elif last['close'] < last_ma20 and last_rsi > 70:
-                results.append({"code": code, "name": name, "tag": "🔴 高位预警", "reason": "熊市反弹+RSI超买"})
-            elif last['close'] > last_ma20:
-                results.append({"code": code, "name": name, "tag": "👀 多头观察", "reason": "站稳20日线"})
+            # 1. MACD (趋势动能)
+            if c['DIF'] > c['DEA'] and c['HIST'] > 0:
+                if p['DIF'] <= p['DEA']: # 金叉
+                    score += 3; reasons.append("MACD金叉")
+                else: 
+                    score += 1 # 多头延续
+            
+            # 2. RSI (超买超卖)
+            if c['RSI'] < 30: 
+                score += 2; reasons.append("RSI超卖反弹")
+            elif 30 <= c['RSI'] <= 60:
+                score += 1
+            elif c['RSI'] > 80:
+                score -= 2 # 风险
+            
+            # 3. 均线 (趋势)
+            if c['close'] > c['MA60']:
+                score += 1
+            if c['MA_Short'] > c['MA_Long'] and p['MA_Short'] <= p['MA_Long']:
+                score += 2; reasons.append("均线金叉启动")
                 
+            # 4. BOLL (支撑)
+            if c['low'] <= c['Lower'] and c['close'] > c['Lower']:
+                score += 2; reasons.append("触及布林下轨回升")
+                
+            # 5. KDJ
+            if c['K'] > c['D'] and c['K'] < 40 and p['K'] <= p['D']:
+                score += 2; reasons.append("KDJ低位金叉")
+                
+            # 6. 量能
+            if c['VolRatio'] > 1.2:
+                score += 1; reasons.append("温和放量")
+            
+            if score > max_score and score > 2: # 门槛分
+                max_score = score
+                name = get_name(code, "", None)
+                best_stock = {
+                    "code": code, 
+                    "name": name, 
+                    "tag": "👑 今日金股", 
+                    "reason": " + ".join(reasons[:2]), # 只取前两个主要理由
+                    "score": score
+                }
         except: continue
         
-    return results[:5] # 只返回前5个
+    # 返回最高分的那一支
+    return [best_stock] if best_stock else []
 
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
@@ -934,7 +952,7 @@ with st.sidebar:
                 * 有问题咨询微信公众号：`lubingxpiaoliuji`
                 """)
                 if os.path.exists("alipay.png"):
-                    st.image("alipay.png", caption="请使用支付宝扫码 (备注用户名)", width=200)
+                    st.image("alipay.png", caption="请使用支付宝扫码 (备注用户名)", use_container_width=True)
                 st.markdown("---")
                 st.write("##### 卡密兑换")
                 k_in = st.text_input("输入卡密")
@@ -974,16 +992,18 @@ with st.sidebar:
             is_pro = (view_mode == "专业模式")
         
         if not is_admin:
-            st.markdown("### 🎯 每日精选 (技术面筛选)")
+            st.markdown("### 🎯 每日精选 (AI策略筛选)")
             user_wl = get_user_watchlist(user)
-            # 使用新的逻辑获取推荐
-            with st.spinner("AI正在扫描盘面..."):
+            # ✅ 使用新逻辑：只选一支
+            with st.spinner("AI正在基于MACD/RSI/量能扫描盘面..."):
                 picks = get_daily_picks(user_wl)
             
+            if not picks:
+                st.caption("今日无高分符合策略标的")
             for pick in picks:
-                # 显示理由
-                st.caption(f"💡 {pick['reason']}")
-                if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}"):
+                st.success(f"🔥 综合得分: {pick['score']}")
+                st.caption(f"💡 推荐理由: {pick['reason']}")
+                if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}", type="primary"):
                     st.session_state.code = pick['code']
                     st.rerun()
                 st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
@@ -1257,8 +1277,11 @@ if not st.session_state.get('logged_in'):
                 <span style='color:#d32f2f; font-weight:bold'>🎁 成功注册即送 20 积分！</span>
                 """, unsafe_allow_html=True)
                 
+                # ✅ 修复：移动端二维码显示问题，增加文件检测和宽度自适应
                 if os.path.exists("qrcode.png"):
-                    st.image("qrcode.png", width=150)
+                    st.image("qrcode.png", width=200, use_container_width=False, caption="长按识别或截图扫码")
+                else:
+                    st.info("📸 请直接搜索公众号：lubingxingpiaoliuji")
                 
                 v_code = st.text_input("请输入验证码")
                 if st.button("验证并注册"):

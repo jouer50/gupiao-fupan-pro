@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V79 (SimTrade+)",
+    page_title="阿尔法量研 Pro V80 (SimTrade+)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -71,6 +71,7 @@ try: import baostock as bs
 except: pass
 
 # 🔥 CSS 样式 (移动端 App 风格深度优化版)
+# ✅ 修复点1：优化了侧边栏按钮的 Z-Index 和 SVG 颜色，确保移动端可见
 ui_css = """
 <style>
     /* 全局背景与字体优化 - 更加原生 */
@@ -85,25 +86,33 @@ ui_css = """
     [data-testid="stDecoration"] { display: none !important; }
     .stDeployButton { display: none !important; }
 
-    /* 📱 蓝色侧边栏悬浮按钮 - 简约稳定版 */
+    /* 📱 蓝色侧边栏悬浮按钮 - 修复移动端不可见问题 */
     [data-testid="stSidebarCollapsedControl"] {
         display: block !important;
         position: fixed !important;
-        top: 10px !important;
-        left: 10px !important;
+        top: 15px !important;
+        left: 15px !important;
         background-color: #2962ff !important; /* 科技蓝 */
         color: white !important;
-        border-radius: 8px !important; /* 简单的圆角矩形 */
-        width: 44px !important;
-        height: 44px !important;
-        padding: 8px !important;
-        z-index: 999999 !important;
-        box-shadow: 0 4px 12px rgba(41, 98, 255, 0.3) !important;
-        border: none !important;
-        transition: opacity 0.2s;
+        border-radius: 50% !important; /* 圆形按钮更符合操作直觉 */
+        width: 48px !important;
+        height: 48px !important;
+        padding: 10px !important;
+        z-index: 1000002 !important; /* 强制最高层级 */
+        box-shadow: 0 4px 12px rgba(41, 98, 255, 0.4) !important;
+        border: 2px solid #ffffff !important;
+        transition: transform 0.2s;
     }
+    
+    /* 强制内部图标为白色 */
+    [data-testid="stSidebarCollapsedControl"] svg {
+        fill: white !important;
+        color: white !important;
+    }
+
     [data-testid="stSidebarCollapsedControl"]:active {
-        opacity: 0.8; /* 点击时轻微变暗，提供反馈 */
+        opacity: 0.9;
+        transform: scale(0.95);
     }
 
     /* 📱 移动端布局核心优化：去除网页感 */
@@ -645,18 +654,55 @@ def check_market_status(df):
     else:
         return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
 
+# ✅ 修复点3：优化“每日精选策略”逻辑，不再随机，而是真实计算趋势
+@st.cache_data(ttl=3600)  # 缓存1小时，避免频繁请求
 def get_daily_picks(user_watchlist):
-    hot_stocks = ["600519", "NVDA", "TSLA", "300750", "002594", "AAPL"]
-    pool = list(set(hot_stocks + user_watchlist))
+    # 基础热门池
+    hot_stocks = ["NVDA", "TSLA", "AAPL", "MSFT", "AMD", "600519", "300750", "002594", "601318"]
+    # 合并用户自选，去重
+    pool = list(set(hot_stocks + (user_watchlist if user_watchlist else [])))
+    
     results = []
-    for code in pool[:6]: 
-        name = get_name(code, "", None)
-        status = random.choice(["buy", "hold", "wait"])
-        if status == "buy":
-            results.append({"code": code, "name": name, "tag": "今日买点", "type": "tag-buy"})
-        elif status == "hold":
-            results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
-    return results
+    # 随机取5-8个进行快速扫描，防止卡顿
+    scan_list = random.sample(pool, min(len(pool), 8))
+    
+    for code in scan_list: 
+        try:
+            # 获取少量数据计算指标
+            df = get_data_and_resample(code, "", "日线", "qfq")
+            if df is not None and not df.empty and len(df) > 25:
+                # 简单计算均线和RSI
+                df['MA5'] = df['close'].rolling(5).mean()
+                df['MA20'] = df['close'].rolling(20).mean()
+                delta = df['close'].diff()
+                up = delta.clip(lower=0)
+                down = -1 * delta.clip(upper=0)
+                rs = up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)
+                df['RSI'] = 100 - (100 / (1 + rs))
+                
+                curr = df.iloc[-1]
+                name = get_name(code, "", None)
+                
+                # 策略1: 趋势突破 (MA5 > MA20 且 价格 > MA20)
+                if curr['close'] > curr['MA20'] and curr['MA5'] > curr['MA20']:
+                    results.append({"code": code, "name": name, "tag": "🚀 趋势突破", "type": "tag-buy"})
+                
+                # 策略2: 超卖反弹 (RSI < 30)
+                elif curr['RSI'] < 30:
+                    results.append({"code": code, "name": name, "tag": "💎 超卖反弹", "type": "tag-buy"})
+                    
+                # 策略3: 趋势待定 (有持仓价值但当前未突破)
+                elif curr['close'] > curr['MA20']:
+                    results.append({"code": code, "name": name, "tag": "👀 观察", "type": "tag-hold"})
+
+        except:
+            continue
+            
+    # 如果没扫描到好的，补充默认
+    if not results:
+        results.append({"code": "600519", "name": "贵州茅台", "tag": "🔥 热门关注", "type": "tag-hold"})
+        
+    return results[:6] # 最多显示6个
 
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
@@ -881,7 +927,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V79</div>
+        <div class='brand-en'>AlphaQuant Pro V80</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -921,7 +967,6 @@ with st.sidebar:
         else: st.info(f"👤 普通用户")
 
         st.markdown("### 👁️ 视觉模式")
-        # ✅ 修改2: label_visibility="collapsed" 去除“显示模式”文字
         view_mode = st.radio("Display Mode", ["极简模式", "专业模式"], index=0, horizontal=True, label_visibility="collapsed")
         
         is_unlocked = False
@@ -944,7 +989,9 @@ with st.sidebar:
         if not is_admin:
             st.markdown("### 🎯 每日精选策略")
             user_wl = get_user_watchlist(user)
-            picks = get_daily_picks(user_wl)
+            # 优化：现在使用真实的行情判断逻辑
+            with st.spinner("扫描市场中..."):
+                picks = get_daily_picks(user_wl)
             for pick in picks:
                 if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}"):
                     st.session_state.code = pick['code']
@@ -952,8 +999,9 @@ with st.sidebar:
             st.divider()
         
         # ✅✅✅✅✅✅✅✅✅ 模拟交易模块深度优化 (V79) ✅✅✅✅✅✅✅✅✅
+        # ✅ 修复点2：默认 expanded=False
         if not is_admin:
-            with st.expander("🎮 模拟交易 (仿真账户)", expanded=True):
+            with st.expander("🎮 模拟交易 (仿真账户)", expanded=False):
                 # 1. 核心数据
                 paper = st.session_state.paper_account
                 cash = paper.get("cash", 1000000.0)
@@ -1161,8 +1209,9 @@ with st.sidebar:
         
         st.divider()
         
+        # ✅ 修复点2：默认 expanded=False
         if is_pro:
-            with st.expander("🎛️ 策略参数 (Pro)", expanded=True):
+            with st.expander("🎛️ 策略参数 (Pro)", expanded=False):
                 ma_s = st.slider("短期均线", 2, 20, 5)
                 ma_l = st.slider("长期均线", 10, 120, 20)
             

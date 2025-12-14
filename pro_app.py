@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V69 (Stable)",
+    page_title="阿尔法量研 Pro V70 (Enhanced)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -51,7 +51,7 @@ flags = {
 # 核心常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v69.csv" # 确保数据库文件
+DB_FILE = "users_v69.csv" # 保持数据库文件
 KEYS_FILE = "card_keys.csv"
 
 # Optional deps
@@ -62,7 +62,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (保持 V68 的 VIP 锁样式)
+# 🔥 CSS 样式 (V70 增强版：优化了回测UI)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -91,10 +91,16 @@ ui_css = """
     .section-header { display: flex; align-items: center; margin-bottom: 12px; margin-top: 8px; }
     .section-title { font-size: 17px; font-weight: 900; color: #333; margin-right: 5px; }
     .vip-badge { background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); color: #d32f2f; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; font-style: italic; }
+    
+    /* AI 投顾样式 */
     .ai-chat-box {
         background: #f0f7ff; border-radius: 12px; padding: 15px; margin-bottom: 20px;
         border-left: 5px solid #2962ff; box-shadow: 0 4px 12px rgba(41, 98, 255, 0.1);
+        display: flex; align-items: start; gap: 10px;
     }
+    .ai-avatar { font-size: 24px; min-width: 30px; }
+    .ai-content { font-size: 15px; color: #333; line-height: 1.6; }
+
     .market-status-box {
         padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
         display: flex; align-items: center; justify-content: space-between;
@@ -112,10 +118,29 @@ ui_css = """
     .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
     .rating-label { font-size: 12px; color: #666; font-weight: 500; }
     .score-yellow { color: #ff9800 !important; }
+    
+    /* 策略卡片 */
     .strategy-card { background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
+    .strategy-col { text-align: center; flex: 1; }
+    .st-lbl { display: block; font-size: 12px; color: #888; margin-bottom: 4px; }
+    .st-val { font-size: 16px; font-weight: bold; }
     .reason-box { background: #f8f9fa; border-radius: 8px; padding: 10px; margin-top: 8px; font-size: 13px; color: #555; }
+    
+    /* 🔥 新增：高级回测仪表盘样式 */
+    .bt-dashboard { background: linear-gradient(180deg, #ffffff 0%, #f8faff 100%); border-radius: 16px; border: 1px solid #e0e6ed; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); margin-bottom: 20px; }
+    .bt-header { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+    .bt-title { font-size: 20px; font-weight: 900; color: #1a237e; flex: 1; }
+    .bt-tag { background: #e8eaf6; color: #3949ab; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .bt-metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }
+    .bt-metric-card { background: #fff; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #f0f0f0; box-shadow: 0 2px 5px rgba(0,0,0,0.02); transition: transform 0.2s; }
+    .bt-metric-card:hover { transform: translateY(-2px); border-color: #2962ff; }
+    .bt-m-val { font-size: 24px; font-weight: 900; color: #333; margin-bottom: 4px; }
+    .bt-m-lbl { font-size: 13px; color: #666; font-weight: 500; }
+    .bt-desc-box { background: #fff3e0; border-left: 4px solid #ff9800; padding: 12px; border-radius: 8px; font-size: 13px; color: #6d4c41; line-height: 1.5; margin-bottom: 15px; }
+    .bt-desc-title { font-weight: 800; margin-bottom: 4px; color: #e65100; display: block; }
+
     .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
     
     /* 锁定状态样式 */
@@ -351,13 +376,10 @@ def get_name(code, token, proxy=None):
     except: pass
     return code
 
-# 🔥 核心修复：数据抓取逻辑
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
     fetch_days = 1500 
     raw_df = pd.DataFrame()
-    
-    # 1. 优先尝试 Tushare (A股)
     if is_cn_stock(code) and token and ts:
         try:
             pro = ts.pro_api(token)
@@ -365,7 +387,6 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
             s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y%m%d')
             df = pro.daily(ts_code=_to_ts_code(code), start_date=s, end_date=e)
             if not df.empty:
-                # 复权处理
                 if adjust in ['qfq', 'hfq']:
                     adj_f = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
                     if not adj_f.empty:
@@ -379,10 +400,7 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                 df['date'] = pd.to_datetime(df['date'])
                 for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
                 raw_df = df.sort_values('date').reset_index(drop=True)
-        except Exception: 
-            raw_df = pd.DataFrame() # 重置失败的数据
-
-    # 2. 其次尝试 Baostock (A股)
+        except Exception: raw_df = pd.DataFrame()
     if raw_df.empty and is_cn_stock(code) and bs:
         try:
             bs.login()
@@ -396,25 +414,14 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                 df['date'] = pd.to_datetime(df['date'])
                 for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
                 raw_df = df.sort_values('date').reset_index(drop=True)
-        except Exception:
-            raw_df = pd.DataFrame()
-
-    # 3. 最后尝试 Yfinance (支持A股和美股)
+        except Exception: raw_df = pd.DataFrame()
     if raw_df.empty:
         try:
-            # 兼容：yf.download 在新版本中列名可能为 MultiIndex (Price, Ticker)
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
-            
             if not yf_df.empty:
-                # 扁平化列名 (处理 MultiIndex)
-                if isinstance(yf_df.columns, pd.MultiIndex):
-                    yf_df.columns = yf_df.columns.get_level_values(0)
-                
-                # 清洗列名
+                if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
                 yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
                 yf_df.reset_index(inplace=True)
-                
-                # 映射列名
                 rename_map = {}
                 for c in yf_df.columns:
                     if 'date' in c: rename_map[c] = 'date'
@@ -424,27 +431,15 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                     elif 'low' in c: rename_map[c] = 'low'
                     elif 'volume' in c: rename_map[c] = 'volume'
                     elif 'adj close' in c: rename_map[c] = 'adj_close'
-                
                 yf_df.rename(columns=rename_map, inplace=True)
-                
-                # 检查必要列
                 req_cols = ['date','open','high','low','close']
                 if all(c in yf_df.columns for c in req_cols):
                     if 'volume' not in yf_df.columns: yf_df['volume'] = 0
                     raw_df = yf_df[['date','open','high','low','close','volume']].copy()
-                    
-                    # 确保数值类型
-                    for c in ['open','high','low','close','volume']: 
-                        raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
-                    
+                    for c in ['open','high','low','close','volume']: raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
-        except Exception:
-            pass
-
-    # 最终数据检查
+        except Exception: pass
     if raw_df.empty: return raw_df
-
-    # 周期重采样
     if timeframe == '日线': return raw_df
     rule = 'W' if timeframe == '周线' else 'M'
     raw_df.set_index('date', inplace=True)
@@ -560,7 +555,7 @@ def get_daily_picks(user_watchlist):
             results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
     return results
 
-# 🚨 回滚：恢复最原始的回测逻辑，不含任何多余的过滤条件
+# ✅ 回测逻辑：增强了胜率的计算精确度，但完全保留了原有的接口和逻辑框架
 def run_backtest(df):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     needed = ['MA_Short', 'MA_Long', 'close', 'date']
@@ -569,8 +564,8 @@ def run_backtest(df):
     
     capital = 100000; position = 0
     buy_signals = []; sell_signals = []; equity = [capital]; dates = [df_bt.iloc[0]['date']]
+    trade_results = [] # 记录每笔盈亏用于计算准确胜率
     
-    # 纯粹的均线策略：短金叉买入，死叉卖出
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
         
@@ -579,8 +574,11 @@ def run_backtest(df):
         
         if buy_sig and position == 0:
             position = capital / price; capital = 0; buy_signals.append(date)
+            entry_price = price
         elif sell_sig and position > 0: 
-            capital = position * price; position = 0; sell_signals.append(date)
+            capital = position * price
+            trade_results.append(price - entry_price) # 记录盈亏
+            position = 0; sell_signals.append(date)
         
         current_val = capital + (position * price)
         equity.append(current_val)
@@ -588,11 +586,10 @@ def run_backtest(df):
         
     final = equity[-1]; ret = (final - 100000) / 100000 * 100
     
-    # 计算基础指标
-    wins = 0; total_trades = len(sell_signals)
-    # (简化的胜率估算，这里不记录每笔明细以保持原始逻辑)
-    if total_trades > 0: wins = total_trades / 2 # 占位，恢复旧版逻辑
-    win_rate = 50.0 # 保持简单
+    # 计算更准确的胜率
+    total_trades = len(trade_results)
+    wins = len([x for x in trade_results if x > 0])
+    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
     
     eq_series = pd.Series(equity); cummax = eq_series.cummax()
     drawdown = (eq_series - cummax) / cummax; max_dd = drawdown.min() * 100
@@ -764,7 +761,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V69</div>
+        <div class='brand-en'>AlphaQuant Pro V70</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -893,23 +890,23 @@ with st.sidebar:
         
         st.divider()
         
-        if is_pro:
-            with st.expander("🎛️ 策略参数 (VIP)", expanded=False):
-                ma_s = st.slider("短期均线", 2, 20, 5)
-                ma_l = st.slider("长期均线", 10, 120, 20)
-            
-            st.markdown("### 🛠️ 指标开关")
-            c_flags = st.columns(2)
-            with c_flags[0]:
-                flags['ma'] = st.checkbox("MA", True)
-                flags['boll'] = st.checkbox("BOLL", True)
-                flags['vol'] = st.checkbox("VOL", True)
-                flags['macd'] = st.checkbox("MACD", True)
-            with c_flags[1]:
-                flags['kdj'] = st.checkbox("KDJ", True)
-                flags['gann'] = st.checkbox("江恩", False)
-                flags['fib'] = st.checkbox("斐波那契", True)
-                flags['chan'] = st.checkbox("缠论", True)
+        # 始终显示策略参数调整，但在极简模式下折叠
+        with st.expander("🎛️ 策略参数 (VIP)", expanded=False):
+            ma_s = st.slider("短期均线", 2, 20, 5)
+            ma_l = st.slider("长期均线", 10, 120, 20)
+        
+        st.markdown("### 🛠️ 指标开关")
+        c_flags = st.columns(2)
+        with c_flags[0]:
+            flags['ma'] = st.checkbox("MA", True)
+            flags['boll'] = st.checkbox("BOLL", True)
+            flags['vol'] = st.checkbox("VOL", True)
+            flags['macd'] = st.checkbox("MACD", True)
+        with c_flags[1]:
+            flags['kdj'] = st.checkbox("KDJ", True)
+            flags['gann'] = st.checkbox("江恩", False)
+            flags['fib'] = st.checkbox("斐波那契", True)
+            flags['chan'] = st.checkbox("缠论", True)
         
         st.divider()
         st.caption("免责声明：本系统仅供量化研究，不构成投资建议。")
@@ -968,7 +965,7 @@ try:
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
-    # === 区域 1：免费内容 ===
+    # === 区域 1：市场概况（通用） ===
     status, msg, css_class = check_market_status(df)
     st.markdown(f"""
     <div class="market-status-box {css_class}">
@@ -1006,83 +1003,125 @@ try:
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
 
-    # === 区域 2：深度内容 (VIP) ===
+    # === 区域 2：深度内容逻辑 (VIP / 极简模式区分) ===
     has_access = False
     if is_admin: has_access = True
     elif is_vip: has_access = True
     elif st.session_state.paid_code == st.session_state.code: has_access = True
     
-    ai_text, ai_mood = generate_ai_copilot_text(df, name)
-    ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
-    
-    if not has_access:
-        st.markdown('<div class="locked-container"><div class="locked-blur">', unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div class="ai-chat-box">
-        <div class="ai-avatar">{ai_icon}</div>
-        <div class="ai-content">
-            <span style="font-weight:bold; color:#2962ff;">AI 投顾助理：</span>
-            {ai_text}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
-    reason_html = "".join([f"<div>• {r}</div>" for r in reasons])
-    st.markdown(f"""
-    <div class="strategy-card">
-        <div class="strategy-title">🤖 最终建议：{act}</div>
-        <div class="strategy-grid">
-            <div class="strategy-col"><span class="st-lbl">仓位</span><span class="st-val" style="color:#333">{pos}</span></div>
-            <div class="strategy-col"><span class="st-lbl">止盈</span><span class="st-val" style="color:#ff3b30">{tp:.2f}</span></div>
-            <div class="strategy-col"><span class="st-lbl">止损</span><span class="st-val" style="color:#00c853">{sl:.2f}</span></div>
-        </div>
-        <div class="reason-box">
-            <div class="reason-title">💡 决策依据 (VIP)</div>
-            {reason_html}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
+    # 1. AI 投顾与最终建议 (仅在专业模式显示，且需VIP权限)
     if is_pro:
-        # 回测 (恢复为原始 6 个返回值)
-        with st.expander("⚖️ 历史回测数据 (原始版)", expanded=True):
-            ret, win, mdd, _, _, eq = run_backtest(df) # 移除了 bench_ret, recent_win
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("总收益 (Total)", f"{ret:.1f}%")
-            c2.metric("胜率 (Win Rate)", f"{win:.0f}%")
-            c3.metric("最大回撤", f"{mdd:.1f}%")
-            
-            if not eq.empty:
-                f2 = go.Figure()
-                f2.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], fill='tozeroy', line=dict(color='#2962ff', width=1.5), name='策略净值'))
-                f2.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), showlegend=False)
-                st.plotly_chart(f2, use_container_width=True)
+        ai_text, ai_mood = generate_ai_copilot_text(df, name)
+        ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
+        
+        if not has_access:
+            st.markdown('<div class="locked-container"><div class="locked-blur">', unsafe_allow_html=True)
 
-        plot_chart(df.tail(days), name, flags, ma_s, ma_l)
-        st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
-
-    if not has_access:
-        st.markdown('</div>', unsafe_allow_html=True) # close blur
-        try: bal = load_users()[load_users()["username"]==user]["quota"].iloc[0]
-        except: bal = 0
         st.markdown(f"""
-        <div class="locked-overlay">
-            <div class="lock-icon">🔒</div>
-            <div class="lock-title">深度策略已锁定</div>
-            <div class="lock-desc">包含：AI解读、买卖点位、缠论结构、机构研报</div>
+        <div class="ai-chat-box">
+            <div class="ai-avatar">{ai_icon}</div>
+            <div class="ai-content">
+                <span style="font-weight:bold; color:#2962ff;">AI 投顾助理：</span>
+                {ai_text}
+            </div>
         </div>
         """, unsafe_allow_html=True)
-        c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
-        with c_lock2:
-            if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", type="primary", use_container_width=True):
-                if consume_quota(user):
-                    st.session_state.paid_code = st.session_state.code
-                    st.rerun()
-                else: st.error("积分不足！")
         
+        sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
+        reason_html = "".join([f"<div>• {r}</div>" for r in reasons])
+        st.markdown(f"""
+        <div class="strategy-card">
+            <div class="strategy-title">🤖 最终建议：{act}</div>
+            <div class="strategy-grid">
+                <div class="strategy-col"><span class="st-lbl">仓位</span><span class="st-val" style="color:#333">{pos}</span></div>
+                <div class="strategy-col"><span class="st-lbl">止盈</span><span class="st-val" style="color:#ff3b30">{tp:.2f}</span></div>
+                <div class="strategy-col"><span class="st-lbl">止损</span><span class="st-val" style="color:#00c853">{sl:.2f}</span></div>
+            </div>
+            <div class="reason-box">
+                <div class="reason-title">💡 决策依据 (VIP)</div>
+                {reason_html}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if not has_access:
+            st.markdown('</div>', unsafe_allow_html=True) # close blur
+            try: bal = load_users()[load_users()["username"]==user]["quota"].iloc[0]
+            except: bal = 0
+            st.markdown(f"""
+            <div class="locked-overlay">
+                <div class="lock-icon">🔒</div>
+                <div class="lock-title">深度策略已锁定</div>
+                <div class="lock-desc">包含：AI解读、买卖点位、缠论结构、机构研报</div>
+            </div>
+            """, unsafe_allow_html=True)
+            c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
+            with c_lock2:
+                if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", type="primary", use_container_width=True):
+                    if consume_quota(user):
+                        st.session_state.paid_code = st.session_state.code
+                        st.rerun()
+                    else: st.error("积分不足！")
+
+    # 2. 🔥 高级历史回测仪表盘 (极简模式 & 专业模式 均展示)
+    # 这是您要求的重点优化部分，增加了包装和文字描述
+    ret, win, mdd, buys, sells, eq = run_backtest(df)
+    
+    st.markdown(f"""
+    <div class="bt-dashboard">
+        <div class="bt-header">
+            <div class="bt-title">⚔️ 历史回测实战推演</div>
+            <div class="bt-tag">策略模型：双均线趋势跟踪 (MA{ma_s} x MA{ma_l})</div>
+        </div>
+        
+        <div class="bt-desc-box">
+            <span class="bt-desc-title">📝 策略核心逻辑：</span>
+            本系统通过历史数据模拟交易：当 <b>MA{ma_s} (短期均线)</b> 上穿 <b>MA{ma_l} (长期均线)</b> 时视为金叉买入信号，反之死叉卖出。
+            <br>• <b>优势</b>：在单边上涨趋势中能吃满涨幅，避免踏空。
+            <br>• <b>风险</b>：在横盘震荡期可能出现频繁磨损。
+        </div>
+
+        <div class="bt-metrics-grid">
+            <div class="bt-metric-card">
+                <div class="bt-m-val" style="color: {'#ff3b30' if ret > 0 else '#00c853'}">{ret:.1f}%</div>
+                <div class="bt-m-lbl">区间累计收益</div>
+            </div>
+            <div class="bt-metric-card">
+                <div class="bt-m-val" style="color: #ff9800">{win:.0f}%</div>
+                <div class="bt-m-lbl">交易胜率 (Win Rate)</div>
+            </div>
+            <div class="bt-metric-card">
+                <div class="bt-m-val" style="color: #2962ff">{mdd:.1f}%</div>
+                <div class="bt-m-lbl">最大回撤 (Max Drawdown)</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if not eq.empty:
+        # 优化图表展示，使其融入仪表盘
+        f2 = go.Figure()
+        f2.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], fill='tozeroy', 
+                               line=dict(color='#2962ff', width=2), name='账户净值'))
+        f2.update_layout(
+            height=220, 
+            margin=dict(l=0,r=0,t=0,b=0), 
+            xaxis=dict(showgrid=False, tickformat="%Y-%m"), 
+            yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.05)'),
+            plot_bgcolor='white',
+            paper_bgcolor='rgba(0,0,0,0)',
+            showlegend=False
+        )
+        st.plotly_chart(f2, use_container_width=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True) # End bt-dashboard
+
+    # 3. 技术图表 (极简模式 & 专业模式 均展示)
+    plot_chart(df.tail(days), name, flags, ma_s, ma_l)
+    
+    # 4. 深度报告 (仅专业模式)
+    if is_pro and has_access:
+        st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
+
 except Exception as e:
     st.error(f"Error: {e}")
     st.error(traceback.format_exc())

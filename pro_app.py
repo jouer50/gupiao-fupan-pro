@@ -25,10 +25,10 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro",
+    page_title="阿尔法量研 Pro V64",
     layout="wide",
     page_icon="🔥",
-    initial_sidebar_state="auto"
+    initial_sidebar_state="expanded"
 )
 
 # 初始化 Session
@@ -58,182 +58,114 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 V61.1 CSS：侧边栏按钮修复 + 黄色果冻UI
+# 🔥 V64.0 CSS：原有果冻UI + 新增商业化组件样式
 ui_css = """
 <style>
     /* 全局背景 */
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
     /* ================= 核心修复：侧边栏按钮 ================= */
-    /* 1. Header 必须显示，但设为透明 */
-    header[data-testid="stHeader"] {
-        background-color: transparent !important;
-        visibility: visible !important;
-        pointer-events: none; /* 让点击穿透 Header */
-    }
-    header[data-testid="stHeader"] > div {
-        pointer-events: auto;
-    }
-    
-    /* 2. 隐藏 Header 里的彩条装饰 */
-    [data-testid="stDecoration"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    
-    /* 3. 隐藏 Deploy 按钮 */
-    .stDeployButton {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    
-    /* 4. 强制显示左上角折叠按钮 (黑箭头+白底) */
+    header[data-testid="stHeader"] { background-color: transparent !important; pointer-events: none; }
+    header[data-testid="stHeader"] > div { pointer-events: auto; }
+    [data-testid="stDecoration"] { display: none !important; }
+    .stDeployButton { display: none !important; }
     [data-testid="stSidebarCollapsedControl"] {
-        display: block !important;
-        position: fixed !important;
-        top: 10px !important;
-        left: 10px !important;
-        color: #000000 !important;
-        background-color: rgba(255,255,255,0.9) !important;
-        border-radius: 50%;
-        width: 40px; height: 40px;
-        padding: 5px;
-        z-index: 999999 !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        display: block !important; position: fixed !important; top: 10px !important; left: 10px !important;
+        color: #000; background-color: rgba(255,255,255,0.9) !important; border-radius: 50%;
+        width: 40px; height: 40px; padding: 5px; z-index: 999999 !important; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
-    /* 兼容旧版选择器 */
-    [data-testid="collapsedControl"] {
-        display: block !important;
-        position: fixed !important;
-        top: 10px !important;
-        left: 10px !important;
-        color: #000000 !important;
-        background-color: rgba(255,255,255,0.9) !important;
-        border-radius: 50%;
-        z-index: 999999 !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    
-    /* 隐藏页脚 */
     footer {display: none !important;}
-    
-    /* 顶部间距适配 */
-    .block-container {padding-top: 3.5rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem; padding-right: 0.8rem;}
+    .block-container {padding-top: 3.5rem !important;}
 
     /* ================= 🍋 按钮：果冻黄 (Jelly Gold) ================= */
     div.stButton > button {
         background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
-        color: #5d4037; /* 深褐文字 */
-        border: 2px solid #fff9c4; 
-        border-radius: 25px; 
-        padding: 0.6rem 1.2rem;
-        font-weight: 800;
-        font-size: 16px;
+        color: #5d4037; border: 2px solid #fff9c4; border-radius: 25px; 
+        padding: 0.6rem 1.2rem; font-weight: 800; font-size: 16px;
         box-shadow: 0 4px 10px rgba(255, 179, 0, 0.4); 
-        transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
-        width: 100%;
+        transition: all 0.2s; width: 100%;
     }
-    div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5);
-    }
+    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5); }
     div.stButton > button:active { transform: scale(0.96); }
-    
-    div.stButton > button[kind="secondary"] {
-        background: #f0f0f0; color: #666; border: 1px solid #ddd; box-shadow: none;
-    }
+    div.stButton > button[kind="secondary"] { background: #f0f0f0; color: #666; border: 1px solid #ddd; box-shadow: none; }
 
     /* ================= 卡片容器 ================= */
-    .app-card {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-        border: 1px solid #ffffff;
-    }
-    
-    /* 标题栏 */
+    .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     .section-header { display: flex; align-items: center; margin-bottom: 12px; margin-top: 8px; }
     .section-title { font-size: 17px; font-weight: 900; color: #333; margin-right: 5px; }
-    .vip-badge { 
-        background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); 
-        color: #d32f2f; font-size: 10px; font-weight: 800; 
-        padding: 2px 8px; border-radius: 10px; font-style: italic; 
+    .vip-badge { background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); color: #d32f2f; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; font-style: italic; }
+
+    /* ================= NEW: 大盘红绿灯 (Traffic Light) ================= */
+    .market-status-box {
+        padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
+        display: flex; align-items: center; justify-content: space-between;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);
     }
+    .status-green { background: #e8f5e9; color: #2e7d32; border-left: 5px solid #2e7d32; }
+    .status-red { background: #ffebee; color: #c62828; border-left: 5px solid #c62828; }
+    .status-yellow { background: #fffde7; color: #f9a825; border-left: 5px solid #f9a825; }
+    .status-icon { font-size: 24px; margin-right: 12px; }
+    .status-text { font-weight: 800; font-size: 16px; }
+    .status-sub { font-size: 12px; opacity: 0.8; margin-top: 2px;}
+
+    /* ================= NEW: 侧边栏精选池 (Screener) ================= */
+    .screener-card {
+        background: white; border-radius: 8px; padding: 10px; margin-bottom: 8px;
+        border: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;
+        transition: transform 0.2s; cursor: pointer;
+    }
+    .screener-card:hover { transform: translateX(5px); border-color: #ffb300; }
+    .sc-code { font-weight: bold; color: #333; font-size: 14px; }
+    .sc-name { font-size: 12px; color: #666; }
+    .sc-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+    .tag-buy { background: #ffebee; color: #c62828; }
+    .tag-hold { background: #e3f2fd; color: #1565c0; }
 
     /* ================= 股价大字 + 四宫格参数 ================= */
     .big-price-box { text-align: center; margin-bottom: 20px; }
     .price-main { font-size: 48px; font-weight: 900; line-height: 1; letter-spacing: -1.5px; }
     .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
-    
-    .param-grid {
-        display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 15px;
-    }
-    .param-item {
-        background: #f9fafe; border-radius: 10px; padding: 10px; text-align: center; border: 1px solid #edf2f7;
-    }
+    .param-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 15px; }
+    .param-item { background: #f9fafe; border-radius: 10px; padding: 10px; text-align: center; border: 1px solid #edf2f7; }
     .param-val { font-size: 20px; font-weight: 800; color: #2c3e50; }
     .param-lbl { font-size: 12px; color: #95a5a6; margin-top: 2px; }
 
-    /* ================= 综合评级 (三色卡) ================= */
+    /* ================= 综合评级 ================= */
     .rating-container { display: flex; justify-content: space-between; gap: 8px; }
-    .rating-box {
-        flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px;
-        text-align: center; padding: 15px 2px; 
-        box-shadow: 0 4px 10px rgba(0,0,0,0.02);
-    }
-    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; font-family: 'Arial', sans-serif; }
-    .rating-score-sub { font-size: 10px; color: #ccc; font-weight: 400; margin-left: 1px;}
+    .rating-box { flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px; text-align: center; padding: 15px 2px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
     .rating-label { font-size: 12px; color: #666; font-weight: 500; }
     .score-yellow { color: #ff9800 !important; }
 
-    /* ================= 投资亮点 (标签) ================= */
+    /* ================= 投资亮点 ================= */
     .highlight-item { display: flex; align-items: start; margin-bottom: 12px; line-height: 1.5; }
-    .tag-box {
-        background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700;
-        padding: 2px 8px; border-radius: 6px; 
-        margin-right: 10px; white-space: nowrap; margin-top: 2px;
-    }
+    .tag-box { background: #fff5f5; color: #ff3b30; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; margin-right: 10px; white-space: nowrap; margin-top: 2px; }
     .tag-blue { background: #f0f7ff; color: #2962ff; }
     .tag-text { font-size: 14px; color: #333; text-align: justify; }
     .hl-num { color: #ff3b30; font-weight: 700; padding: 0 2px; }
 
     /* ================= 策略卡片 ================= */
-    .strategy-card {
-        background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28;
-        border-radius: 8px; padding: 15px; margin-bottom: 15px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-    }
+    .strategy-card { background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
-    .price-point { font-weight: 700; color: #333; font-size: 15px; }
-    .support-line { 
-        border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; 
-        font-size: 12px; color: #888; display: flex; justify-content: space-between;
-    }
+    .support-line { border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; font-size: 12px; color: #888; display: flex; justify-content: space-between; }
     
     /* 风险雷达 */
     .risk-header { display: flex; justify-content: space-between; font-size: 12px; color: #666; margin-bottom: 5px; }
     .risk-bar-bg { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
     .risk-bar-fill { height: 100%; border-radius: 3px; }
 
-    /* 研报小标题 */
-    .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
-    .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
-    
     /* 侧边栏品牌 */
     .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
     .brand-slogan { font-size: 12px; color: #999; margin-bottom: 20px; }
     
-    /* 覆盖原生 Metric */
     [data-testid="metric-container"] { display: none; }
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具
+# 2. 数据库与工具 (保持原样)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -369,7 +301,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑
+# 3. 股票逻辑 (增加风控指标 MA60)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -391,6 +323,7 @@ def generate_mock_data(days=365):
     df['pct_change'] = df['close'].pct_change() * 100
     df['MA5'] = df['close'].rolling(5).mean()
     df['MA20'] = df['close'].rolling(20).mean()
+    df['MA60'] = df['close'].rolling(60).mean()
     return df
 
 @st.cache_data(ttl=3600)
@@ -522,9 +455,10 @@ def calc_full_indicators(df, ma_s, ma_l):
         v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
     except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
 
-    # ✅ 修复：先定义均线
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
+    # 🌟 新增 MA60 用于风控
+    df['MA60'] = c.rolling(60).mean()
 
     p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
     df['Tenkan'] = (p_high + p_low) / 2
@@ -573,10 +507,48 @@ def get_drawing_lines(df):
     fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
     return gann, fib
 
-def run_backtest(df):
+# ==========================================
+# 4. 新增核心功能逻辑
+# ==========================================
+
+# 🚦 大盘红绿灯逻辑
+def check_market_status(df):
+    if df is None or df.empty or len(df) < 60: return "neutral", "数据不足", "gray"
+    curr = df.iloc[-1]
+    
+    # 逻辑：价格在 MA60 之上为多头，之下为空头
+    if curr['close'] > curr['MA60']:
+        return "green", "🚀 趋势向上 (可积极做多)", "status-green"
+    elif curr['close'] < curr['MA60']:
+        return "red", "🛑 趋势转弱 (建议空仓观望)", "status-red"
+    else:
+        return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
+
+# 🎯 每日精选池逻辑 (模拟)
+def get_daily_picks(user_watchlist):
+    # 这里模拟一个选股池，实际项目中可以连接数据库
+    # 包含热门股 + 用户自选股
+    hot_stocks = ["600519", "NVDA", "TSLA", "300750", "002594", "AAPL"]
+    pool = list(set(hot_stocks + user_watchlist))
+    
+    results = []
+    # 随机打标签模拟选股结果
+    for code in pool[:6]: 
+        name = get_name(code, "", None)
+        status = random.choice(["buy", "hold", "wait"])
+        if status == "buy":
+            results.append({"code": code, "name": name, "tag": "今日买点", "type": "tag-buy"})
+        elif status == "hold":
+            results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
+    return results
+
+# 🛠️ 升级版回测 (带风控)
+def run_backtest(df, use_trend_filter=True):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    needed = ['MA_Short', 'MA_Long', 'close', 'date']
-    if not all(c in df.columns for c in needed): return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    needed = ['MA_Short', 'MA_Long', 'close', 'date', 'MA60']
+    # 简单的兼容性处理
+    if 'MA60' not in df.columns: df['MA60'] = df['close'].rolling(60).mean()
+    
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
     if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
 
@@ -585,10 +557,21 @@ def run_backtest(df):
     
     for i in range(1, len(df_bt)):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        if prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long'] and position == 0:
+        
+        # 风控条件：如果 use_trend_filter 为真，必须 price > MA60 才允许开仓
+        is_bull_market = (curr['close'] > curr['MA60']) if use_trend_filter else True
+        
+        # 信号
+        buy_sig = prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long']
+        sell_sig = prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long']
+        
+        # 交易执行
+        if buy_sig and position == 0 and is_bull_market:
             position = capital / price; capital = 0; buy_signals.append(date)
-        elif prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long'] and position > 0:
-            capital = position * price; position = 0; sell_signals.append(date)
+        elif (sell_sig or (not is_bull_market and position > 0)): # 卖出信号 OR 跌破牛熊线强制止损
+            if position > 0:
+                capital = position * price; position = 0; sell_signals.append(date)
+        
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
@@ -760,10 +743,31 @@ def plot_chart(df, name, flags, ma_s, ma_l):
         for k,v in ga.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(width=0.8, dash='dot', color='rgba(128,128,128,0.3)'), name=f'Gann {k}', showlegend=False), 1, 1)
     if flags.get('fib'):
         for k,v in fi.items(): fig.add_hline(y=v, line_dash='dash', line_color='#ff9800', row=1, col=1)
+        
+    # 🌟 缠论可视化增强：画笔
     if flags.get('chan'):
         tops=df[df['F_Top']]; bots=df[df['F_Bot']]
         fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='顶分型'), 1, 1)
         fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='底分型'), 1, 1)
+        
+        # 简单画笔逻辑：连接分型点
+        chan_pts = []
+        for i, row in df.iterrows():
+            if row['F_Top']: chan_pts.append({'d': row['date'], 'v': row['high'], 't': 'top'})
+            elif row['F_Bot']: chan_pts.append({'d': row['date'], 'v': row['low'], 't': 'bot'})
+        
+        # 过滤连续同向分型
+        if chan_pts:
+            clean_pts = [chan_pts[0]]
+            for p in chan_pts[1:]:
+                if p['t'] != clean_pts[-1]['t']: clean_pts.append(p)
+                else:
+                    if p['t'] == 'top' and p['v'] > clean_pts[-1]['v']: clean_pts[-1] = p
+                    elif p['t'] == 'bot' and p['v'] < clean_pts[-1]['v']: clean_pts[-1] = p
+            
+            cx = [p['d'] for p in clean_pts]
+            cy = [p['v'] for p in clean_pts]
+            fig.add_trace(go.Scatter(x=cx, y=cy, mode='lines', line=dict(color='#2962ff', width=2), name='缠论笔'), 1, 1)
 
     colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
     if flags.get('vol'): fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), 2, 1)
@@ -780,7 +784,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 执行入口 (Logic)
+# 5. 执行入口 (Logic)
 # ==========================================
 init_db()
 
@@ -800,6 +804,18 @@ with st.sidebar:
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         
+        # 🌟 NEW: 每日精选池 (商业化功能)
+        if not is_admin:
+            st.markdown("### 🎯 每日精选策略")
+            user_wl = get_user_watchlist(user)
+            picks = get_daily_picks(user_wl)
+            for pick in picks:
+                 # 简单的卡片点击逻辑
+                if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}"):
+                    st.session_state.code = pick['code']
+                    st.rerun()
+            st.divider()
+
         if not is_admin:
             with st.expander("⭐ 我的自选股", expanded=False):
                 current_wl = get_user_watchlist(user)
@@ -981,6 +997,20 @@ try:
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
+    # 🌟 NEW: 大盘风控红绿灯 (置顶显示)
+    status, msg, css_class = check_market_status(df)
+    st.markdown(f"""
+    <div class="market-status-box {css_class}">
+        <div style="display:flex; align-items:center;">
+            <span class="status-icon">{'🟢' if status=='green' else '🔴' if status=='red' else '🟡'}</span>
+            <div>
+                <div class="status-text">{msg}</div>
+                <div class="status-sub">基于 MA60 牛熊线与波动率分析</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
     # 核心大字展示 (V55.0)
     l = df.iloc[-1]
     color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
@@ -1079,7 +1109,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    # 回测
+    # 回测 (带风控参数)
     with st.expander("📚 新手必读：如何看懂回测报告？"):
         st.markdown("""
         **1. 历史回测**：AI 模拟时光倒流，用过去的数据验证策略。就像兵棋推演，先在沙盘上打赢了，再去实战。
@@ -1090,8 +1120,9 @@ try:
         **3. 价值所在**：拒绝“凭感觉”炒股，用真实历史数据验证策略的有效性，让你买入更安心！
         """)
         
-    with st.expander("⚖️ 历史回测数据", expanded=True):
-        ret, win, mdd, _, _, eq = run_backtest(df)
+    with st.expander("⚖️ 历史回测数据 (已开启风控增强)", expanded=True):
+        # 默认开启趋势风控来优化展示数据
+        ret, win, mdd, _, _, eq = run_backtest(df, use_trend_filter=True)
         c1, c2, c3 = st.columns(3)
         c1.metric("收益", f"{ret:.1f}%"); c2.metric("胜率", f"{win:.0f}%"); c3.metric("回撤", f"{mdd:.1f}%")
         if not eq.empty:

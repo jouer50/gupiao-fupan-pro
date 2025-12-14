@@ -11,6 +11,7 @@ from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
 import json
+import textwrap  # ✅ 新增：用于修复HTML缩进导致的乱码问题
 
 # ✅ 0. 依赖库检查
 try:
@@ -1317,7 +1318,7 @@ try:
         # 1. 预处理原因列表 (使用 Flex 标签布局)
         reasons_html = "".join([f"<span class='reason-tag'>• {r}</span>" for r in reasons])
         
-        # 2. 构建紧凑版 HTML
+        # 2. 构建紧凑版 HTML (新增免责声明部分)
         final_html = f"""
         <div class="final-card-compact">
             <div class="final-badge-compact">Alpha Decision</div>
@@ -1356,10 +1357,15 @@ try:
             <div class="compact-reasons">
                 {reasons_html}
             </div>
+            
+            <div style="margin-top: 12px; padding-top: 8px; border-top: 1px dashed #e0e0e0; font-size: 10px; color: #9e9e9e; text-align: center; line-height: 1.4;">
+                ⚖️ <b>免责声明：</b>AI决策仅供量化研究参考，非投资建议。<br>
+                股市有风险，入市需谨慎。
+            </div>
         </div>
         """
-        # 3. 渲染
-        st.markdown(final_html, unsafe_allow_html=True)
+        # 3. 渲染 (使用 textwrap.dedent 修复缩进导致的乱码问题)
+        st.markdown(textwrap.dedent(final_html), unsafe_allow_html=True)
 
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) # close blur

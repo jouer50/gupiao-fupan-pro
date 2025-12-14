@@ -25,7 +25,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V76 (实盘优化版)",
+    page_title="阿尔法量研 Pro V76 (实盘终极版)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -62,7 +62,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式
+# 🔥 CSS 样式 (已修复智能决策卡片样式)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -127,7 +127,7 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 升级版最终建议卡片样式 - 修复版 */
+    /* 🔥 智能决策卡片 - 修复版样式 */
     .final-card-container {
         background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
         border: 2px solid #2962ff;
@@ -162,10 +162,16 @@ ui_css = """
     .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
     .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
     
-    /* 修复乱码的关键 CSS */
+    /* 核心修复：定义缺失的样式 */
     .final-support-grid {
         display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;
         background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #e0e0e0;
+    }
+    .support-item {
+        text-align: center; border-radius: 8px; padding: 5px; background: #fdfdfd;
+    }
+    .support-val {
+        font-size: 18px; font-weight: 900; color: #1d1d1f; margin: 5px 0;
     }
     .final-reasons {
         margin-top: 20px; padding: 15px; border-top: 1px dashed #cce0ff;
@@ -173,9 +179,8 @@ ui_css = """
     }
     .reason-item {
         font-size: 13px; color: #555; margin-bottom: 4px; padding-left: 10px; border-left: 2px solid #2962ff;
+        background: white; margin-bottom: 5px; padding: 5px 10px; border-radius: 4px;
     }
-    .support-item { text-align: center; }
-    .support-val { font-size: 18px; font-weight: 900; color: #1d1d1f; margin: 5px 0; }
     
     /* 锁定状态样式 */
     .locked-container { position: relative; overflow: hidden; }
@@ -375,8 +380,7 @@ def register_user(u, p, reg_type="normal", invite_code=""):
     init_quota = 0
     if reg_type == "wechat":
         # 公众号验证码逻辑
-        # 实盘设置：预设一个验证码，例如 "8888" 或 "6666"
-        # 不再显示模拟码提示
+        # 实盘设置：预设一个验证码
         valid_codes = ["666888", "8888", "alpha2025"]
         if invite_code not in valid_codes:
             return False, "验证码错误！请关注公众号获取最新代码。"
@@ -1316,7 +1320,7 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 智能决策系统 (乱码修复优化版)
+    # 🔥🔥🔥 智能决策系统 (修复版 - 完美样式)
     if is_pro:
         # 在 Python 中构建 HTML 列表，避免直接 f-string 混淆
         reasons_list_html = ""

@@ -17,14 +17,14 @@ try:
     import tushare as ts
     import yfinance as yf
 except ImportError:
-    st.error("🚨 严重错误：缺少数据接口库，请运行: pip install baostock tushare yfinance")
+    st.error("🚨 严重错误：缺少库，请运行: pip install baostock tushare yfinance")
     st.stop()
 
 # ==========================================
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V67.2 (运营版)",
+    page_title="阿尔法量研 Pro V67.2",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -57,17 +57,14 @@ ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
     
-    /* 侧边栏优化 */
-    [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #eee; }
-    
-    /* 隐藏不需要的元素 */
+    /* 侧边栏按钮修复 */
     header[data-testid="stHeader"] { background-color: transparent !important; pointer-events: none; }
     header[data-testid="stHeader"] > div { pointer-events: auto; }
     [data-testid="stDecoration"] { display: none !important; }
     .stDeployButton { display: none !important; }
     [data-testid="stSidebarCollapsedControl"] { display: block !important; color: #000; background: rgba(255,255,255,0.8); border-radius:50%; }
     
-    /* 按钮样式：果冻黄 */
+    /* 🍋 按钮：果冻黄 */
     div.stButton > button {
         background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
         color: #5d4037; border: 2px solid #fff9c4; border-radius: 25px; 
@@ -78,9 +75,10 @@ ui_css = """
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5); }
     div.stButton > button[kind="secondary"] { background: #f0f0f0; color: #666; border: 1px solid #ddd; box-shadow: none; }
 
-    /* 商业化组件样式 */
+    /* 卡片容器 */
     .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     
+    /* 商业化：大盘红绿灯 */
     .market-status-box {
         padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
         display: flex; align-items: center; justify-content: space-between;
@@ -90,6 +88,7 @@ ui_css = """
     .status-red { border-left-color: #e74c3c; background: #ffebee; }
     .status-yellow { border-left-color: #f1c40f; background: #fef9e7; }
 
+    /* 商业化：回测卡片 */
     .metric-card {
         background: white; padding: 15px; border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05); text-align: center; border: 1px solid #f0f0f0;
@@ -97,6 +96,7 @@ ui_css = """
     .metric-value { font-size: 24px; font-weight: 800; color: #e74c3c; }
     .metric-label { font-size: 12px; color: #7f8c8d; }
 
+    /* 股价大字 */
     .big-price-box { text-align: center; margin-bottom: 20px; }
     .price-main { font-size: 48px; font-weight: 900; }
     .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
@@ -106,13 +106,19 @@ ui_css = """
     .param-val { font-size: 20px; font-weight: 800; color: #2c3e50; }
     .param-lbl { font-size: 12px; color: #95a5a6; }
 
+    /* 策略卡片 */
     .strategy-card { background: #fcfcfc; border: 1px solid #eee; border-left: 4px solid #ffca28; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     .strategy-title { font-size: 18px; font-weight: 800; color: #333; margin-bottom: 10px; }
     .strategy-grid { display: flex; justify-content: space-between; margin-bottom: 10px; }
     .support-line { border-top: 1px dashed #eee; margin-top: 10px; padding-top: 10px; font-size: 12px; color: #888; display: flex; justify-content: space-between; }
 
+    /* 趋势横幅 */
     .trend-banner { padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
     .trend-title { margin: 0; font-size: 16px; font-weight: 700; }
+
+    /* 研报小标题 */
+    .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
+    .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
 
     [data-testid="metric-container"] { display: none; }
 </style>
@@ -120,7 +126,7 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (保留完整功能)
+# 2. 数据库与工具 (原样保留)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -174,7 +180,6 @@ def batch_generate_keys(points, count):
         new_keys.append({"key": key, "points": points, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
     df = pd.concat([df, pd.DataFrame(new_keys)], ignore_index=True); save_keys(df); return len(new_keys)
 
-# 生成单张卡密
 def generate_key(points):
     key = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
     df = load_keys()
@@ -223,7 +228,9 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
 def process_ticker(code):
     code = str(code).strip().upper()
     if code.isdigit() and len(code) == 6:
+        # Tushare 格式: 600519.SH
         ts_fmt = f"{code}.SH" if code.startswith('6') else f"{code}.SZ"
+        # Baostock 格式: sh.600519
         bs_fmt = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
         return code, ts_fmt, bs_fmt
     return code, code, code
@@ -241,6 +248,12 @@ def generate_mock_data(days=365):
     df['MA5'] = df['close'].rolling(5).mean()
     df['MA20'] = df['close'].rolling(20).mean()
     df['MA60'] = df['close'].rolling(60).mean()
+    
+    # 模拟 Cloud 数据防报错
+    df['SpanA'] = df['close'] * 0.95
+    df['SpanB'] = df['close'] * 0.90
+    df['ADX'] = 25.0
+    
     return df
 
 @st.cache_data(ttl=3600)
@@ -248,7 +261,7 @@ def get_name(code, token=None, proxy=None):
     try: return yf.Ticker(code).info.get('shortName', code)
     except: return code
 
-# 🚀 核心数据获取：Tushare 优先 -> Baostock 备用
+# 🚀 核心数据获取逻辑
 @st.cache_data(ttl=1800)
 def get_data_and_resample(code, timeframe, adjust, proxy=None):
     raw_code, ts_code, bs_code = process_ticker(code)
@@ -262,8 +275,10 @@ def get_data_and_resample(code, timeframe, adjust, proxy=None):
             pro = ts.pro_api()
             end_dt = datetime.now().strftime('%Y%m%d')
             start_dt = (datetime.now() - timedelta(days=700)).strftime('%Y%m%d')
+            
             with st.spinner(f"正在连接 Tushare 官方接口 ({ts_code})..."):
                 df_ts = pro.daily(ts_code=ts_code, start_date=start_dt, end_date=end_dt)
+                
             if not df_ts.empty:
                 df = df_ts.rename(columns={'trade_date': 'date', 'vol': 'volume'})
                 df['date'] = pd.to_datetime(df['date'])
@@ -271,9 +286,9 @@ def get_data_and_resample(code, timeframe, adjust, proxy=None):
                 df['pct_change'] = df['close'].pct_change() * 100
                 return df
         except Exception:
-            pass # Tushare 失败则静默切换
+            pass 
 
-    # 2. 尝试 Baostock (免费备用)
+    # 2. 备用 Baostock (免费)
     if is_ashare and df.empty:
         try:
             with st.spinner(f"切换至 Baostock 备用接口 ({bs_code})..."):
@@ -328,15 +343,26 @@ def get_fundamentals(code, token):
     except: pass
     return res
 
+# 🌟 修复：补全指标计算 (含 Ichimoku/ADX/MA)
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
     
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
-    df['MA20'] = c.rolling(20).mean() # 用于画图
+    df['MA20'] = c.rolling(20).mean() # 修复 KeyError 关键
     df['MA60'] = c.rolling(60).mean() # 风控线
     
+    # Ichimoku
+    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
+    df['Tenkan'] = (p_high + p_low) / 2
+    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
+    df['Kijun'] = (p_high26 + p_low26) / 2
+    df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
+    df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
+    df['SpanA'] = df['SpanA'].fillna(method='bfill').fillna(0)
+    df['SpanB'] = df['SpanB'].fillna(method='bfill').fillna(0)
+
     low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
     rsv = (c - low9)/(high9 - low9 + 1e-9) * 100
     df['K'] = rsv.ewm(com=2).mean()
@@ -357,7 +383,16 @@ def calc_full_indicators(df, ma_s, ma_l):
     rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
     df['RSI'] = 100 - (100/(1+rs))
     df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
-    df['ADX'] = 25.0
+    
+    # ADX
+    tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
+    df['ATR14'] = tr.rolling(14).mean()
+    dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
+    dm_m = np.where((l.diff().abs() > h.diff()) & (l.diff()<0), l.diff().abs(), 0)
+    di_plus = 100 * pd.Series(dm_p).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
+    di_minus = 100 * pd.Series(dm_m).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
+    df['ADX'] = (abs(di_plus - di_minus)/(di_plus + di_minus + 1e-9) * 100).rolling(14).mean()
+    
     return df.fillna(method='bfill')
 
 def detect_patterns(df):
@@ -414,14 +449,14 @@ def plot_chart(df, name, flags, ma_s, ma_l):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 4. 商业化功能 (包装模块：只在前端展示层优化)
+# 4. 商业化功能 (风控/精选/回测)
 # ==========================================
 
 # 1. 补回缺失函数：main_uptrend_check
 def main_uptrend_check(df):
     curr = df.iloc[-1]
     is_bull = curr['MA_Short'] > curr['MA_Long']
-    is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB'])
+    is_cloud = curr['close'] > max(curr['SpanA'], curr['SpanB']) # 修复 KeyError 关键
     if is_bull and is_cloud and curr['ADX'] > 20: return "🚀 主升浪 (Strong Up)", "success"
     if is_cloud: return "📈 震荡上行 (Trending)", "warning"
     return "📉 主跌浪 (Downtrend)", "error"
@@ -569,7 +604,7 @@ def analyze_score(df):
 # ==========================================
 init_db()
 
-# 登录逻辑 (分离 Tabs)
+# 登录逻辑 (Tab分离)
 if not st.session_state.get('logged_in'):
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
@@ -590,12 +625,12 @@ if not st.session_state.get('logged_in'):
                 else: st.error(msg)
     st.stop()
 
-# 侧边栏布局
+# 侧边栏
 with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>V67.2 商业运营版</div>
+        <div class='brand-en'>V67.2 商业稳定版</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -634,12 +669,11 @@ with st.sidebar:
 
         if st.button("🔄 刷新缓存"): st.cache_data.clear(); st.rerun()
 
-        # 💎 商业化功能：真实支付逻辑
+        # 💎 商业化功能：真实支付逻辑 (恢复)
         if not is_admin:
             with st.expander("💎 充值中心", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
                 st.write("##### 1. 扫码支付")
-                # 检查是否存在二维码文件，否则显示提示
                 if os.path.exists("alipay.png"):
                     st.image("alipay.png", caption="请使用支付宝/微信扫码", width=200)
                 else:
@@ -652,7 +686,7 @@ with st.sidebar:
                     if s: st.success(m); time.sleep(1); st.rerun()
                     else: st.error(m)
 
-        # 👑 原有功能：管理员后台
+        # 👑 原有功能：管理员后台 (全保留)
         if is_admin:
             st.success("👑 管理员模式")
             with st.expander("💳 卡密生成", expanded=True):
@@ -665,9 +699,23 @@ with st.sidebar:
                 df_u = load_users(); st.dataframe(df_u[["username","quota"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份用户数据", csv, "users.csv")
-                target = st.selectbox("选择用户", df_u["username"].unique())
-                val = st.number_input("新积分", value=0)
-                if st.button("更新积分"): update_user_quota(target, val); st.success("已更新")
+                uploaded_file = st.file_uploader("恢复用户数据", type="csv", key="restore_users")
+                if uploaded_file is not None:
+                    try:
+                        df_restore = pd.read_csv(uploaded_file)
+                        required = ["username", "password_hash", "watchlist", "quota"]
+                        if all(col in df_restore.columns for col in required):
+                            df_restore.to_csv(DB_FILE, index=False)
+                            st.success("✅ 恢复成功！")
+                            time.sleep(1); st.rerun()
+                        else: st.error("❌ 格式错误")
+                    except Exception as e: st.error(f"❌ 失败: {e}")
+                
+                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
+                if u_list:
+                    target = st.selectbox("选择用户", u_list)
+                    val = st.number_input("新积分", value=0)
+                    if st.button("更新积分"): update_user_quota(target, val); st.success("已更新")
             with st.expander("卡密管理"):
                 st.dataframe(load_keys(), hide_index=True)
 
@@ -812,7 +860,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 📈 商业化包装回测 (重点优化)
+# 📈 商业化包装：回测 (重点优化)
 st.markdown("### 📈 策略回测表现 (近1年)")
 # 使用增强版回测逻辑
 ret, label, eq_df = run_smart_backtest(df, use_trend_filter=True)

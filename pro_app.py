@@ -12,21 +12,20 @@ import traceback
 from datetime import datetime, timedelta
 import urllib.request
 import json
-import socket
 import base64
 
 # ✅ 0. 依赖库检查
 try:
     import yfinance as yf
 except ImportError:
-    st.error("🚨 严重错误：缺少 `yfinance` 库")
+    st.error("🚨 严重错误：缺少 `yfinance` 库，请 pip install yfinance")
     st.stop()
 
 # ==========================================
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V73 (Stable)",
+    page_title="阿尔法量研 Pro V74 (VIP版)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -36,6 +35,7 @@ st.set_page_config(
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
+if "user" not in st.session_state: st.session_state.user = ""
 
 # ✅ 模拟交易 Session
 if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {}
@@ -62,7 +62,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (新增了 .final-card 相关的精美样式)
+# 🔥 CSS 样式
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -165,6 +165,10 @@ ui_css = """
         margin-top: 20px; padding-top: 15px; border-top: 1px dashed #cce0ff;
         text-align: left; font-size: 13px; color: #555;
     }
+    .final-support-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top:10px;
+        background: #fff; padding:10px; border-radius:8px; border:1px solid #eee;
+    }
 
     /* 锁定状态样式 */
     .locked-container { position: relative; overflow: hidden; }
@@ -180,6 +184,7 @@ ui_css = """
     [data-testid="metric-container"] { display: none; }
     .deep-title { font-size: 16px; font-weight: 700; color: #1d1d1f; margin-bottom: 8px; border-left: 3px solid #ff9800; padding-left: 8px; }
     .deep-text { font-size: 13px; color: #444; line-height: 1.6; }
+    .disclaimer-box { font-size: 10px; color: #999; text-align: center; margin-top: 30px; padding: 10px; border-top: 1px solid #eee;}
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
@@ -192,6 +197,7 @@ def init_db():
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
         df.to_csv(DB_FILE, index=False)
     else:
+        # Schema Migration
         df = pd.read_csv(DB_FILE)
         cols_needed = ["vip_expiry", "paper_json"]
         updated = False
@@ -227,6 +233,22 @@ def load_users():
     except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
+
+def restore_db_from_upload(file_obj, type="users"):
+    """管理员上传恢复数据库"""
+    try:
+        df = pd.read_csv(file_obj)
+        if type == "users":
+            required = ["username", "password_hash", "quota"]
+            if not all(col in df.columns for col in required): return False, "缺少必要列"
+            df.to_csv(DB_FILE, index=False)
+        else:
+            required = ["key", "points", "status"]
+            if not all(col in df.columns for col in required): return False, "缺少必要列"
+            df.to_csv(KEYS_FILE, index=False)
+        return True, "数据库已更新"
+    except Exception as e:
+        return False, str(e)
 
 def save_user_holdings(username):
     if username == ADMIN_USER: return
@@ -286,30 +308,48 @@ def update_vip_days(target_user, days_to_add):
     save_users(df)
     return True
 
-def batch_generate_keys(points, count):
+def batch_generate_keys(val, count, type="points"):
+    """
+    type="points": val=10 -> VIP-10-xxxx (普通积分卡)
+    type="days": val=30 -> VIP-D-30-xxxx (月卡)
+    """
     df = load_keys()
     new_keys = []
     for _ in range(count):
-        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        key = f"VIP-{points}-{suffix}"
-        new_row = {"key": key, "points": points, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        if type == "days":
+            key = f"VIP-D-{val}-{suffix}"
+        else:
+            key = f"VIP-{val}-{suffix}"
+        
+        new_row = {"key": key, "points": val, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
         new_keys.append(new_row)
     df = pd.concat([df, pd.DataFrame(new_keys)], ignore_index=True)
     save_keys(df)
-    return len(new_keys)
+    return [k['key'] for k in new_keys]
 
 def redeem_key(username, key_input):
+    key_input = key_input.strip()
     df_keys = load_keys()
     match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"] == "unused")]
-    if match.empty: return False, "❌ 无效卡密"
-    points_to_add = int(match.iloc[0]["points"])
+    if match.empty: return False, "❌ 无效卡密或已使用"
+    
+    val = int(match.iloc[0]["points"])
+    # 判断是积分卡还是天数卡
+    is_day_card = "VIP-D-" in key_input
+    
     df_keys.loc[match.index[0], "status"] = f"used_by_{username}"
     save_keys(df_keys)
-    df_users = load_users()
-    u_idx = df_users[df_users["username"] == username].index[0]
-    df_users.loc[u_idx, "quota"] += points_to_add
-    save_users(df_users)
-    return True, f"✅ 成功充值 {points_to_add} 积分"
+    
+    if is_day_card:
+        update_vip_days(username, val)
+        return True, f"✅ 成功激活 VIP {val} 天！"
+    else:
+        df_users = load_users()
+        u_idx = df_users[df_users["username"] == username].index[0]
+        df_users.loc[u_idx, "quota"] += val
+        save_users(df_users)
+        return True, f"✅ 成功充值 {val} 积分"
 
 def verify_login(u, p):
     if u == ADMIN_USER and p == ADMIN_PASS: return True
@@ -319,16 +359,30 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
-def register_user(u, p):
+def register_user(u, p, reg_type="normal", invite_code=""):
     if u == ADMIN_USER: return False, "保留账号"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
+    
+    # 注册逻辑分流
+    init_quota = 0
+    if reg_type == "wechat":
+        # 模拟公众号验证码逻辑
+        if invite_code != "666888":
+            return False, "验证码错误！请关注公众号回复'注册'获取。"
+        init_quota = 20
+    else:
+        # 普通注册，无赠送
+        init_quota = 0
+
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 10, "vip_expiry": "", "paper_json": "{}"}
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": init_quota, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
-    return True, "注册成功，已获赠10积分！"
+    
+    msg = f"注册成功！获赠 {init_quota} 积分" if init_quota > 0 else "注册成功！(普通模式)"
+    return True, msg
 
 def consume_quota(u):
     if u == ADMIN_USER: return True
@@ -733,9 +787,11 @@ def analyze_score(df):
     atr = c['ATR14']
     stop_loss = c['close'] - 2*atr
     take_profit = c['close'] + 3*atr
-    # 唐奇安通道作为支撑压力
+    
+    # 🔥 支撑/压力计算 (基于20日High/Low)
     support = df['low'].iloc[-20:].min()
     resistance = df['high'].iloc[-20:].max()
+    
     return score, action, color, stop_loss, take_profit, pos_txt, support, resistance, reasons
 
 def calculate_smart_score(df, funda):
@@ -820,7 +876,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V73</div>
+        <div class='brand-en'>AlphaQuant Pro V74</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -943,24 +999,48 @@ with st.sidebar:
         if not is_admin:
             with st.expander("💎 充值与会员", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
-                st.write("##### 1. 扫码充值")
-                pay_opt = st.radio("充值面额", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
-                if os.path.exists("alipay.png"):
-                    st.image("alipay.png", caption="请使用支付宝扫码", width=200)
-                else:
-                    st.warning("请上传 alipay.png")
+                st.write("##### 1. 在线支付 (自动发货)")
+                pay_opt = st.radio("充值面额", [20, 30, 80], horizontal=True, 
+                                   format_func=lambda x: f"￥{x} (积分)" if x==20 else f"￥{x} (月卡VIP)" if x==30 else f"￥{x} (季卡VIP)")
                 
+                # 模拟支付发货逻辑
+                if st.button(f"模拟支付 ￥{pay_opt}", type="primary"):
+                    if pay_opt == 20:
+                        new_key = batch_generate_keys(200, 1, type="points")[0] # 20元200分
+                    elif pay_opt == 30:
+                        new_key = batch_generate_keys(30, 1, type="days")[0] # 月卡30天
+                    elif pay_opt == 80:
+                        new_key = batch_generate_keys(90, 1, type="days")[0] # 季卡90天
+                    st.success("支付成功！您的卡密如下：")
+                    st.code(new_key)
+                    st.caption("请复制下方卡密并在“兑换”框中激活")
+
+                st.divider()
                 st.write("##### 2. 兑换")
                 k_in = st.text_input("输入卡密")
-                if st.button("兑换"):
+                if st.button("立即激活"):
                     s, m = redeem_key(user, k_in)
                     if s: st.success(m); time.sleep(1); st.rerun()
                     else: st.error(m)
-                st.caption("联系管理员开通 VIP 会员")
 
         if is_admin:
             st.success("👑 管理员模式")
-            with st.expander("👑 VIP 权限管理", expanded=True):
+            
+            # 🔥 新增：数据库上传恢复功能
+            with st.expander("📂 数据维护", expanded=True):
+                up_file_users = st.file_uploader("上传 Users CSV", type=['csv'])
+                if up_file_users and st.button("恢复用户库"):
+                    suc, msg = restore_db_from_upload(up_file_users, "users")
+                    if suc: st.success(msg)
+                    else: st.error(msg)
+
+                up_file_keys = st.file_uploader("上传 Keys CSV", type=['csv'])
+                if up_file_keys and st.button("恢复卡密库"):
+                    suc, msg = restore_db_from_upload(up_file_keys, "keys")
+                    if suc: st.success(msg)
+                    else: st.error(msg)
+            
+            with st.expander("👑 VIP 权限管理"):
                 df_u = load_users()
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
@@ -973,11 +1053,14 @@ with st.sidebar:
                         else: st.error("更新失败")
             
             with st.expander("💳 卡密生成"):
-                points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
-                count_gen = st.number_input("数量", 1, 50, 10)
+                type_gen = st.selectbox("类型", ["积分卡", "天数卡(VIP)"])
+                val_gen = st.number_input("面值 (分/天)", 10, 1000, 30)
+                count_gen = st.number_input("数量", 1, 50, 5)
                 if st.button("批量生成"):
-                    num = batch_generate_keys(points_gen, count_gen)
-                    st.success(f"已生成 {num} 张卡密")
+                    t_param = "days" if "天数" in type_gen else "points"
+                    keys_list = batch_generate_keys(val_gen, count_gen, type=t_param)
+                    st.success(f"已生成 {len(keys_list)} 张卡密")
+                    st.dataframe(keys_list)
                     
             with st.expander("用户管理"):
                 df_u = load_users()
@@ -1045,10 +1128,19 @@ if not st.session_state.get('logged_in'):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
+            # 🔥 注册分流逻辑
+            reg_method = st.radio("注册方式", ["普通注册 (极简模式)", "公众号注册 (送20积分)"], horizontal=True)
             nu = st.text_input("新用户")
             np1 = st.text_input("设置密码", type="password")
+            invite_code = ""
+            
+            if "公众号" in reg_method:
+                st.info("💡 请关注公众号【阿尔法量研】回复“注册”获取验证码")
+                invite_code = st.text_input("输入验证码 (模拟码: 666888)")
+                
             if st.button("立即注册"):
-                suc, msg = register_user(nu.strip(), np1)
+                r_type = "wechat" if "公众号" in reg_method else "normal"
+                suc, msg = register_user(nu.strip(), np1, r_type, invite_code)
                 if suc: st.success(msg)
                 else: st.error(msg)
     st.stop()
@@ -1118,7 +1210,7 @@ try:
     <div style="height:20px"></div>
     """, unsafe_allow_html=True)
     
-    # AI 助理部分 (免费可见，作为引流)
+    # AI 助理部分
     ai_text, ai_mood = generate_ai_copilot_text(df, name)
     ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
     
@@ -1135,7 +1227,7 @@ try:
     # 核心分析数据准备
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
     
-    # 🔥🔥🔥 新增功能模块：关键位与风控 (默认折叠)
+    # 🔥🔥🔥 功能增强：支撑位与风控 (默认折叠)
     with st.expander("🛡️ 关键位与风控 (Support & Resistance)", expanded=False):
         sr_cols = st.columns(4)
         sr_cols[0].metric("支撑位 (Support)", f"{sup:.2f}", help="近20日最低价")
@@ -1162,7 +1254,7 @@ try:
     
     st.divider()
 
-    # 🔥🔥🔥 调整顺序：回测看板放倒数第二
+    # 回测看板
     st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
     ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
     try:
@@ -1209,7 +1301,7 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 调整顺序：最终建议卡片放最后，并应用美化后的样式
+    # 🔥🔥🔥 最终建议卡片增强 (增加支撑/压力位)
     if is_pro:
         st.markdown(f"""
         <div class="final-card-container">
@@ -1220,9 +1312,26 @@ try:
                 <div><div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div><div class="final-item-lbl">目标止盈</div></div>
                 <div><div class="final-item-val" style="color:#00c853">{sl:.2f}</div><div class="final-item-lbl">预警止损</div></div>
             </div>
+            
+            <div class="final-support-grid">
+                 <div>
+                    <div style="font-size:12px;color:#666;">🛡️ 下方支撑 (Support)</div>
+                    <div style="font-size:16px;font-weight:bold;color:#1d1d1f;">{sup:.2f}</div>
+                    <div style="font-size:10px;color:#999;">基于20日唐奇安下轨</div>
+                 </div>
+                 <div>
+                    <div style="font-size:12px;color:#666;">⚔️ 上方压力 (Resistance)</div>
+                    <div style="font-size:16px;font-weight:bold;color:#1d1d1f;">{res:.2f}</div>
+                    <div style="font-size:10px;color:#999;">基于20日唐奇安上轨</div>
+                 </div>
+            </div>
+
             <div class="final-reasons">
                 <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
                 {"".join([f"<div>• {r}</div>" for r in reasons])}
+            </div>
+            <div class="disclaimer-box">
+                ⚠️ 免责声明：以上数据仅基于技术指标自动计算，不构成任何投资建议。股市有风险，入市需谨慎。
             </div>
         </div>
         """, unsafe_allow_html=True)

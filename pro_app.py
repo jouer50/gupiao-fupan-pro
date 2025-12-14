@@ -25,7 +25,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V76 (实盘终极版)",
+    page_title="阿尔法量研 Pro V77 (稳定变现版)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -39,6 +39,8 @@ if "user" not in st.session_state: st.session_state.user = ""
 
 # ✅ 模拟交易 Session
 if "paper_holdings" not in st.session_state: st.session_state.paper_holdings = {}
+# ✅ 刚刚购买的卡密缓存
+if "last_purchased_key" not in st.session_state: st.session_state.last_purchased_key = ""
 
 # ✅ 全局变量
 ma_s = 5
@@ -62,141 +64,79 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (已修复智能决策卡片样式)
+# 🔥 CSS 样式 (优化版：修复乱码，极简清爽)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
-    header[data-testid="stHeader"] { background-color: transparent !important; pointer-events: none; }
-    header[data-testid="stHeader"] > div { pointer-events: auto; }
-    [data-testid="stDecoration"] { display: none !important; }
-    .stDeployButton { display: none !important; }
-    [data-testid="stSidebarCollapsedControl"] {
-        display: block !important; position: fixed !important; top: 10px !important; left: 10px !important;
-        color: #000; background-color: rgba(255,255,255,0.9) !important; border-radius: 50%;
-        width: 40px; height: 40px; padding: 5px; z-index: 999999 !important; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
+    
+    /* 侧边栏优化 */
+    [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #f0f0f0; }
+    
+    /* 按钮样式 */
     div.stButton > button {
-        background: linear-gradient(145deg, #ffdb4d 0%, #ffb300 100%); 
-        color: #5d4037; border: 2px solid #fff9c4; border-radius: 25px; 
-        padding: 0.6rem 1.2rem; font-weight: 800; font-size: 16px;
-        box-shadow: 0 4px 10px rgba(255, 179, 0, 0.4); 
+        background: #f0f2f5; color: #333; border: 1px solid #dcdfe6;
+        border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600;
         transition: all 0.2s; width: 100%;
     }
-    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(255, 179, 0, 0.5); }
+    div.stButton > button:hover { background: #e6e8eb; border-color: #c0c4cc; }
     div.stButton > button[kind="primary"] { 
-        background: linear-gradient(145deg, #2962ff 0%, #0039cb 100%); 
-        color: white; border: none; box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
+        background: #2962ff; color: white; border: none;
     }
-    .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
-    .vip-badge { background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); color: #d32f2f; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; font-style: italic; }
-    .ai-chat-box {
-        background: #f0f7ff; border-radius: 12px; padding: 15px; margin-bottom: 20px;
-        border-left: 5px solid #2962ff; box-shadow: 0 4px 12px rgba(41, 98, 255, 0.1);
-    }
-    .market-status-box {
-        padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
-        display: flex; align-items: center; justify-content: space-between;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);
-    }
-    .status-green { background: #e8f5e9; color: #2e7d32; border-left: 5px solid #2e7d32; }
-    .status-red { background: #ffebee; color: #c62828; border-left: 5px solid #c62828; }
-    .status-yellow { background: #fffde7; color: #f9a825; border-left: 5px solid #f9a825; }
-    .status-text { font-weight: 800; font-size: 16px; }
-    .big-price-box { text-align: center; margin-bottom: 20px; }
-    .price-main { font-size: 48px; font-weight: 900; line-height: 1; letter-spacing: -1.5px; }
-    .price-sub { font-size: 16px; font-weight: 600; margin-left: 8px; padding: 2px 6px; border-radius: 4px; }
-    .rating-container { display: flex; justify-content: space-between; gap: 8px; }
-    .rating-box { flex: 1; background: #fff; border: 1px solid #f0f0f0; border-radius: 12px; text-align: center; padding: 15px 2px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
-    .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
-    .rating-label { font-size: 12px; color: #666; font-weight: 500; }
-    .score-yellow { color: #ff9800 !important; }
-    
-    .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
-    
-    /* 回测看板样式 */
-    .bt-container { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); margin-bottom: 20px; border: 1px solid #f0f0f0; }
-    .bt-header { font-size: 18px; font-weight: 800; color: #1d1d1f; margin-bottom: 15px; border-left: 4px solid #2962ff; padding-left: 10px; }
-    .bt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-    .bt-card { background: #f9f9f9; padding: 15px; border-radius: 10px; text-align: center; transition: all 0.3s; }
-    .bt-card:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); background: #fff; border: 1px solid #e0e0e0; }
-    .bt-val { font-size: 24px; font-weight: 900; color: #333; }
-    .bt-lbl { font-size: 12px; color: #666; margin-top: 5px; }
-    .bt-pos { color: #d32f2f; }
-    .bt-neu { color: #333; }
-    .bt-neg { color: #2e7d32; }
-    .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
-    .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
+    div.stButton > button[kind="primary"]:hover { background: #0d47a1; }
 
-    /* 🔥 智能决策卡片 - 修复版样式 (已修改 overflow 和 margin) */
-    .final-card-container {
-        background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
-        border: 2px solid #2962ff;
-        border-radius: 16px;
-        padding: 24px;
-        margin-top: 40px; /* 增加顶部Margin防止徽章被切 */
-        box-shadow: 0 10px 30px rgba(41, 98, 255, 0.15);
-        text-align: center;
-        position: relative;
-        overflow: visible; /* 关键修复：允许徽章和阴影溢出显示 */
-    }
-    .final-card-container::before {
-        content: ""; position: absolute; top: -50px; left: -50px; width: 100px; height: 100px;
-        background: rgba(41, 98, 255, 0.1); border-radius: 50%; blur: 20px; z-index: 0;
-    }
-    .final-card-badge {
-        background: #2962ff; color: white; padding: 6px 20px;
-        border-radius: 0 0 12px 12px; font-weight: 800; font-size: 14px;
-        position: absolute; top: -2px; left: 50%; transform: translateX(-50%);
-        box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
-        z-index: 2;
-    }
-    .final-action-main {
-        font-size: 42px; font-weight: 900; margin: 30px 0 15px 0;
-        background: -webkit-linear-gradient(45deg, #2962ff, #00d4ff);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        letter-spacing: -1px; position: relative; z-index: 1;
-    }
-    .final-grid {
-        display: flex; justify-content: space-around; margin-top: 20px;
-        background: rgba(255,255,255,0.6); border-radius: 12px; padding: 15px;
-    }
-    .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
-    .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+    /* 通用卡片 */
+    .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     
-    .final-support-grid {
-        display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;
-        background: #fff; padding: 15px; border-radius: 12px; border: 1px solid #e0e0e0;
+    /* 智能决策卡片 - 修复乱码版 (Simple & Clean) */
+    .decision-card {
+        background: white;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #e0e0e0;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        margin-top: 20px;
     }
-    .support-item {
-        text-align: center; border-radius: 8px; padding: 5px; background: #fdfdfd;
+    .decision-header {
+        background: linear-gradient(90deg, #2962ff, #2979ff);
+        color: white;
+        padding: 12px 20px;
+        font-weight: 700;
+        font-size: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
-    .support-val {
-        font-size: 18px; font-weight: 900; color: #1d1d1f; margin: 5px 0;
-    }
-    .final-reasons {
-        margin-top: 20px; padding: 15px; border-top: 1px dashed #cce0ff;
-        text-align: left; background-color: rgba(240, 247, 255, 0.5); border-radius: 8px;
-    }
-    .reason-item {
-        font-size: 13px; color: #555; margin-bottom: 4px; padding-left: 10px; border-left: 2px solid #2962ff;
-        background: white; margin-bottom: 5px; padding: 5px 10px; border-radius: 4px;
-    }
+    .decision-body { padding: 20px; text-align: center; }
     
-    /* 锁定状态样式 */
+    .action-title { font-size: 36px; font-weight: 900; margin: 10px 0 20px 0; letter-spacing: 1px; }
+    .action-buy { color: #d32f2f; }
+    .action-sell { color: #2e7d32; }
+    .action-hold { color: #ff9800; }
+    
+    .grid-3 { display: flex; justify-content: space-around; margin-bottom: 20px; border-bottom: 1px solid #f0f0f0; padding-bottom: 15px; }
+    .grid-item { text-align: center; }
+    .grid-val { font-size: 20px; font-weight: 800; color: #333; }
+    .grid-lbl { font-size: 12px; color: #888; margin-top: 4px; }
+    
+    .support-box { background: #f9f9f9; border-radius: 8px; padding: 10px; display: flex; justify-content: space-around; margin-bottom: 15px; }
+    .support-sub { text-align: center; }
+    
+    .reason-list { text-align: left; background: #f0f7ff; border-radius: 8px; padding: 12px; font-size: 13px; color: #444; }
+    .reason-li { margin-bottom: 4px; display: flex; align-items: center; }
+    .reason-li::before { content: "•"; color: #2962ff; font-weight: bold; margin-right: 6px; }
+
+    /* 锁定遮罩 */
     .locked-container { position: relative; overflow: hidden; }
-    .locked-blur { filter: blur(6px); user-select: none; opacity: 0.6; pointer-events: none; }
+    .locked-blur { filter: blur(8px); pointer-events: none; user-select: none; opacity: 0.5; }
     .locked-overlay {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: rgba(255, 255, 255, 0.4); z-index: 10;
+        background: rgba(255,255,255,0.6); z-index: 10;
     }
-    .lock-icon { font-size: 40px; margin-bottom: 10px; }
-    .lock-title { font-size: 18px; font-weight: 900; color: #333; margin-bottom: 5px; }
-    .lock-desc { font-size: 13px; color: #666; margin-bottom: 15px; }
-    [data-testid="metric-container"] { display: none; }
-    .deep-title { font-size: 16px; font-weight: 700; color: #1d1d1f; margin-bottom: 8px; border-left: 3px solid #ff9800; padding-left: 8px; }
-    .deep-text { font-size: 13px; color: #444; line-height: 1.6; }
-    .disclaimer-box { font-size: 10px; color: #999; text-align: center; margin-top: 30px; padding: 10px; border-top: 1px solid #eee;}
+    
+    /* 其它微调 */
+    .brand-title { font-size: 20px; font-weight: 800; color: #1a1a1a; }
+    .vip-tag { background: #fff3e0; color: #ff6f00; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; border: 1px solid #ffe0b2; }
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
@@ -209,16 +149,12 @@ def init_db():
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
         df.to_csv(DB_FILE, index=False)
     else:
-        # Schema Migration
         df = pd.read_csv(DB_FILE)
         cols_needed = ["vip_expiry", "paper_json"]
         updated = False
         for c in cols_needed:
-            if c not in df.columns:
-                df[c] = ""
-                updated = True
-        if updated:
-            df.to_csv(DB_FILE, index=False)
+            if c not in df.columns: df[c] = ""; updated = True
+        if updated: df.to_csv(DB_FILE, index=False)
             
     if not os.path.exists(KEYS_FILE):
         df_keys = pd.DataFrame(columns=["key", "points", "status", "created_at"])
@@ -239,36 +175,17 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
     except: return default
 
 def load_users():
-    try: 
-        df = pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str, "paper_json": str})
-        return df.fillna("")
+    try: return pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str, "paper_json": str}).fillna("")
     except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
-
-def restore_db_from_upload(file_obj, type="users"):
-    """管理员上传恢复数据库"""
-    try:
-        df = pd.read_csv(file_obj)
-        if type == "users":
-            required = ["username", "password_hash", "quota"]
-            if not all(col in df.columns for col in required): return False, "缺少必要列"
-            df.to_csv(DB_FILE, index=False)
-        else:
-            required = ["key", "points", "status"]
-            if not all(col in df.columns for col in required): return False, "缺少必要列"
-            df.to_csv(KEYS_FILE, index=False)
-        return True, "数据库已更新"
-    except Exception as e:
-        return False, str(e)
 
 def save_user_holdings(username):
     if username == ADMIN_USER: return
     df = load_users()
     idx = df[df["username"] == username].index
     if len(idx) > 0:
-        holdings_json = json.dumps(st.session_state.paper_holdings)
-        df.loc[idx[0], "paper_json"] = holdings_json
+        df.loc[idx[0], "paper_json"] = json.dumps(st.session_state.paper_holdings)
         save_users(df)
 
 def load_user_holdings(username):
@@ -276,12 +193,8 @@ def load_user_holdings(username):
     df = load_users()
     row = df[df["username"] == username]
     if not row.empty:
-        json_str = str(row.iloc[0]["paper_json"])
-        if json_str and json_str != "nan":
-            try:
-                st.session_state.paper_holdings = json.loads(json_str)
-            except:
-                st.session_state.paper_holdings = {}
+        try: st.session_state.paper_holdings = json.loads(str(row.iloc[0]["paper_json"]))
+        except: st.session_state.paper_holdings = {}
 
 def load_keys():
     try: return pd.read_csv(KEYS_FILE)
@@ -310,10 +223,8 @@ def update_vip_days(target_user, days_to_add):
     current_exp = df.loc[idx[0], "vip_expiry"]
     now = datetime.now()
     try:
-        if current_exp and current_exp != "nan":
-            curr_date = datetime.strptime(current_exp, "%Y-%m-%d")
-            base_date = curr_date if curr_date > now else now
-        else: base_date = now
+        base_date = datetime.strptime(current_exp, "%Y-%m-%d") if (current_exp and current_exp != "nan") else now
+        if base_date < now: base_date = now
     except: base_date = now
     new_date = base_date + timedelta(days=int(days_to_add))
     df.loc[idx[0], "vip_expiry"] = new_date.strftime("%Y-%m-%d")
@@ -321,21 +232,12 @@ def update_vip_days(target_user, days_to_add):
     return True
 
 def batch_generate_keys(val, count, type="points"):
-    """
-    type="points": val=10 -> VIP-10-xxxx (普通积分卡)
-    type="days": val=30 -> VIP-D-30-xxxx (月卡)
-    """
     df = load_keys()
     new_keys = []
     for _ in range(count):
         suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        if type == "days":
-            key = f"VIP-D-{val}-{suffix}"
-        else:
-            key = f"VIP-{val}-{suffix}"
-        
-        new_row = {"key": key, "points": val, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
-        new_keys.append(new_row)
+        key = f"VIP-D-{val}-{suffix}" if type == "days" else f"VIP-{val}-{suffix}"
+        new_keys.append({"key": key, "points": val, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
     df = pd.concat([df, pd.DataFrame(new_keys)], ignore_index=True)
     save_keys(df)
     return [k['key'] for k in new_keys]
@@ -345,22 +247,18 @@ def redeem_key(username, key_input):
     df_keys = load_keys()
     match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"] == "unused")]
     if match.empty: return False, "❌ 无效卡密或已使用"
-    
     val = int(match.iloc[0]["points"])
-    # 判断是积分卡还是天数卡
     is_day_card = "VIP-D-" in key_input
-    
     df_keys.loc[match.index[0], "status"] = f"used_by_{username}"
     save_keys(df_keys)
-    
     if is_day_card:
         update_vip_days(username, val)
         return True, f"✅ 成功激活 VIP {val} 天！"
     else:
-        df_users = load_users()
-        u_idx = df_users[df_users["username"] == username].index[0]
-        df_users.loc[u_idx, "quota"] += val
-        save_users(df_users)
+        df = load_users()
+        idx = df[df["username"] == username].index[0]
+        df.loc[idx, "quota"] += val
+        save_users(df)
         return True, f"✅ 成功充值 {val} 积分"
 
 def verify_login(u, p):
@@ -375,28 +273,13 @@ def register_user(u, p, reg_type="normal", invite_code=""):
     if u == ADMIN_USER: return False, "保留账号"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
-    
-    # 注册逻辑分流
-    init_quota = 0
-    if reg_type == "wechat":
-        # 公众号验证码逻辑
-        # 实盘设置：预设一个验证码
-        valid_codes = ["666888", "8888", "alpha2025"]
-        if invite_code not in valid_codes:
-            return False, "验证码错误！请关注公众号获取最新代码。"
-        init_quota = 20
-    else:
-        # 普通注册，无赠送
-        init_quota = 0
-
+    init_quota = 20 if reg_type == "wechat" and invite_code in ["666888", "8888", "alpha2025"] else 0
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": init_quota, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
-    
-    msg = f"注册成功！获赠 {init_quota} 积分" if init_quota > 0 else "注册成功！(普通模式)"
-    return True, msg
+    return True, f"注册成功！获赠 {init_quota} 积分"
 
 def consume_quota(u):
     if u == ADMIN_USER: return True
@@ -410,236 +293,88 @@ def consume_quota(u):
         return True
     return False
 
-def update_user_quota(target, new_q):
-    df = load_users()
-    idx = df[df["username"] == target].index
-    if len(idx) > 0:
-        df.loc[idx[0], "quota"] = int(new_q)
-        save_users(df)
-        return True
-    return False
-
-def delete_user(target):
-    df = load_users()
-    df = df[df["username"] != target]
-    save_users(df)
-
 def update_watchlist(username, code, action="add"):
     df = load_users()
     idx = df[df["username"] == username].index[0]
-    current_wl = str(df.loc[idx, "watchlist"])
-    if current_wl == "nan": current_wl = ""
-    codes = [c.strip() for c in current_wl.split(",") if c.strip()]
-    if action == "add":
-        if code not in codes: codes.append(code)
-    elif action == "remove":
-        if code in codes: codes.remove(code)
+    current = str(df.loc[idx, "watchlist"])
+    codes = [c.strip() for c in current.split(",") if c.strip()]
+    if action == "add" and code not in codes: codes.append(code)
+    elif action == "remove" and code in codes: codes.remove(code)
     df.loc[idx, "watchlist"] = ",".join(codes)
     save_users(df)
-    return ",".join(codes)
 
 def get_user_watchlist(username):
     df = load_users()
     if username == ADMIN_USER: return []
     row = df[df["username"] == username]
     if row.empty: return []
-    wl_str = str(row.iloc[0]["watchlist"])
-    if wl_str == "nan": return []
-    return [c.strip() for c in wl_str.split(",") if c.strip()]
+    return [c.strip() for c in str(row.iloc[0]["watchlist"]).split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑
+# 3. 股票逻辑 (保持不变)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
 def _to_bs_code(s): return f"sh.{s}" if s.startswith('6') else f"sz.{s}" if s[0].isdigit() else s
-def process_ticker(code):
-    code = code.strip().upper()
-    if code.isdigit() and len(code) < 6: return f"{code.zfill(4)}.HK"
-    return code
+def process_ticker(code): return f"{code.zfill(4)}.HK" if code.isdigit() and len(code) < 6 else code.strip().upper()
 
 def generate_mock_data(days=365):
     dates = pd.date_range(end=datetime.today(), periods=days)
-    close = [150.0]
-    for _ in range(days-1): close.append(max(10, close[-1] + np.random.normal(0.1, 3.0)))
+    close = [150.0]; [close.append(max(10, close[-1] + np.random.normal(0.1, 3.0))) for _ in range(days-1)]
     df = pd.DataFrame({'date': dates, 'close': close})
     df['open'] = df['close'] * np.random.uniform(0.98, 1.02, days)
     df['high'] = df[['open', 'close']].max(axis=1) * np.random.uniform(1.0, 1.03, days)
     df['low'] = df[['open', 'close']].min(axis=1) * np.random.uniform(0.97, 1.0, days)
     df['volume'] = np.random.randint(1000000, 50000000, days)
     df['pct_change'] = df['close'].pct_change() * 100
-    df['MA5'] = df['close'].rolling(5).mean()
-    df['MA20'] = df['close'].rolling(20).mean()
-    df['MA60'] = df['close'].rolling(60).mean()
     return df
 
 @st.cache_data(ttl=3600)
 def get_name(code, token, proxy=None):
-    clean_code = code.strip().upper().replace('.SH','').replace('.SZ','').replace('SH','').replace('SZ','')
-    QUICK_MAP = {'600519':'贵州茅台','000858':'五粮液','601318':'中国平安','600036':'招商银行','300750':'宁德时代','002594':'比亚迪','601888':'中国中免','600276':'恒瑞医药','601857':'中国石油','601088':'中国神华','601988':'中国银行','601398':'工商银行','AAPL':'Apple','TSLA':'Tesla','NVDA':'NVIDIA','MSFT':'Microsoft','BABA':'Alibaba'}
-    if clean_code in QUICK_MAP: return QUICK_MAP[clean_code]
-    if is_cn_stock(clean_code) and token and ts:
-        try:
-            ts.set_token(token); pro = ts.pro_api()
-            df = pro.stock_basic(ts_code=_to_ts_code(clean_code), fields='name')
-            if not df.empty: return df.iloc[0]['name']
-        except: pass
-    if is_cn_stock(clean_code) and bs:
-        try:
-            bs.login(); rs = bs.query_stock_basic(code=_to_bs_code(clean_code))
-            if rs.error_code == '0':
-                data = rs.get_row_data()
-                if len(data)>1: bs.logout(); return data[1]
-            bs.logout()
-        except: pass
+    clean = code.strip().upper().replace('.SH','').replace('.SZ','')
+    QUICK_MAP = {'600519':'贵州茅台','000858':'五粮液','300750':'宁德时代','NVDA':'NVIDIA','AAPL':'Apple','TSLA':'Tesla'}
+    if clean in QUICK_MAP: return QUICK_MAP[clean]
     try: return yf.Ticker(code).info.get('shortName', code)
-    except: pass
-    return code
+    except: return code
 
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
     code = process_ticker(code)
-    fetch_days = 1500 
-    raw_df = pd.DataFrame()
-    if is_cn_stock(code) and token and ts:
-        try:
-            pro = ts.pro_api(token)
-            e = pd.Timestamp.today().strftime('%Y%m%d')
-            s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y%m%d')
-            df = pro.daily(ts_code=_to_ts_code(code), start_date=s, end_date=e)
-            if not df.empty:
-                if adjust in ['qfq', 'hfq']:
-                    adj_f = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
-                    if not adj_f.empty:
-                        adj_f = adj_f.rename(columns={'trade_date':'date','adj_factor':'factor'})
-                        df = df.rename(columns={'trade_date':'date'})
-                        df = df.merge(adj_f[['date','factor']], on='date', how='left').fillna(method='ffill')
-                        f = df['factor']
-                        ratio = f/f.iloc[-1] if adjust=='qfq' else f/f.iloc[0]
-                        for c in ['open','high','low','close']: df[c] *= ratio
-                df = df.rename(columns={'trade_date':'date','vol':'volume','pct_chg':'pct_change'})
-                df['date'] = pd.to_datetime(df['date'])
-                for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
-                raw_df = df.sort_values('date').reset_index(drop=True)
-        except Exception: 
-            raw_df = pd.DataFrame() 
-    if raw_df.empty and is_cn_stock(code) and bs:
-        try:
-            bs.login()
-            e = pd.Timestamp.today().strftime('%Y-%m-%d')
-            s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y-%m-%d')
-            flag = "2" if adjust=='qfq' else "1" if adjust=='hfq' else "3"
-            rs = bs.query_history_k_data_plus(_to_bs_code(code), "date,open,high,low,close,volume,pctChg", start_date=s, end_date=e, frequency="d", adjustflag=flag)
-            data = rs.get_data(); bs.logout()
-            if not data.empty:
-                df = data.rename(columns={'pctChg':'pct_change'})
-                df['date'] = pd.to_datetime(df['date'])
-                for c in ['open','high','low','close','volume','pct_change']: df[c] = pd.to_numeric(df[c], errors='coerce')
-                raw_df = df.sort_values('date').reset_index(drop=True)
-        except Exception:
-            raw_df = pd.DataFrame()
-    if raw_df.empty:
-        try:
-            yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
-            if not yf_df.empty:
-                if isinstance(yf_df.columns, pd.MultiIndex):
-                    yf_df.columns = yf_df.columns.get_level_values(0)
-                yf_df.columns = [str(c).lower().strip() for c in yf_df.columns]
-                yf_df.reset_index(inplace=True)
-                rename_map = {}
-                for c in yf_df.columns:
-                    if 'date' in c: rename_map[c] = 'date'
-                    elif 'close' in c: rename_map[c] = 'close'
-                    elif 'open' in c: rename_map[c] = 'open'
-                    elif 'high' in c: rename_map[c] = 'high'
-                    elif 'low' in c: rename_map[c] = 'low'
-                    elif 'volume' in c: rename_map[c] = 'volume'
-                    elif 'adj close' in c: rename_map[c] = 'adj_close'
-                yf_df.rename(columns=rename_map, inplace=True)
-                req_cols = ['date','open','high','low','close']
-                if all(c in yf_df.columns for c in req_cols):
-                    if 'volume' not in yf_df.columns: yf_df['volume'] = 0
-                    raw_df = yf_df[['date','open','high','low','close','volume']].copy()
-                    for c in ['open','high','low','close','volume']: 
-                        raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
-                    raw_df['pct_change'] = raw_df['close'].pct_change() * 100
-        except Exception:
-            pass
-
-    if raw_df.empty: return raw_df
-    if timeframe == '日线': return raw_df
-    rule = 'W' if timeframe == '周线' else 'M'
-    raw_df.set_index('date', inplace=True)
-    agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
-    resampled = raw_df.resample(rule).agg(agg).dropna()
-    resampled['pct_change'] = resampled['close'].pct_change() * 100
-    resampled.reset_index(inplace=True)
-    return resampled
-
-@st.cache_data(ttl=3600)
-def get_fundamentals(code, token):
-    res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-", "target_price": "-", "rating": "-"}
-    code = process_ticker(code)
     try:
-        t = yf.Ticker(code); i = t.info
-        res['pe'] = safe_fmt(i.get('trailingPE'))
-        res['pb'] = safe_fmt(i.get('priceToBook'))
-        res['mv'] = f"{i.get('marketCap')/100000000:.2f}亿" if i.get('marketCap') else "-"
-        if 'targetMeanPrice' in i: res['target_price'] = safe_fmt(i.get('targetMeanPrice'))
-        if 'recommendationKey' in i: res['rating'] = i.get('recommendationKey', '').replace('buy','买入').replace('sell','卖出').replace('hold','持有')
-    except: pass
-    if token and ts and is_cn_stock(code):
-        try:
-            pro = ts.pro_api(token)
-            df = pro.daily_basic(ts_code=_to_ts_code(code), fields='pe_ttm,pb,total_mv')
-            if not df.empty:
-                r = df.iloc[-1]
-                res['pe'] = safe_fmt(r['pe_ttm']); res['pb'] = safe_fmt(r['pb'])
-                res['mv'] = f"{r['total_mv']/10000:.1f}亿" if r['total_mv'] else "-"
-        except: pass
-    return res
+        yf_df = yf.download(code, period="2y", interval="1d", progress=False, auto_adjust=False)
+        if yf_df.empty: return pd.DataFrame()
+        if isinstance(yf_df.columns, pd.MultiIndex): yf_df.columns = yf_df.columns.get_level_values(0)
+        yf_df.columns = [c.lower() for c in yf_df.columns]
+        yf_df.reset_index(inplace=True)
+        rename = {c: c for c in yf_df.columns}; rename.update({'date':'date','close':'close','volume':'volume'})
+        yf_df.rename(columns=rename, inplace=True)
+        if 'volume' not in yf_df.columns: yf_df['volume'] = 0
+        df = yf_df[['date','open','high','low','close','volume']].copy()
+        df['pct_change'] = df['close'].pct_change() * 100
+        if timeframe != '日线':
+            rule = 'W' if timeframe == '周线' else 'M'
+            df.set_index('date', inplace=True)
+            df = df.resample(rule).agg({'open':'first','high':'max','low':'min','close':'last','volume':'sum'}).dropna().reset_index()
+            df['pct_change'] = df['close'].pct_change() * 100
+        return df
+    except: return pd.DataFrame()
 
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
-    try:
-        c = df['close'].squeeze() if isinstance(df['close'], pd.DataFrame) else df['close']
-        h = df['high'].squeeze() if isinstance(df['high'], pd.DataFrame) else df['high']
-        l = df['low'].squeeze() if isinstance(df['low'], pd.DataFrame) else df['low']
-        v = df['volume'].squeeze() if isinstance(df['volume'], pd.DataFrame) else df['volume']
-    except: c = df['close']; h = df['high']; l = df['low']; v = df['volume']
-
+    c = df['close']; h = df['high']; l = df['low']
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
     df['MA60'] = c.rolling(60).mean()
-
-    p_high = h.rolling(9).max(); p_low = l.rolling(9).min()
-    df['Tenkan'] = (p_high + p_low) / 2
-    p_high26 = h.rolling(26).max(); p_low26 = l.rolling(26).min()
-    df['Kijun'] = (p_high26 + p_low26) / 2
-    df['SpanA'] = ((df['Tenkan'] + df['Kijun']) / 2).shift(26)
-    df['SpanB'] = ((h.rolling(52).max() + l.rolling(52).min()) / 2).shift(26)
-    df['SpanA'] = df['SpanA'].fillna(method='bfill').fillna(0)
-    df['SpanB'] = df['SpanB'].fillna(method='bfill').fillna(0)
-
     mid = c.rolling(20).mean(); std = c.rolling(20).std()
     df['Upper'] = mid + 2*std; df['Lower'] = mid - 2*std
     e12 = c.ewm(span=12, adjust=False).mean(); e26 = c.ewm(span=26, adjust=False).mean()
     df['DIF'] = e12 - e26; df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean(); df['HIST'] = 2 * (df['DIF'] - df['DEA'])
     delta = c.diff(); up = delta.clip(lower=0); down = -1*delta.clip(upper=0)
-    rs = up.rolling(14).mean()/(down.rolling(14).mean()+1e-9)
-    df['RSI'] = 100 - (100/(1+rs))
-    low9 = l.rolling(9).min(); high9 = h.rolling(9).max()
-    rsv = (c - low9)/(high9 - low9 + 1e-9) * 100
+    df['RSI'] = 100 - (100 / (1 + up.rolling(14).mean() / (down.rolling(14).mean() + 1e-9)))
+    rsv = (c - l.rolling(9).min()) / (h.rolling(9).max() - l.rolling(9).min() + 1e-9) * 100
     df['K'] = rsv.ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean(); df['J'] = 3 * df['K'] - 2 * df['D']
-    tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
-    df['ATR14'] = tr.rolling(14).mean()
-    dm_p = np.where((h.diff() > l.diff().abs()) & (h.diff()>0), h.diff(), 0)
-    dm_m = np.where((l.diff().abs() > h.diff()) & (l.diff()<0), l.diff().abs(), 0)
-    di_plus = 100 * pd.Series(dm_p).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
-    di_minus = 100 * pd.Series(dm_m).rolling(14).sum() / (tr.rolling(14).sum()+1e-9)
-    df['ADX'] = (abs(di_plus - di_minus)/(di_plus + di_minus + 1e-9) * 100).rolling(14).mean()
-    df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
-    df[['K','D','J','DIF','DEA','HIST','RSI','ADX']] = df[['K','D','J','DIF','DEA','HIST','RSI','ADX']].fillna(50)
-    return df
+    df['VolRatio'] = df['volume'] / (df['volume'].rolling(5).mean() + 1e-9)
+    df['ATR14'] = (h-l).rolling(14).mean()
+    return df.fillna(method='bfill')
 
 def detect_patterns(df):
     df['F_Top'] = (df['high'].shift(1)<df['high']) & (df['high'].shift(-1)<df['high'])
@@ -649,138 +384,10 @@ def detect_patterns(df):
 def get_drawing_lines(df):
     idx = df['low'].tail(60).idxmin()
     if pd.isna(idx): return {}, {}
-    sd = df.loc[idx, 'date']; sp = df.loc[idx, 'low']
-    days = (df['date'] - sd).dt.days
-    step = df['ATR14'].iloc[-1]*0.5 if df['ATR14'].iloc[-1]>0 else sp*0.01
-    gann = {k: sp + days*step*r for k,r in [('1x1',1),('1x2',0.5),('2x1',2)]}
-    rec = df.tail(120)
-    h = rec['high'].max(); l = rec['low'].min(); d = h-l
-    fib = {'0.236': h-d*0.236, '0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
-    return gann, fib
-
-def check_market_status(df):
-    if df is None or df.empty or len(df) < 60: return "neutral", "数据不足", "gray"
-    curr = df.iloc[-1]
-    if curr['close'] > curr['MA60']:
-        return "green", "🚀 趋势向上 (可积极做多)", "status-green"
-    elif curr['close'] < curr['MA60']:
-        return "red", "🛑 趋势转弱 (建议空仓观望)", "status-red"
-    else:
-        return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
-
-def get_daily_picks(user_watchlist):
-    hot_stocks = ["600519", "NVDA", "TSLA", "300750", "002594", "AAPL"]
-    pool = list(set(hot_stocks + user_watchlist))
-    results = []
-    for code in pool[:6]: 
-        name = get_name(code, "", None)
-        status = random.choice(["buy", "hold", "wait"])
-        if status == "buy":
-            results.append({"code": code, "name": name, "tag": "今日买点", "type": "tag-buy"})
-        elif status == "hold":
-            results.append({"code": code, "name": name, "tag": "持股待涨", "type": "tag-hold"})
-    return results
-
-def run_backtest(df):
-    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    needed = ['MA_Short', 'MA_Long', 'close', 'date']
-    df_bt = df.dropna(subset=needed).reset_index(drop=True)
-    if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    
-    capital = 100000; position = 0
-    buy_signals = []; sell_signals = []; equity = [capital]; dates = [df_bt.iloc[0]['date']]
-    
-    trade_count = 0; wins = 0; entry_price = 0
-    
-    for i in range(1, len(df_bt)):
-        curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        buy_sig = prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long']
-        sell_sig = prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long']
-        
-        if buy_sig and position == 0:
-            position = capital / price; capital = 0; buy_signals.append(date)
-            entry_price = price
-        elif sell_sig and position > 0: 
-            capital = position * price; position = 0; sell_signals.append(date)
-            trade_count += 1
-            if price > entry_price: wins += 1
-        
-        current_val = capital + (position * price)
-        equity.append(current_val)
-        dates.append(date)
-        
-    final = equity[-1]; ret = (final - 100000) / 100000 * 100
-    win_rate = (wins / trade_count * 100) if trade_count > 0 else 0.0
-    eq_series = pd.Series(equity); cummax = eq_series.cummax()
-    drawdown = (eq_series - cummax) / cummax; max_dd = drawdown.min() * 100
-    first_price = df_bt.iloc[0]['close']
-    bench_equity = [(p / first_price) * 100000 for p in df_bt['close']]
-    
-    eq_df = pd.DataFrame({
-        'date': dates, 
-        'equity': equity,
-        'benchmark': bench_equity[:len(dates)] 
-    })
-    return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
-
-def generate_deep_report(df, name):
-    curr = df.iloc[-1]
-    chan_trend = "底分型构造中" if curr['F_Bot'] else "顶分型构造中" if curr['F_Top'] else "中继形态"
-    gann, fib = get_drawing_lines(df)
-    try:
-        fib_near = min(fib.items(), key=lambda x: abs(x[1]-curr['close']))
-        fib_txt = f"股价正逼近斐波那契 <b>{fib_near[0]}</b> 关键位 ({fib_near[1]:.2f})。"
-    except: fib_txt = "数据不足，无法计算位置。"
-    macd_state = "金叉共振" if curr['DIF']>curr['DEA'] else "死叉调整"
-    vol_state = "放量" if curr['VolRatio']>1.2 else "缩量" if curr['VolRatio']<0.8 else "温和"
-
-    html = f"""
-    <div class="app-card">
-        <div class="deep-title">📐 缠论结构与形态学</div>
-        <div class="deep-text">
-            • <b>分型状态</b>：{chan_trend}。顶分型通常是短期压力的标志。<br>
-            • <b>笔的延伸</b>：当前价格处于一笔走势的{ "延续阶段" if not (curr['F_Top'] or curr['F_Bot']) else "转折关口" }。
-        </div>
-    </div>
-    <div class="app-card">
-        <div class="deep-title">🌌 江恩与斐波那契</div>
-        <div class="deep-text">
-            • 江恩角度线 1x1线是多空分界线。<br>
-            • <b>斐波那契回撤</b>：{fib_txt}
-        </div>
-    </div>
-    <div class="app-card">
-        <div class="deep-title">📊 核心动能指标</div>
-        <div class="deep-text">
-            • <b>MACD</b>：当前 {macd_state}。DIF={safe_fmt(curr['DIF'])}, DEA={safe_fmt(curr['DEA'])}<br>
-            • <b>BOLL</b>：股价运行于 { "中轨上方" if curr['close']>curr['MA_Long'] else "中轨下方" }。<br>
-            • <b>VOL量能</b>：今日 {vol_state} (量比 {safe_fmt(curr['VolRatio'])})
-        </div>
-    </div>
-    """
-    return html
-
-def generate_ai_copilot_text(df, name):
-    c = df.iloc[-1]
-    openers = ["主人好！", "Hi~ 老板，", "数据汇报："]
-    mood = "neutral" 
-    advice = ""
-    if c['close'] > c['MA60']:
-        if c['MA_Short'] > c['MA_Long']:
-            advice = f"现在的 {name} 走势很漂亮，多头排列，你可以继续持有享受泡沫。"
-            mood = "happy"
-        else:
-            advice = f"虽然还在牛熊线上方，但短期有回调压力，别追高哦。"
-            mood = "neutral"
-    else:
-        advice = f"目前趋势偏弱，处于空头掌控中，建议多看少动，保住本金最重要。"
-        mood = "worried"
-    tech = ""
-    if c['RSI'] < 30: tech = "不过我看 RSI 已经超卖了，短期随时可能反弹，如果你是左侧交易者可以轻仓试错。"
-    elif c['RSI'] > 75: tech = "而且 RSI 有点过热了，小心主力骗炮出货，记得推高止损。"
-    if c['VolRatio'] > 1.8: tech += " 另外，今天量能放得很大，主力有动作！"
-    final_text = f"{random.choice(openers)} {advice} {tech} 切记，即使我看好，也要设好止损线 {c['close']*0.95:.2f} 保护自己。"
-    return final_text, mood
+    sp = df.loc[idx, 'low']
+    rec = df.tail(120); h = rec['high'].max(); l = rec['low'].min(); d = h-l
+    fib = {'0.382': h-d*0.382, '0.5': h-d*0.5, '0.618': h-d*0.618}
+    return {}, fib
 
 def analyze_score(df):
     c = df.iloc[-1]; score=0; reasons=[]
@@ -790,95 +397,52 @@ def analyze_score(df):
     else: reasons.append("跌破长期生命线")
     if c['DIF']>c['DEA']: score+=1; reasons.append("MACD 处于多头区域")
     if c['RSI']<20: score+=2; reasons.append("RSI 进入超卖区 (反弹概率大)")
-    elif c['RSI']>80: reasons.append("RSI 进入超买区 (回调风险大)")
     if c['VolRatio']>1.5: score+=1; reasons.append("主力放量攻击")
-    action = "积极买入" if score>=4 else "持有/观望" if score>=0 else "减仓/卖出"
-    color = "success" if score>=4 else "warning" if score>=0 else "error"
-    if score >= 4: pos_txt = "80% (重仓)"
-    elif score >= 1: pos_txt = "50% (中仓)"
-    elif score >= -2: pos_txt = "20% (底仓)"
-    else: pos_txt = "0% (空仓)"
-    atr = c['ATR14']
+    
+    if score>=4: action="积极买入"; color="action-buy"; pos="80% (重仓)"
+    elif score>=0: action="持有/观望"; color="action-hold"; pos="50% (中仓)"
+    else: action="减仓/卖出"; color="action-sell"; pos="20% (底仓)"
+    
+    atr = c['ATR14'] if c['ATR14']>0 else c['close']*0.02
     stop_loss = c['close'] - 2*atr
     take_profit = c['close'] + 3*atr
-    
-    # 🔥 支撑/压力计算 (基于20日High/Low)
     support = df['low'].iloc[-20:].min()
     resistance = df['high'].iloc[-20:].max()
-    
-    return score, action, color, stop_loss, take_profit, pos_txt, support, resistance, reasons
+    return score, action, color, stop_loss, take_profit, pos, support, resistance, reasons
 
-def calculate_smart_score(df, funda):
-    trend_score = 5
-    last = df.iloc[-1]
-    if last['close'] > last['MA_Long']: trend_score += 2
-    if last['DIF'] > last['DEA']: trend_score += 1
-    if last['RSI'] > 50: trend_score += 1
-    if last['MA_Short'] > last['MA_Long']: trend_score += 1
-    trend_score = min(10, trend_score)
-    val_score = 5
-    try:
-        pe = float(funda['pe'])
-        if pe < 15: val_score += 3
-        elif pe < 30: val_score += 1
-        elif pe > 60: val_score -= 2
-    except: pass
-    val_score = min(10, max(1, val_score))
-    qual_score = 6
-    try:
-        mv_str = str(funda['mv']).replace('亿','')
-        mv = float(mv_str)
-        if mv > 1000: qual_score += 2
-        elif mv > 100: qual_score += 1
-    except: pass
-    volatility = df['pct_change'].std()
-    if volatility < 2: qual_score += 1
-    qual_score = min(10, qual_score)
-    return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
+def run_backtest(df):
+    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    df_bt = df.dropna().reset_index(drop=True)
+    capital = 100000; position = 0; equity = [capital]; dates = [df_bt.iloc[0]['date']]
+    buy_sigs = []; trade_count = 0; wins = 0; entry_price = 0
+    
+    for i in range(1, len(df_bt)):
+        curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']
+        buy_sig = prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long']
+        sell_sig = prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long']
+        
+        if buy_sig and position == 0:
+            position = capital / price; capital = 0; buy_sigs.append(curr['date']); entry_price = price
+        elif sell_sig and position > 0:
+            capital = position * price; position = 0; trade_count += 1
+            if price > entry_price: wins += 1
+        equity.append(capital + position * price); dates.append(curr['date'])
+        
+    final = equity[-1]; ret = (final - 100000) / 100000 * 100
+    win_rate = (wins/trade_count*100) if trade_count>0 else 0
+    eq_s = pd.Series(equity); max_dd = ((eq_s - eq_s.cummax()) / eq_s.cummax()).min() * 100
+    return ret, win_rate, max_dd, buy_sigs, [], pd.DataFrame({'date':dates, 'equity':equity})
 
 def plot_chart(df, name, flags, ma_s, ma_l):
-    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2])
-    fig.update_layout(dragmode=False, margin=dict(l=10, r=10, t=10, b=10))
-    fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'), 1, 1)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7,0.3])
+    fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'), 1, 1)
     if flags.get('ma'):
-        fig.add_trace(go.Scatter(x=df['date'], y=df['MA_Short'], name=f'MA{ma_s}', line=dict(width=1.2, color='#333333')), 1, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['MA_Long'], name=f'MA{ma_l}', line=dict(width=1.2, color='#ffcc00')), 1, 1)
-    if flags.get('boll'):
-        fig.add_trace(go.Scatter(x=df['date'], y=df['Upper'], line=dict(width=1, dash='dash', color='rgba(33, 150, 243, 0.3)'), name='Upper'), 1, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['Lower'], line=dict(width=1, dash='dash', color='rgba(33, 150, 243, 0.3)'), name='Lower', fill='tonexty', fillcolor='rgba(33, 150, 243, 0.05)'), 1, 1)
-    ga, fi = get_drawing_lines(df)
-    if flags.get('gann'):
-        for k,v in ga.items(): fig.add_trace(go.Scatter(x=df['date'], y=v, mode='lines', line=dict(width=0.8, dash='dot', color='rgba(128,128,128,0.3)'), name=f'Gann {k}', showlegend=False), 1, 1)
-    if flags.get('fib'):
-        for k,v in fi.items(): fig.add_hline(y=v, line_dash='dash', line_color='#ff9800', row=1, col=1)
-    if flags.get('chan'):
-        tops=df[df['F_Top']]; bots=df[df['F_Bot']]
-        fig.add_trace(go.Scatter(x=tops['date'], y=tops['high'], mode='markers', marker_symbol='triangle-down', marker_color='#34C759', name='顶分型'), 1, 1)
-        fig.add_trace(go.Scatter(x=bots['date'], y=bots['low'], mode='markers', marker_symbol='triangle-up', marker_color='#FF3B30', name='底分型'), 1, 1)
-        chan_pts = []
-        for i, row in df.iterrows():
-            if row['F_Top']: chan_pts.append({'d': row['date'], 'v': row['high'], 't': 'top'})
-            elif row['F_Bot']: chan_pts.append({'d': row['date'], 'v': row['low'], 't': 'bot'})
-        if chan_pts:
-            clean_pts = [chan_pts[0]]
-            for p in chan_pts[1:]:
-                if p['t'] != clean_pts[-1]['t']: clean_pts.append(p)
-                else:
-                    if p['t'] == 'top' and p['v'] > clean_pts[-1]['v']: clean_pts[-1] = p
-                    elif p['t'] == 'bot' and p['v'] < clean_pts[-1]['v']: clean_pts[-1] = p
-            cx = [p['d'] for p in clean_pts]; cy = [p['v'] for p in clean_pts]
-            fig.add_trace(go.Scatter(x=cx, y=cy, mode='lines', line=dict(color='#2962ff', width=2), name='缠论笔'), 1, 1)
-    colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
-    if flags.get('vol'): fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), 2, 1)
-    if flags.get('macd'):
-        fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors, name='MACD'), 3, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='#0071e3', width=1), name='DIF'), 3, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='#ff9800', width=1), name='DEA'), 3, 1)
-    if flags.get('kdj'):
-        fig.add_trace(go.Scatter(x=df['date'], y=df['K'], line=dict(color='#0071e3', width=1), name='K'), 4, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D'), 4, 1)
-        fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#af52de', width=1), name='J'), 4, 1)
-    fig.update_layout(height=600, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=-0.05))
+        fig.add_trace(go.Scatter(x=df['date'], y=df['MA_Short'], name=f'MA{ma_s}', line=dict(color='black', width=1)), 1, 1)
+        fig.add_trace(go.Scatter(x=df['date'], y=df['MA_Long'], name=f'MA{ma_l}', line=dict(color='orange', width=1)), 1, 1)
+    if flags.get('vol'):
+        colors = ['red' if c>o else 'green' for c,o in zip(df['close'], df['open'])]
+        fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), 2, 1)
+    fig.update_layout(height=500, xaxis_rangeslider_visible=False, margin=dict(l=10,r=10,t=10,b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
@@ -887,503 +451,208 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 init_db()
 
 with st.sidebar:
-    st.markdown("""
-    <div style='text-align: left; margin-bottom: 20px;'>
-        <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V76</div>
-        <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("""<div style='text-align: left; margin-bottom: 20px;'><div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div></div>""", unsafe_allow_html=True)
     
-    new_c = st.text_input("🔍 股票代码", st.session_state.code)
-    if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
-
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
         is_vip, vip_msg = check_vip_status(user)
-        
         load_user_holdings(user)
         
+        # 用户状态
         if is_vip: st.success(f"👑 {vip_msg}")
-        else: st.info(f"👤 普通用户 (积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]})")
+        else: st.info(f"👤 积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
 
-        st.markdown("### 👁️ 视觉模式")
-        view_mode = st.radio("显示模式", ["极简模式", "专业模式"], index=0, horizontal=True)
-        
-        is_unlocked = False
-        if is_admin or is_vip or st.session_state.paid_code == st.session_state.code:
-            is_unlocked = True
-
-        if view_mode == "专业模式" and not is_unlocked:
-            st.warning("🔒 专业模式需解锁 (1积分/次)")
-            if st.button("🔓 立即解锁", key="sidebar_unlock", type="primary"):
-                if consume_quota(user):
-                    st.session_state.paid_code = st.session_state.code
-                    st.success("已解锁！")
-                    st.rerun()
-                else:
-                    st.error("积分不足，请充值")
-            is_pro = False 
-        else:
-            is_pro = (view_mode == "专业模式")
-        
+        # 🔥【修改点1】充值/会员模块移到搜索栏上方
         if not is_admin:
-            st.markdown("### 🎯 每日精选策略")
-            user_wl = get_user_watchlist(user)
-            picks = get_daily_picks(user_wl)
-            for pick in picks:
-                if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}"):
-                    st.session_state.code = pick['code']
-                    st.rerun()
-            st.divider()
-        
-        if not is_admin:
-            with st.expander("🎮 模拟交易 (Paper Trading)", expanded=True):
-                with st.expander("📚 使用说明与功能价值", expanded=False):
-                    st.markdown("""
-                    **💡 功能价值：**
-                    1. **零风险试错**：验证您的策略是否有效，而无需投入真金白银。
-                    2. **盘感训练**：记录买卖逻辑，通过盈亏反馈修正交易心态。
-                    3. **数据永存**：您的持仓数据已云端备份，随时可查。
-                    """)
-               
-                curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
-               
-                curr_price = 0
-                try:
-                    curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
-                except: curr_price = 0 
-               
-                if curr_hold:
-                    cost = curr_hold.get('cost', 0)
-                    qty = curr_hold.get('qty', 100)
-                    if curr_price > 0:
-                        mkt_val = curr_price * qty
-                        profit = (curr_price - cost) * qty
-                        profit_pct = (curr_price - cost) / cost * 100
-                        p_color = "red" if profit > 0 else "green" 
-                        st.markdown(f"""
-                        <div style="font-size:14px; margin-bottom:5px;">
-                            <b>持仓成本:</b> {cost:.2f}<br>
-                            <b>持仓数量:</b> {qty} 股<br>
-                            <b>持仓市值:</b> {mkt_val:.0f}<br>
-                            <b>浮动盈亏:</b> <span style='color:{p_color}; font-weight:bold'>{profit:.0f} ({profit_pct:.2f}%)</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.info(f"成本: {cost:.2f} | 数量: {qty}")
-                       
-                    if st.button("卖出平仓", key="paper_sell"):
-                        del st.session_state.paper_holdings[st.session_state.code]
-                        save_user_holdings(user)
-                        st.success("已卖出！")
-                        st.rerun()
-                else:
-                    buy_qty = st.number_input("买入数量 (手)", min_value=1, max_value=100, value=1, step=1)
-                    if st.button("➕ 模拟买入", key="paper_buy"):
-                        st.session_state.paper_holdings[st.session_state.code] = {
-                            'cost': 0, 
-                            'qty': buy_qty * 100, 
-                            'date': datetime.now().strftime("%Y-%m-%d"),
-                            'name': ""
-                        }
-                        save_user_holdings(user)
-                        st.success("买入成功！")
-                        st.rerun()
-
-        if not is_admin:
-            with st.expander("⭐ 我的自选股", expanded=False):
-                current_wl = get_user_watchlist(user)
-                if not current_wl: st.caption("暂无自选，请在上方添加")
-                else:
-                    for c in current_wl:
-                        c1, c2 = st.columns([3, 1])
-                        if c1.button(f"{c}", key=f"wl_{c}"):
-                            st.session_state.code = c
-                            st.session_state.paid_code = ""
-                            st.rerun()
-                        if c2.button("✖️", key=f"del_{c}"):
-                            update_watchlist(user, c, "remove")
-                            st.rerun()
-            if st.button("❤️ 加入自选"): update_watchlist(user, st.session_state.code, "add"); st.rerun()
-
-        if st.button("🔄 刷新缓存"): st.cache_data.clear(); st.rerun()
-
-        if not is_admin:
-            with st.expander("💎 充值与会员 (实盘支付)", expanded=False):
-                st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
-                st.write("##### 1. 扫码支付 (支持支付宝)")
-               
-                # 🔥 实盘支付修改：展示支付宝二维码
-                try:
-                    st.image("alipay.png", caption="支付宝扫码支付", width=200)
-                except Exception:
-                    st.warning("⚠️ 收款码加载失败，请联系管理员")
-
-                st.write("**💰 充值说明：**")
-                st.markdown("**1元 = 2积分**")
-                st.caption("例如：支付 20元 = 40积分 (实盘版)")
-                st.caption("月卡30元 / 季卡80元")
-                st.error(f"⚠️ **重要提示：** 支付时请务必备注您的用户名：**{user}**，否则无法自动到账！")
-               
-                st.divider()
-                st.write("##### 2. 卡密兑换")
-                k_in = st.text_input("输入管理员发放的卡密")
-                if st.button("立即激活"):
-                    s, m = redeem_key(user, k_in)
-                    if s: st.success(m); time.sleep(1); st.rerun()
-                    else: st.error(m)
-
-        if is_admin:
-            st.success("👑 管理员模式")
-            
-            with st.expander("📂 数据维护", expanded=True):
-                up_file_users = st.file_uploader("上传 Users CSV", type=['csv'])
-                if up_file_users and st.button("恢复用户库"):
-                    suc, msg = restore_db_from_upload(up_file_users, "users")
-                    if suc: st.success(msg)
-                    else: st.error(msg)
-
-                up_file_keys = st.file_uploader("上传 Keys CSV", type=['csv'])
-                if up_file_keys and st.button("恢复卡密库"):
-                    suc, msg = restore_db_from_upload(up_file_keys, "keys")
-                    if suc: st.success(msg)
-                    else: st.error(msg)
-            
-            with st.expander("👑 VIP 权限管理"):
-                df_u = load_users()
-                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
-                if u_list:
-                    vip_target = st.selectbox("选择用户", u_list, key="vip_sel")
-                    vip_days = st.number_input("增加天数", value=30, step=1)
-                    if st.button("更新 VIP 权限"):
-                        if update_vip_days(vip_target, vip_days):
-                            st.success(f"已更新 {vip_target} 的 VIP 权限！")
-                            time.sleep(1); st.rerun()
-                        else: st.error("更新失败")
-            
-            with st.expander("💳 卡密生成"):
-                type_gen = st.selectbox("类型", ["积分卡", "天数卡(VIP)"])
-                val_gen = st.number_input("面值 (分/天)", 10, 1000, 40)
-                count_gen = st.number_input("数量", 1, 50, 5)
-                if st.button("批量生成"):
-                    t_param = "days" if "天数" in type_gen else "points"
-                    keys_list = batch_generate_keys(val_gen, count_gen, type=t_param)
-                    st.success(f"已生成 {len(keys_list)} 张卡密")
-                    st.dataframe(keys_list)
-                    
-            with st.expander("用户管理"):
-                df_u = load_users()
-                st.dataframe(df_u[["username","quota", "vip_expiry", "paper_json"]], hide_index=True)
-                csv = df_u.to_csv(index=False).encode('utf-8')
-                st.download_button("备份数据 (含模拟持仓)", csv, "backup.csv", "text/csv")
+            with st.expander("💎 会员充值 (自动发货)", expanded=True):
+                tab_pay, tab_key = st.tabs(["🛍️ 在线购买", "🔑 卡密兑换"])
                 
-                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
-                if u_list:
-                    target = st.selectbox("选择用户", u_list)
-                    val = st.number_input("新积分", value=0, step=10)
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if st.button("更新积分"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
-                    with c2:
-                        chk = st.checkbox("确认删除")
-                        if st.button("删除") and chk: delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
+                with tab_pay:
+                    st.caption("模拟支付成功后，系统自动显示卡密")
+                    buy_type = st.radio("选择套餐", ["20积分 (10元)", "VIP月卡 (30元)", "VIP季卡 (80元)"])
+                    if st.button("💰 立即支付 (模拟)", type="primary"):
+                        if "20积分" in buy_type:
+                            k = batch_generate_keys(20, 1, "points")[0]
+                        elif "月卡" in buy_type:
+                            k = batch_generate_keys(30, 1, "days")[0]
+                        else:
+                            k = batch_generate_keys(90, 1, "days")[0]
+                        st.session_state.last_purchased_key = k
+                        st.balloons()
+                    
+                    if st.session_state.last_purchased_key:
+                        st.success("支付成功！您的卡密如下：")
+                        st.code(st.session_state.last_purchased_key, language="text")
+                        st.caption("请复制上方卡密，点击右侧“卡密兑换”进行激活")
 
-        timeframe = st.selectbox("周期", ["日线", "周线", "月线"])
-        days = st.radio("范围", [30,60,120,250], 2, horizontal=True)
-        adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
+                with tab_key:
+                    k_in = st.text_input("输入卡密", placeholder="粘贴卡密 VIP-...")
+                    if st.button("🚀 立即激活"):
+                        s, m = redeem_key(user, k_in)
+                        if s: st.success(m); time.sleep(1); st.rerun()
+                        else: st.error(m)
+
+        # 股票搜索
+        new_c = st.text_input("🔍 股票代码", st.session_state.code)
+        if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
         
-        st.divider()
-        
-        if is_pro:
-            with st.expander("🎛️ 策略参数 (Pro)", expanded=True):
-                ma_s = st.slider("短期均线", 2, 20, 5)
-                ma_l = st.slider("长期均线", 10, 120, 20)
-            
-            st.markdown("### 🛠️ 指标开关")
-            c_flags = st.columns(2)
-            with c_flags[0]:
-                flags['ma'] = st.checkbox("MA", True)
-                flags['boll'] = st.checkbox("BOLL", True)
-                flags['vol'] = st.checkbox("VOL", True)
-                flags['macd'] = st.checkbox("MACD", True)
-            with c_flags[1]:
-                flags['kdj'] = st.checkbox("KDJ", True)
-                flags['gann'] = st.checkbox("江恩", False)
-                flags['fib'] = st.checkbox("斐波那契", True)
-                flags['chan'] = st.checkbox("缠论", True)
-        
-        st.divider()
-        st.caption("免责声明：本系统仅供量化研究，不构成投资建议。")
+        # 视觉模式
+        view_mode = st.radio("模式", ["极简", "专业(需解锁)"], horizontal=True)
+        is_pro = (view_mode == "专业(需解锁)" and (is_admin or is_vip or st.session_state.paid_code == st.session_state.code))
+        if view_mode == "专业(需解锁)" and not is_pro:
+            if st.button("🔓 解锁当前 (1积分)"):
+                if consume_quota(user): st.session_state.paid_code = st.session_state.code; st.rerun()
+                else: st.error("积分不足")
+
+        # 模拟交易
+        if not is_admin:
+            with st.expander("🎮 模拟持仓", expanded=False):
+                curr = st.session_state.paper_holdings.get(st.session_state.code, {})
+                if curr:
+                    st.write(f"成本: {curr.get('cost',0):.2f} | 数量: {curr.get('qty',0)}")
+                    if st.button("卖出"): del st.session_state.paper_holdings[st.session_state.code]; save_user_holdings(user); st.rerun()
+                else:
+                    qty = st.number_input("股数", 100, 10000, 100, 100)
+                    if st.button("买入"):
+                        st.session_state.paper_holdings[st.session_state.code] = {'cost':0,'qty':qty} # cost 待更新
+                        save_user_holdings(user); st.rerun()
+
+        # 管理员面板
+        if is_admin:
+            st.divider()
+            st.write("👑 **管理员控制台**")
+            with st.expander("💳 卡密生成中心", expanded=True):
+                # 🔥【修改点3】管理员新增VIP月卡生成
+                gen_type = st.selectbox("卡密类型", ["积分卡 (Points)", "VIP月卡 (30天)", "VIP季卡 (90天)"])
+                count_gen = st.number_input("数量", 1, 50, 5)
+                
+                if st.button("生成卡密"):
+                    if "月卡" in gen_type:
+                        keys = batch_generate_keys(30, count_gen, "days")
+                    elif "季卡" in gen_type:
+                        keys = batch_generate_keys(90, count_gen, "days")
+                    else:
+                        val = st.number_input("积分面值", 10, 1000, 20)
+                        keys = batch_generate_keys(val, count_gen, "points")
+                    st.success(f"已生成 {len(keys)} 张")
+                    st.dataframe(keys)
+
         if st.button("退出登录"): st.session_state["logged_in"]=False; st.rerun()
     else:
         st.info("请先登录系统")
 
 # 登录逻辑
 if not st.session_state.get('logged_in'):
-    c1,c2,c3 = st.columns([1,2,1])
-    with c2:
-        st.markdown("""
-        <br><br>
-        <div style='text-align: center;'>
-            <h1 class='brand-title'>阿尔法量研回测系统 Pro</h1>
-            <div class='brand-en'>AlphaQuant Pro</div>
-        </div>
-        """, unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
-        with tab1:
-            u = st.text_input("账号")
-            p = st.text_input("密码", type="password")
-            if st.button("登录系统"):
-                if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
-                else: st.error("账号或密码错误")
-        with tab2:
-            # 🔥 注册分流逻辑 (实盘优化版)
-            reg_method = st.radio("注册方式", ["普通注册 (极简模式)", "公众号注册 (送20积分)"], horizontal=True)
-            nu = st.text_input("新用户")
-            np1 = st.text_input("设置密码", type="password")
-            invite_code = ""
-            
-            if "公众号" in reg_method:
-                # 🔥 实盘注册修改：展示公众号二维码
-                try:
-                    # 修正图片文件名为 qrcode.png
-                    st.image("qrcode.png", caption="扫码关注公众号【lubingxingpiaoliuji】", width=150)
-                except:
-                    st.warning("⚠️ 暂无二维码，请搜索公众号 ID: lubingxingpiaoliuji")
-                
-                st.info("💡 关注后回复“注册”获取验证码")
-                # 移除了模拟码的提示文字，看起来更真实
-                invite_code = st.text_input("请输入验证码")
-                
-            if st.button("立即注册"):
-                r_type = "wechat" if "公众号" in reg_method else "normal"
-                suc, msg = register_user(nu.strip(), np1, r_type, invite_code)
-                if suc: st.success(msg)
-                else: st.error(msg)
+    st.title("AlphaQuant Pro 登录")
+    tab1, tab2 = st.tabs(["登录", "注册"])
+    with tab1:
+        u = st.text_input("账号"); p = st.text_input("密码", type="password")
+        if st.button("登录"):
+            if verify_login(u, p): st.session_state["logged_in"]=True; st.session_state["user"]=u; st.rerun()
+            else: st.error("失败")
+    with tab2:
+        nu = st.text_input("新账号"); np = st.text_input("新密码", type="password")
+        if st.button("注册"):
+            s, m = register_user(nu, np)
+            if s: st.success(m)
+            else: st.error(m)
     st.stop()
 
-# --- 主内容区 ---
-name = get_name(st.session_state.code, "", None) 
-c1, c2 = st.columns([3, 1])
-with c1: st.title(f"📈 {name} ({st.session_state.code})")
+# --- 主内容 ---
+st.title(f"📈 {get_name(st.session_state.code, '', None)} ({st.session_state.code})")
 
-# 数据加载
-is_demo = False
-loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
-with st.spinner(random.choice(loading_tips)):
-    df = get_data_and_resample(st.session_state.code, "", timeframe, adjust, proxy=None)
-    if df.empty:
-        st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
-        df = generate_mock_data(days)
-        is_demo = True
+df = get_data_and_resample(st.session_state.code, "", "日线", "qfq")
+if df.empty:
+    st.warning("⚠️ 暂无实时数据，使用演示数据")
+    df = generate_mock_data(120)
 
+# 更新持仓成本
 if st.session_state.code in st.session_state.paper_holdings:
     if st.session_state.paper_holdings[st.session_state.code]['cost'] == 0:
         st.session_state.paper_holdings[st.session_state.code]['cost'] = df.iloc[-1]['close']
-        st.session_state.paper_holdings[st.session_state.code]['name'] = name
-        save_user_holdings(user) 
+        save_user_holdings(user)
 
-try:
-    # 基础指标计算
-    funda = get_fundamentals(st.session_state.code, "")
-    df = calc_full_indicators(df, ma_s, ma_l)
-    df = detect_patterns(df)
-    
-    # === 区域 1：基础行情 (免费) ===
-    status, msg, css_class = check_market_status(df)
-    st.markdown(f"""
-    <div class="market-status-box {css_class}">
-        <div style="display:flex; align-items:center;">
-            <span class="status-icon">{'🟢' if status=='green' else '🔴' if status=='red' else '🟡'}</span>
-            <div>
-                <div class="status-text">{msg}</div>
-                <div class="status-sub">基于 MA60 牛熊线与波动率分析</div>
-            </div>
-        </div>
+df = calc_full_indicators(df, ma_s, ma_l)
+df = detect_patterns(df)
+
+# 基础图表
+plot_chart(df.tail(120), "", flags, ma_s, ma_l)
+
+# 智能决策部分
+has_access = is_admin or is_vip or (st.session_state.paid_code == st.session_state.code)
+
+if not has_access:
+    st.markdown('<div class="locked-container"><div class="locked-blur">', unsafe_allow_html=True)
+
+# 计算指标
+sc, act, col_cls, sl, tp, pos, sup, res, reasons = analyze_score(df)
+ret, win, mdd, _, _, _ = run_backtest(df)
+
+# 🔥【修改点2】修复乱码，使用简化版HTML结构
+# 这里移除了所有复杂的CSS定位，改用Flexbox布局，确保在任何分辨率下都不乱码
+reason_html = "".join([f"<div class='reason-li'>{r}</div>" for r in reasons])
+
+final_card_html = f"""
+<div class="decision-card">
+    <div class="decision-header">
+        <span>🎯 智能决策系统 (Smart Decision)</span>
+        <span class="vip-tag">Pro</span>
     </div>
-    """, unsafe_allow_html=True)
-
-    l = df.iloc[-1]
-    color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
-    st.markdown(f"""
-    <div class="big-price-box">
-        <span class="price-main" style="color:{color}">{l['close']:.2f}</span>
-        <span class="price-sub" style="color:{color}">{l['pct_change']:.2f}%</span>
-    </div>
-    """, unsafe_allow_html=True)
     
-    sq, sv, st_ = calculate_smart_score(df, funda)
-    st.markdown(f"""
-    <div class="rating-container">
-        <div class="rating-box">
-            <div class="rating-score">{sq} <span class="rating-score-sub">/10</span></div>
-            <div class="rating-label">公司质量</div>
-        </div>
-        <div class="rating-box">
-            <div class="rating-score score-yellow">{sv} <span class="rating-score-sub sub-yellow">/10</span></div>
-            <div class="rating-label">估值安全</div>
-        </div>
-    </div>
-    <div style="height:20px"></div>
-    """, unsafe_allow_html=True)
-    
-    # AI 助理部分
-    ai_text, ai_mood = generate_ai_copilot_text(df, name)
-    ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
-    
-    st.markdown(f"""
-    <div class="ai-chat-box">
-        <div class="ai-avatar">{ai_icon}</div>
-        <div class="ai-content">
-            <span style="font-weight:bold; color:#2962ff;">AI 投顾助理：</span>
-            {ai_text}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 核心分析数据准备
-    sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
-    
-    # 🔥 关键位与风控 (默认折叠)
-    with st.expander("🛡️ 关键位与风控 (Support & Resistance)", expanded=False):
-        sr_cols = st.columns(4)
-        sr_cols[0].metric("支撑位 (Support)", f"{sup:.2f}", help="近20日最低价")
-        sr_cols[1].metric("压力位 (Resistance)", f"{res:.2f}", help="近20日最高价")
-        sr_cols[2].metric("止损位 (Stop Loss)", f"{sl:.2f}", help="当前价 - 2倍ATR波动率")
-        sr_cols[3].metric("止盈位 (Take Profit)", f"{tp:.2f}", help="当前价 + 3倍ATR波动率")
-        st.caption("ℹ️ 计算逻辑：支撑/压力基于唐奇安通道(20日极值)；止盈/止损基于ATR(14)真实波幅，旨在根据市场波动率动态调整风控点位。")
-
-    # === 区域 2：深度内容 (VIP/付费解锁) ===
-    # 权限判断
-    has_access = False
-    if is_admin: has_access = True
-    elif is_vip: has_access = True
-    elif st.session_state.paid_code == st.session_state.code: has_access = True
-    
-    if not has_access:
-        st.markdown('<div class="locked-container"><div class="locked-blur">', unsafe_allow_html=True)
-
-    # 1. 绘图 (图表前置)
-    plot_chart(df.tail(days), name, flags, ma_s, ma_l)
-    
-    # 2. 深度研报
-    st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
-    
-    st.divider()
-
-    # 回测看板
-    st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
-    ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
-    try:
-        daily_returns = eq['equity'].pct_change().dropna()
-        sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() != 0 else 0
-    except: sharpe = 0
-
-    st.markdown(f"""
-    <div class="bt-container">
-        <div class="bt-grid">
-            <div class="bt-card">
-                <div class="bt-val bt-pos">+{ret:.1f}%</div>
-                <div class="bt-lbl">策略总回报</div>
-                <div class="bt-tag tag-alpha">Alpha</div>
-            </div>
-            <div class="bt-card">
-                <div class="bt-val bt-pos">{win:.1f}%</div>
-                <div class="bt-lbl">实盘胜率</div>
-            </div>
-            <div class="bt-card">
-                <div class="bt-val bt-neg">-{mdd:.1f}%</div>
-                <div class="bt-lbl">最大回撤 (Risk)</div>
-            </div>
-            <div class="bt-card">
-                <div class="bt-val bt-neu">{sharpe:.2f}</div>
-                <div class="bt-lbl">夏普比率 (Sharpe)</div>
-            </div>
-        </div>
-        <div style="font-size:12px; color:#888; text-align:right;">* 回测区间包含 {len(eq)} 个交易日，对比基准为“买入持有”策略</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # 交互式图表 (Plotly)
-    if not eq.empty:
-        bt_fig = make_subplots(rows=1, cols=1)
-        bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
-                                    line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
-        bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy&Hold)', 
-                                    line=dict(color='#9e9e9e', width=1.5, dash='dash')))
-        if len(buy_sigs) > 0:
-            buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
-            bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                        marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
-        bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
-        st.plotly_chart(bt_fig, use_container_width=True)
-
-    # 🔥🔥🔥 智能决策系统 (修复完整版)
-    if is_pro:
-        # 1. 预处理原因列表 (避免 f-string 语法冲突)
-        reasons_html = "".join([f"<div class='reason-item'>• {r}</div>" for r in reasons])
-            
-        # 2. 构建完整的 HTML 结构
-        # 包含：顶部的徽章 -> 核心决策大字 -> 仓位/止盈止损网格 -> 支撑压力 -> 原因 -> 免责
-        final_card_html = f"""
-        <div class="final-card-container">
-            <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
-            
-            <div class="final-action-main">{act}</div>
-            
-            <div class="final-grid">
-                <div><div class="final-item-val">{pos}</div><div class="final-item-lbl">建议仓位</div></div>
-                <div><div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div><div class="final-item-lbl">目标止盈</div></div>
-                <div><div class="final-item-val" style="color:#00c853">{sl:.2f}</div><div class="final-item-lbl">预警止损</div></div>
-            </div>
-            
-            <div class="final-support-grid">
-                 <div class="support-item">
-                    <div style="font-size:12px;color:#666;">🛡️ 下方支撑 (Support)</div>
-                    <div class="support-val">{sup:.2f}</div>
-                    <div style="font-size:10px;color:#999;">基于20日唐奇安下轨</div>
-                 </div>
-                 <div class="support-item">
-                    <div style="font-size:12px;color:#666;">⚔️ 上方压力 (Resistance)</div>
-                    <div class="support-val">{res:.2f}</div>
-                    <div style="font-size:10px;color:#999;">基于20日唐奇安上轨</div>
-                 </div>
-            </div>
-
-            <div class="final-reasons">
-                <div style="font-weight:bold; margin-bottom:8px; color:#333;">💡 决策因子分析：</div>
-                {reasons_html}
-            </div>
-            
-            <div class="disclaimer-box">
-                ⚠️ 免责声明：以上数据仅基于技术指标自动计算，不构成任何投资建议。股市有风险，入市需谨慎。
-            </div>
-        </div>
-        <div style="height: 20px;"></div>
-        """
-        st.markdown(final_card_html, unsafe_allow_html=True)
-
-    if not has_access:
-        st.markdown('</div>', unsafe_allow_html=True) # close blur
-        try: bal = load_users()[load_users()["username"]==user]["quota"].iloc[0]
-        except: bal = 0
-        st.markdown(f"""
-        <div class="locked-overlay">
-            <div class="lock-icon">🔒</div>
-            <div class="lock-title">深度策略已锁定</div>
-            <div class="lock-desc">包含：AI解读、买卖点位、缠论结构、机构研报</div>
-        </div>
-        """, unsafe_allow_html=True)
-        c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
-        with c_lock2:
-            if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", key="main_unlock", type="primary", use_container_width=True):
-                if consume_quota(user):
-                    st.session_state.paid_code = st.session_state.code
-                    st.rerun()
-                else: st.error("积分不足！")
+    <div class="decision-body">
+        <div class="action-title {col_cls}">{act}</div>
         
-except Exception as e:
-    st.error(f"Error: {e}")
-    st.error(traceback.format_exc())
+        <div class="grid-3">
+            <div class="grid-item">
+                <div class="grid-val">{pos}</div>
+                <div class="grid-lbl">建议仓位</div>
+            </div>
+            <div class="grid-item">
+                <div class="grid-val" style="color:#d32f2f">{tp:.2f}</div>
+                <div class="grid-lbl">目标止盈</div>
+            </div>
+            <div class="grid-item">
+                <div class="grid-val" style="color:#2e7d32">{sl:.2f}</div>
+                <div class="grid-lbl">预警止损</div>
+            </div>
+        </div>
+        
+        <div class="support-box">
+             <div class="support-sub">
+                <div style="font-size:12px;color:#666;">🛡️ 下方支撑</div>
+                <div style="font-weight:bold; color:#333;">{sup:.2f}</div>
+             </div>
+             <div class="support-sub">
+                <div style="font-size:12px;color:#666;">⚔️ 上方压力</div>
+                <div style="font-weight:bold; color:#333;">{res:.2f}</div>
+             </div>
+        </div>
+
+        <div class="reason-list">
+            <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 核心逻辑：</div>
+            {reason_html}
+        </div>
+        
+        <div style="margin-top:15px; font-size:10px; color:#999;">
+            * 策略回测数据：总回报 {ret:.1f}% | 胜率 {win:.1f}% | 最大回撤 {mdd:.1f}%
+        </div>
+    </div>
+</div>
+"""
+
+st.markdown(final_card_html, unsafe_allow_html=True)
+
+if not has_access:
+    st.markdown('</div>', unsafe_allow_html=True) # 结束模糊
+    try: bal = load_users()[load_users()["username"]==user]["quota"].iloc[0]
+    except: bal = 0
+    st.markdown(f"""
+    <div class="locked-overlay">
+        <h3>🔒 深度决策已锁定</h3>
+        <p>包含：买卖点位、仓位管理、机构逻辑</p>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.button(f"🔓 解锁需 1 积分 (当前: {bal})", type="primary", use_container_width=True):
+        if consume_quota(user): st.session_state.paid_code = st.session_state.code; st.rerun()
+        else: st.error("积分不足，请在左侧充值")

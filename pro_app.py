@@ -24,7 +24,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V67.3",
+    page_title="阿尔法量研 Pro V67.4",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -78,6 +78,10 @@ ui_css = """
     /* 卡片容器 */
     .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
     
+    /* 研报小标题 */
+    .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
+    .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
+
     /* 商业化：大盘红绿灯 */
     .market-status-box {
         padding: 12px 20px; border-radius: 12px; margin-bottom: 20px;
@@ -115,18 +119,14 @@ ui_css = """
     /* 趋势横幅 */
     .trend-banner { padding: 10px; border-radius: 8px; text-align: center; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.02); }
     .trend-title { margin: 0; font-size: 16px; font-weight: 700; }
-    
-    /* 研报小标题 */
-    .deep-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 8px; border-left: 3px solid #2962ff; padding-left: 8px; }
-    .deep-text { font-size: 13px; color: #555; line-height: 1.6; }
-    
+
     [data-testid="metric-container"] { display: none; }
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (完整保留)
+# 2. 数据库与工具 (保留)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -228,9 +228,7 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
 def process_ticker(code):
     code = str(code).strip().upper()
     if code.isdigit() and len(code) == 6:
-        # Tushare 格式
         ts_fmt = f"{code}.SH" if code.startswith('6') else f"{code}.SZ"
-        # Baostock 格式
         bs_fmt = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
         return code, ts_fmt, bs_fmt
     return code, code, code
@@ -255,7 +253,6 @@ def get_name(code, token=None, proxy=None):
     try: return yf.Ticker(code).info.get('shortName', code)
     except: return code
 
-# 🚀 核心数据获取逻辑
 @st.cache_data(ttl=1800)
 def get_data_and_resample(code, timeframe, adjust, proxy=None):
     raw_code, ts_code, bs_code = process_ticker(code)
@@ -269,10 +266,8 @@ def get_data_and_resample(code, timeframe, adjust, proxy=None):
             pro = ts.pro_api()
             end_dt = datetime.now().strftime('%Y%m%d')
             start_dt = (datetime.now() - timedelta(days=700)).strftime('%Y%m%d')
-            
             with st.spinner(f"正在连接 Tushare 官方接口 ({ts_code})..."):
                 df_ts = pro.daily(ts_code=ts_code, start_date=start_dt, end_date=end_dt)
-                
             if not df_ts.empty:
                 df = df_ts.rename(columns={'trade_date': 'date', 'vol': 'volume'})
                 df['date'] = pd.to_datetime(df['date'])
@@ -343,7 +338,7 @@ def calc_full_indicators(df, ma_s, ma_l):
     
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
-    df['MA20'] = c.rolling(20).mean() # 修复 KeyError
+    df['MA20'] = c.rolling(20).mean() # 修复 KeyError 关键
     df['MA60'] = c.rolling(60).mean() # 风控线
     
     # Ichimoku
@@ -623,7 +618,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>V67.3 商业稳定版</div>
+        <div class='brand-en'>V67.4 商业救赎版</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -667,7 +662,6 @@ with st.sidebar:
             with st.expander("💎 充值中心", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
                 st.write("##### 1. 扫码支付")
-                # 检查是否存在二维码文件，否则显示提示
                 if os.path.exists("alipay.png"):
                     st.image("alipay.png", caption="请使用支付宝/微信扫码", width=200)
                 else:
@@ -693,6 +687,8 @@ with st.sidebar:
                 df_u = load_users(); st.dataframe(df_u[["username","quota"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份用户数据", csv, "users.csv")
+                
+                # 新增：上传用户数据恢复功能 (恢复)
                 uploaded_file = st.file_uploader("恢复用户数据", type="csv", key="restore_users")
                 if uploaded_file is not None:
                     try:
@@ -705,36 +701,11 @@ with st.sidebar:
                         else: st.error("❌ 格式错误")
                     except Exception as e: st.error(f"❌ 失败: {e}")
                 
-                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
-                if u_list:
-                    target = st.selectbox("选择用户", u_list)
-                    val = st.number_input("新积分", value=0)
-                    if st.button("更新积分"): update_user_quota(target, val); st.success("已更新")
+                target = st.selectbox("选择用户", df_u["username"].unique())
+                val = st.number_input("新积分", value=0)
+                if st.button("更新积分"): update_user_quota(target, val); st.success("已更新")
             with st.expander("卡密管理"):
                 st.dataframe(load_keys(), hide_index=True)
-
-        timeframe = st.selectbox("周期", ["日线", "周线", "月线"])
-        days = st.radio("范围", [30,60,120,250], 2, horizontal=True)
-        adjust = st.selectbox("复权", ["qfq","hfq",""], 0)
-        
-        st.divider()
-        with st.expander("🎛️ 策略参数", expanded=False):
-            st.caption("调整均线参数，优化回测结果")
-            ma_s = st.slider("短期均线", 2, 20, 5)
-            ma_l = st.slider("长期均线", 10, 120, 20)
-        
-        st.markdown("### 🛠️ 指标开关")
-        c_flags = st.columns(2)
-        with c_flags[0]:
-            flags['ma'] = st.checkbox("MA", True)
-            flags['boll'] = st.checkbox("BOLL", True)
-            flags['vol'] = st.checkbox("VOL", True)
-            flags['macd'] = st.checkbox("MACD", True)
-        with c_flags[1]:
-            flags['kdj'] = st.checkbox("KDJ", True)
-            flags['gann'] = st.checkbox("江恩", False)
-            flags['fib'] = st.checkbox("斐波那契", True)
-            flags['chan'] = st.checkbox("缠论", True)
 
         st.divider()
         if st.button("退出登录"): st.session_state["logged_in"]=False; st.rerun()
@@ -859,6 +830,8 @@ for tag, color_cls, desc in highlights:
 st.markdown(f"<div class='app-card'>{hl_html}</div>", unsafe_allow_html=True)
 
 # 图表
+# 补全 name 变量
+name = get_name(st.session_state.code)
 plot_chart(df.tail(days), name, flags, ma_s, ma_l)
 
 # 深度研报

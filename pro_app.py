@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V74 (Enhanced)",
+    page_title="阿尔法量研 Pro V75",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -63,7 +63,8 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (保留原有，增加适配)
+# 🔥 CSS 样式 (UI Simplified & Enhanced)
+# 修改点：移除了复杂的 .final-card-container 特效，改为极简工程风格
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -128,48 +129,39 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 升级版最终建议卡片样式 (UI Simplified & Enhanced) */
+    /* 🔥 简化后的智能决策卡片 (Simple & Clean) */
     .final-card-container {
-        background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
-        border: 2px solid #2962ff;
-        border-radius: 16px;
-        padding: 24px;
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-left: 5px solid #2962ff;
+        border-radius: 8px;
+        padding: 20px;
         margin-top: 20px;
-        box-shadow: 0 10px 30px rgba(41, 98, 255, 0.15);
         text-align: center;
-        position: relative;
-        overflow: hidden;
-    }
-    .final-card-container::before {
-        content: ""; position: absolute; top: -50px; left: -50px; width: 100px; height: 100px;
-        background: rgba(41, 98, 255, 0.1); border-radius: 50%; blur: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
     }
     .final-card-badge {
-        background: #2962ff; color: white; padding: 6px 20px;
-        border-radius: 0 0 12px 12px; font-weight: 800; font-size: 14px;
-        position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-        box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
+        display: inline-block;
+        background: #f0f7ff; color: #2962ff; 
+        padding: 4px 12px;
+        border-radius: 20px; 
+        font-weight: 700; font-size: 12px;
+        margin-bottom: 10px;
     }
     .final-action-main {
-        font-size: 38px; font-weight: 900; margin: 25px 0 10px 0;
-        background: -webkit-linear-gradient(45deg, #2962ff, #00d4ff);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        letter-spacing: -1px;
+        font-size: 32px; font-weight: 900; margin: 10px 0;
+        color: #333; letter-spacing: -0.5px;
     }
     .final-grid {
-        display: flex; justify-content: space-around; flex-wrap: wrap; margin-top: 15px;
-        background: rgba(255,255,255,0.7); border-radius: 12px; padding: 10px;
+        display: flex; justify-content: space-between; border-top: 1px solid #f0f0f0; padding-top: 15px; margin-top: 15px;
     }
-    .final-item { min-width: 80px; margin: 5px; }
+    .final-item { flex: 1; border-right: 1px solid #f0f0f0; }
+    .final-item:last-child { border-right: none; }
     .final-item-val { font-size: 18px; font-weight: 800; color: #333; }
-    .final-item-lbl { font-size: 11px; color: #666; margin-top: 2px; text-transform: uppercase; }
-    .final-reason-box {
-        font-size: 11px; color: #555; text-align: left; background: rgba(255,255,255,0.5);
-        padding: 5px; border-radius: 4px; margin-top: 2px;
-    }
+    .final-item-lbl { font-size: 11px; color: #888; margin-top: 4px; text-transform: uppercase; }
+    
     .final-reasons {
-        margin-top: 15px; padding-top: 10px; border-top: 1px dashed #cce0ff;
-        text-align: left; font-size: 13px; color: #555;
+        margin-top: 15px; text-align: left; font-size: 13px; color: #555; background: #f9f9f9; padding: 10px; border-radius: 6px;
     }
     .disclaimer-box {
         margin-top: 15px; padding: 8px; background-color: #fff8e1; color: #ff8f00;
@@ -308,10 +300,36 @@ def batch_generate_keys(points, count):
     save_keys(df)
     return len(new_keys)
 
+# 🔥 新增：自动从库中提取卡密（模拟发货）
+def fetch_unused_key(points):
+    df = load_keys()
+    # 查找指定面额且未使用的卡密
+    mask = (df['points'] == int(points)) & (df['status'] == 'unused')
+    available = df[mask]
+    
+    if available.empty:
+        return None, "🚫 该面额库存不足，请提醒管理员生成。"
+    
+    # 提取第一个
+    idx = available.index[0]
+    key_val = df.loc[idx, 'key']
+    
+    # 标记为已售出/已交付 (sold_delivered)
+    df.loc[idx, 'status'] = 'sold_delivered'
+    save_keys(df)
+    return key_val, "✅ 购买成功！您的卡密如下："
+
 def redeem_key(username, key_input):
     df_keys = load_keys()
-    match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"] == "unused")]
-    if match.empty: return False, "❌ 无效卡密"
+    # 支持未使用(unused)和刚刚自动发货(sold_delivered)的卡密
+    match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"].isin(["unused", "sold_delivered"]))]
+    
+    if match.empty: return False, "❌ 无效卡密或已被使用"
+    
+    # 防止重复使用，一旦兑换，标记为 used_by_USER
+    if str(match.iloc[0]["status"]).startswith("used_by"):
+        return False, "❌ 卡密已被使用"
+
     points_to_add = int(match.iloc[0]["points"])
     df_keys.loc[match.index[0], "status"] = f"used_by_{username}"
     save_keys(df_keys)
@@ -831,7 +849,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V74</div>
+        <div class='brand-en'>AlphaQuant Pro V75</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -849,19 +867,23 @@ with st.sidebar:
                 * 充值时请备注您的用户名。
                 * 有问题咨询微信公众号：`lubingxpiaoliuji`
                 """)
-                pay_opt = st.radio("充值面额", [10, 20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
                 
-                # 增加 VIP 兑换说明
+                # 🔥🔥🔥 新增：自动发货模块
+                st.markdown("#### 🚀 自动发卡/购买")
+                buy_points = st.selectbox("选择面额", [20, 50, 100, 200, 500], format_func=lambda x: f"{x}积分 (￥{x/2:.0f})")
+                if st.button("💳 模拟支付并自动发货"):
+                    key_got, msg_got = fetch_unused_key(buy_points)
+                    if key_got:
+                        st.success(msg_got)
+                        st.code(key_got)
+                        st.caption("请复制上方卡密，粘贴至下方输入框兑换")
+                    else:
+                        st.error(msg_got)
+
                 st.markdown("---")
-                st.markdown("**👑 VIP 会员兑换**")
-                c_vip1, c_vip2 = st.columns(2)
-                c_vip1.markdown("📅 **月卡会员**<br>充值 ￥30", unsafe_allow_html=True)
-                c_vip2.markdown("🗓️ **季卡会员**<br>充值 ￥80", unsafe_allow_html=True)
                 
                 if os.path.exists("alipay.png"):
-                    st.image("alipay.png", caption="请使用支付宝扫码 (备注用户名)", width=200)
-                else:
-                    st.warning("请上传 alipay.png")
+                    st.image("alipay.png", caption="或使用支付宝扫码 (人工)", width=200)
                 
                 st.markdown("---")
                 st.write("##### 卡密兑换")
@@ -998,12 +1020,19 @@ with st.sidebar:
                             time.sleep(1); st.rerun()
                         else: st.error("更新失败")
           
-            with st.expander("💳 卡密生成"):
+            with st.expander("💳 卡密库存管理 (Stock)", expanded=True):
                 points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
                 count_gen = st.number_input("数量", 1, 50, 10)
-                if st.button("批量生成"):
+                if st.button("批量生成库存"):
                     num = batch_generate_keys(points_gen, count_gen)
-                    st.success(f"已生成 {num} 张卡密")
+                    st.success(f"已入库 {num} 张卡密 (面值{points_gen})")
+                
+                # Show stock stats
+                try:
+                    df_k = load_keys()
+                    st.write("当前库存统计:")
+                    st.dataframe(df_k[df_k['status']=='unused'].groupby('points').size().reset_index(name='count'), hide_index=True)
+                except: pass
                    
             with st.expander("用户管理"):
                 # 🔥🔥🔥 新增：管理员上传用户数据
@@ -1012,7 +1041,6 @@ with st.sidebar:
                     try:
                         new_data = pd.read_csv(uploaded_file)
                         current_data = load_users()
-                        # 简单合并逻辑：去重合并
                         combined = pd.concat([current_data, new_data]).drop_duplicates(subset=['username'], keep='last')
                         save_users(combined)
                         st.success(f"成功导入！当前总用户数: {len(combined)}")
@@ -1084,33 +1112,38 @@ if not st.session_state.get('logged_in'):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
-            # 🔥🔥🔥 新增：注册方式选择
-            reg_type = st.radio("选择注册方式", ["普通用户注册", "微信公众号验证注册"], horizontal=True)
+            # 🔥🔥🔥 修改点：微信注册在前，普通注册在后
+            reg_type = st.radio("选择注册方式", 
+                              ["微信公众号验证注册 (推荐)", "普通用户注册"], 
+                              horizontal=False)
             
             nu = st.text_input("新用户名")
             np1 = st.text_input("设置密码", type="password")
             
-            if reg_type == "普通用户注册":
-                st.caption("普通注册不赠送积分。")
-                if st.button("立即注册 (普通)"):
-                    suc, msg = register_user(nu.strip(), np1, initial_quota=0)
-                    if suc: st.success(msg)
-                    else: st.error(msg)
-            else:
-                st.markdown("**关注公众号 `lubingxingpiaoliuji` 发送“注册”获取验证码**")
+            if "微信" in reg_type:
+                st.markdown("""
+                **1. 关注公众号 `lubingxingpiaoliuji`**<br>
+                **2. 发送“注册”获取验证码**<br>
+                <span style='color:#d32f2f; font-weight:bold'>🎁 成功注册即送 20 积分！</span>
+                """, unsafe_allow_html=True)
+                
                 if os.path.exists("qrcode.png"):
                     st.image("qrcode.png", width=150)
-                else:
-                    st.warning("请在根目录上传 qrcode.png")
                 
                 v_code = st.text_input("请输入验证码")
-                if st.button("验证并注册 (送20积分)"):
-                    if v_code == WECHAT_VALID_CODE: # 简单的模拟验证
+                if st.button("验证并注册"):
+                    if v_code == WECHAT_VALID_CODE:
                         suc, msg = register_user(nu.strip(), np1, initial_quota=20)
                         if suc: st.success(msg)
                         else: st.error(msg)
                     else:
                         st.error("验证码错误，请检查公众号回复。")
+            else:
+                st.caption("⚠️ 普通注册不赠送积分。")
+                if st.button("立即注册 (普通)"):
+                    suc, msg = register_user(nu.strip(), np1, initial_quota=0)
+                    if suc: st.success(msg)
+                    else: st.error(msg)
 
     st.stop()
 
@@ -1261,11 +1294,11 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 最终建议卡片 (Smart Decision) - UI 已简化并增加支撑/压力/免责
+    # 🔥🔥🔥 最终建议卡片 (Smart Decision) - UI 已简化为工程风格
     if is_pro:
         st.markdown(f"""
         <div class="final-card-container">
-            <div class="final-card-badge">🎯 智能决策系统 (Smart Decision)</div>
+            <div class="final-card-badge">🎯 智能决策系统</div>
             <div class="final-action-main">{act}</div>
             
             <div class="final-grid">
@@ -1274,26 +1307,24 @@ try:
                 <div class="final-item"><div class="final-item-val" style="color:#00c853">{sl:.2f}</div><div class="final-item-lbl">预警止损</div></div>
             </div>
 
-            <div class="final-grid" style="margin-top:10px; background:rgba(230,240,255,0.5);">
+            <div class="final-grid" style="margin-top:10px; border-top:none; background:rgba(230,240,255,0.2);">
                 <div class="final-item">
                     <div class="final-item-val" style="font-size:16px;">{sup:.2f}</div>
                     <div class="final-item-lbl">支撑位 (Support)</div>
-                    <div class="final-reason-box">近20日极值低点</div>
                 </div>
                 <div class="final-item">
                     <div class="final-item-val" style="font-size:16px;">{res:.2f}</div>
                     <div class="final-item-lbl">压力位 (Resistance)</div>
-                    <div class="final-reason-box">近20日极值高点</div>
                 </div>
             </div>
 
             <div class="final-reasons">
-                <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
+                <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子：</div>
                 {"".join([f"<div>• {r}</div>" for r in reasons])}
             </div>
             
             <div class="disclaimer-box">
-                ⚠️ 风险提示：本结果基于历史数据统计，仅供辅助决策，不承诺任何收益。股市有风险，入市需谨慎。
+                ⚠️ 风险提示：本结果基于历史数据统计，仅供辅助决策，不承诺任何收益。
             </div>
         </div>
         """, unsafe_allow_html=True)

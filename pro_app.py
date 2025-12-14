@@ -53,6 +53,7 @@ ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
 DB_FILE = "users_v69.csv" 
 KEYS_FILE = "card_keys.csv"
+WECHAT_VALID_CODE = "666888" # 模拟微信公众号返回的验证码
 
 # Optional deps
 ts = None
@@ -62,7 +63,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (保持原有风格，新增样式)
+# 🔥 CSS 样式 (保留原有，增加适配)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -127,7 +128,7 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 升级版最终建议卡片样式 (增强版) */
+    /* 🔥 升级版最终建议卡片样式 (UI Simplified & Enhanced) */
     .final-card-container {
         background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
         border: 2px solid #2962ff;
@@ -139,6 +140,10 @@ ui_css = """
         position: relative;
         overflow: hidden;
     }
+    .final-card-container::before {
+        content: ""; position: absolute; top: -50px; left: -50px; width: 100px; height: 100px;
+        background: rgba(41, 98, 255, 0.1); border-radius: 50%; blur: 20px;
+    }
     .final-card-badge {
         background: #2962ff; color: white; padding: 6px 20px;
         border-radius: 0 0 12px 12px; font-weight: 800; font-size: 14px;
@@ -146,34 +151,29 @@ ui_css = """
         box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
     }
     .final-action-main {
-        font-size: 42px; font-weight: 900; margin: 25px 0 15px 0;
+        font-size: 38px; font-weight: 900; margin: 25px 0 10px 0;
         background: -webkit-linear-gradient(45deg, #2962ff, #00d4ff);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         letter-spacing: -1px;
     }
     .final-grid {
-        display: flex; justify-content: space-around; margin-top: 20px;
-        background: rgba(255,255,255,0.6); border-radius: 12px; padding: 15px;
+        display: flex; justify-content: space-around; flex-wrap: wrap; margin-top: 15px;
+        background: rgba(255,255,255,0.7); border-radius: 12px; padding: 10px;
     }
-    .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
-    .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
-    
-    .final-sr-grid {
-        display: flex; justify-content: space-between; margin-top: 15px; gap: 10px;
-        padding-top: 15px; border-top: 1px solid #e0e0e0;
+    .final-item { min-width: 80px; margin: 5px; }
+    .final-item-val { font-size: 18px; font-weight: 800; color: #333; }
+    .final-item-lbl { font-size: 11px; color: #666; margin-top: 2px; text-transform: uppercase; }
+    .final-reason-box {
+        font-size: 11px; color: #555; text-align: left; background: rgba(255,255,255,0.5);
+        padding: 5px; border-radius: 4px; margin-top: 2px;
     }
-    .sr-box { flex: 1; background: #fff; padding: 8px; border-radius: 8px; border: 1px solid #eee; }
-    .sr-title { font-size: 12px; color: #888; margin-bottom: 2px; }
-    .sr-val { font-size: 16px; font-weight: bold; color: #333; }
-    
     .final-reasons {
         margin-top: 15px; padding-top: 10px; border-top: 1px dashed #cce0ff;
         text-align: left; font-size: 13px; color: #555;
     }
-    .final-disclaimer {
-        margin-top: 15px; background: #fff3e0; color: #e65100;
-        font-size: 11px; padding: 8px; border-radius: 6px; text-align: center;
-        border: 1px solid #ffe0b2;
+    .disclaimer-box {
+        margin-top: 15px; padding: 8px; background-color: #fff8e1; color: #ff8f00;
+        font-size: 11px; border-radius: 6px; text-align: center; border: 1px solid #ffecb3;
     }
 
     /* 锁定状态样式 */
@@ -329,8 +329,8 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
-# 修改注册函数，支持不同初始积分
-def register_user(u, p, initial_quota=0):
+# 修改注册函数，支持自定义初始积分
+def register_user(u, p, initial_quota=10):
     if u == ADMIN_USER: return False, "保留账号"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
@@ -339,8 +339,7 @@ def register_user(u, p, initial_quota=0):
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
-    msg = f"注册成功！获赠 {initial_quota} 积分" if initial_quota > 0 else "注册成功！"
-    return True, msg
+    return True, f"注册成功，已获赠 {initial_quota} 积分！"
 
 def consume_quota(u):
     if u == ADMIN_USER: return True
@@ -837,52 +836,45 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # 🔥🔥🔥 2. 模块移动：充值与会员中心前置 🔥🔥🔥
+    # 🔥🔥🔥 移动位置：会员与充值中心 (默认折叠)
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
         is_admin = (user == ADMIN_USER)
+        
         if not is_admin:
-            with st.expander("💎 充值与会员中心", expanded=True):
+            with st.expander("💎 会员与充值中心", expanded=False):
                 st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
-                
-                # 增加了10元选项
-                pay_opt = st.radio("充值金额 (1元=2积分)", [10, 20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
-                
                 st.markdown("""
-                <div style='font-size:12px; color:#555; background:#f0f0f0; padding:8px; border-radius:5px; margin-bottom:10px;'>
-                <b>会员权益说明：</b><br>
-                • 普通用户：按次扣费，1积分/次<br>
-                • VIP 用户：有效期内无限次使用<br>
-                • <b>￥30</b> = 兑换月卡会员 (30天)<br>
-                • <b>￥80</b> = 兑换季卡会员 (90天)<br>
-                </div>
-                """, unsafe_allow_html=True)
-
+                **💰 充值说明 (1元 = 2积分)**
+                * 充值时请备注您的用户名。
+                * 有问题咨询微信公众号：`lubingxpiaoliuji`
+                """)
+                pay_opt = st.radio("充值面额", [10, 20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
+                
+                # 增加 VIP 兑换说明
+                st.markdown("---")
+                st.markdown("**👑 VIP 会员兑换**")
+                c_vip1, c_vip2 = st.columns(2)
+                c_vip1.markdown("📅 **月卡会员**<br>充值 ￥30", unsafe_allow_html=True)
+                c_vip2.markdown("🗓️ **季卡会员**<br>充值 ￥80", unsafe_allow_html=True)
+                
                 if os.path.exists("alipay.png"):
                     st.image("alipay.png", caption="请使用支付宝扫码 (备注用户名)", width=200)
                 else:
                     st.warning("请上传 alipay.png")
                 
+                st.markdown("---")
                 st.write("##### 卡密兑换")
                 k_in = st.text_input("输入卡密")
-                if st.button("立即兑换"):
+                if st.button("兑换"):
                     s, m = redeem_key(user, k_in)
                     if s: st.success(m); time.sleep(1); st.rerun()
                     else: st.error(m)
-                
-                st.markdown("""
-                <div style='margin-top:10px; font-size:12px; color:#666;'>
-                有问题请关注微信公众号 <b>lubingxpiaoliuji</b> 咨询
-                </div>
-                """, unsafe_allow_html=True)
 
-    # 股票代码输入框 (现位于充值下方)
     new_c = st.text_input("🔍 股票代码", st.session_state.code)
     if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
 
     if st.session_state.get('logged_in'):
-        user = st.session_state["user"]
-        is_admin = (user == ADMIN_USER)
         is_vip, vip_msg = check_vip_status(user)
         
         load_user_holdings(user)
@@ -929,14 +921,14 @@ with st.sidebar:
                     2. **盘感训练**：记录买卖逻辑，通过盈亏反馈修正交易心态。
                     3. **数据永存**：您的持仓数据已云端备份，随时可查。
                     """)
-                
+               
                 curr_hold = st.session_state.paper_holdings.get(st.session_state.code, None)
-                
+               
                 curr_price = 0
                 try:
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
                 except: curr_price = 0 
-                
+               
                 if curr_hold:
                     cost = curr_hold.get('cost', 0)
                     qty = curr_hold.get('qty', 100)
@@ -955,7 +947,7 @@ with st.sidebar:
                         """, unsafe_allow_html=True)
                     else:
                         st.info(f"成本: {cost:.2f} | 数量: {qty}")
-                        
+                       
                     if st.button("卖出平仓", key="paper_sell"):
                         del st.session_state.paper_holdings[st.session_state.code]
                         save_user_holdings(user)
@@ -994,20 +986,6 @@ with st.sidebar:
 
         if is_admin:
             st.success("👑 管理员模式")
-            # 🔥🔥🔥 1. 管理员模块增加用户数据上传 🔥🔥🔥
-            with st.expander("📂 数据管理 (CSV上传)", expanded=False):
-                uploaded_file = st.file_uploader("上传用户数据库 (users.csv)", type="csv")
-                if uploaded_file is not None:
-                    try:
-                        uploaded_df = pd.read_csv(uploaded_file)
-                        # 简单的合并逻辑：保留现有，追加新的
-                        curr_df = load_users()
-                        merged_df = pd.concat([curr_df, uploaded_df]).drop_duplicates(subset=['username'], keep='last')
-                        save_users(merged_df)
-                        st.success(f"数据合并成功！当前用户数: {len(merged_df)}")
-                    except Exception as e:
-                        st.error(f"上传失败: {e}")
-
             with st.expander("👑 VIP 权限管理", expanded=True):
                 df_u = load_users()
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
@@ -1019,20 +997,33 @@ with st.sidebar:
                             st.success(f"已更新 {vip_target} 的 VIP 权限！")
                             time.sleep(1); st.rerun()
                         else: st.error("更新失败")
-            
+          
             with st.expander("💳 卡密生成"):
                 points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
                 count_gen = st.number_input("数量", 1, 50, 10)
                 if st.button("批量生成"):
                     num = batch_generate_keys(points_gen, count_gen)
                     st.success(f"已生成 {num} 张卡密")
-                    
+                   
             with st.expander("用户管理"):
+                # 🔥🔥🔥 新增：管理员上传用户数据
+                uploaded_file = st.file_uploader("📂 导入用户数据 (CSV)", type=['csv'])
+                if uploaded_file is not None:
+                    try:
+                        new_data = pd.read_csv(uploaded_file)
+                        current_data = load_users()
+                        # 简单合并逻辑：去重合并
+                        combined = pd.concat([current_data, new_data]).drop_duplicates(subset=['username'], keep='last')
+                        save_users(combined)
+                        st.success(f"成功导入！当前总用户数: {len(combined)}")
+                    except Exception as e:
+                        st.error(f"导入失败: {e}")
+
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota", "vip_expiry", "paper_json"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据 (含模拟持仓)", csv, "backup.csv", "text/csv")
-                
+               
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
                     target = st.selectbox("选择用户", u_list)
@@ -1074,7 +1065,7 @@ with st.sidebar:
     else:
         st.info("请先登录系统")
 
-# 登录逻辑
+# 登录逻辑 (包含新增的注册逻辑)
 if not st.session_state.get('logged_in'):
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
@@ -1092,37 +1083,34 @@ if not st.session_state.get('logged_in'):
             if st.button("登录系统"):
                 if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
                 else: st.error("账号或密码错误")
-        
-        # 🔥🔥🔥 3. 注册分流逻辑 🔥🔥🔥
         with tab2:
-            reg_method = st.radio("注册方式", ["普通注册", "公众号验证注册"], horizontal=True)
-            nu = st.text_input("新用户账号")
+            # 🔥🔥🔥 新增：注册方式选择
+            reg_type = st.radio("选择注册方式", ["普通用户注册", "微信公众号验证注册"], horizontal=True)
+            
+            nu = st.text_input("新用户名")
             np1 = st.text_input("设置密码", type="password")
             
-            if reg_method == "普通注册":
-                st.caption("普通注册无初始积分赠送。")
-                if st.button("立即注册"):
+            if reg_type == "普通用户注册":
+                st.caption("普通注册不赠送积分。")
+                if st.button("立即注册 (普通)"):
                     suc, msg = register_user(nu.strip(), np1, initial_quota=0)
                     if suc: st.success(msg)
                     else: st.error(msg)
             else:
-                st.markdown("""
-                <div style="background:#e8f5e9; padding:10px; border-radius:8px; font-size:13px; margin-bottom:10px;">
-                1. 关注微信公众号 <b>lubingxpiaoliuji</b><br>
-                2. 发送消息“注册”获取验证码<br>
-                3. <b>成功注册赠送 20 积分！</b>
-                </div>
-                """, unsafe_allow_html=True)
-                verify_code = st.text_input("输入公众号验证码")
-                if st.button("验证并注册"):
-                    # 模拟验证码逻辑，实际中需要后端API支持
-                    # 这里演示用，假设验证码是 666888
-                    if verify_code == "666888":
+                st.markdown("**关注公众号 `lubingxingpiaoliuji` 发送“注册”获取验证码**")
+                if os.path.exists("qrcode.png"):
+                    st.image("qrcode.png", width=150)
+                else:
+                    st.warning("请在根目录上传 qrcode.png")
+                
+                v_code = st.text_input("请输入验证码")
+                if st.button("验证并注册 (送20积分)"):
+                    if v_code == WECHAT_VALID_CODE: # 简单的模拟验证
                         suc, msg = register_user(nu.strip(), np1, initial_quota=20)
                         if suc: st.success(msg)
                         else: st.error(msg)
                     else:
-                        st.error("❌ 验证码错误，请关注公众号发送'注册'获取")
+                        st.error("验证码错误，请检查公众号回复。")
 
     st.stop()
 
@@ -1208,14 +1196,6 @@ try:
     # 核心分析数据准备
     sc, act, col, sl, tp, pos, sup, res, reasons = analyze_score(df)
     
-    with st.expander("🛡️ 关键位与风控 (Support & Resistance)", expanded=False):
-        sr_cols = st.columns(4)
-        sr_cols[0].metric("支撑位 (Support)", f"{sup:.2f}", help="近20日最低价")
-        sr_cols[1].metric("压力位 (Resistance)", f"{res:.2f}", help="近20日最高价")
-        sr_cols[2].metric("止损位 (Stop Loss)", f"{sl:.2f}", help="当前价 - 2倍ATR波动率")
-        sr_cols[3].metric("止盈位 (Take Profit)", f"{tp:.2f}", help="当前价 + 3倍ATR波动率")
-        st.caption("ℹ️ 计算逻辑：支撑/压力基于唐奇安通道(20日极值)；止盈/止损基于ATR(14)真实波幅，旨在根据市场波动率动态调整风控点位。")
-
     # === 区域 2：深度内容 (VIP/付费解锁) ===
     # 权限判断
     has_access = False
@@ -1234,6 +1214,7 @@ try:
     
     st.divider()
 
+    # 回测看板
     st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
     ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
     try:
@@ -1280,40 +1261,39 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 4. 智能决策系统升级：增加支撑压力与免责说明 🔥🔥🔥
+    # 🔥🔥🔥 最终建议卡片 (Smart Decision) - UI 已简化并增加支撑/压力/免责
     if is_pro:
         st.markdown(f"""
         <div class="final-card-container">
-            <div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
+            <div class="final-card-badge">🎯 智能决策系统 (Smart Decision)</div>
             <div class="final-action-main">{act}</div>
+            
             <div class="final-grid">
-                <div><div class="final-item-val">{pos}</div><div class="final-item-lbl">建议仓位</div></div>
-                <div><div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div><div class="final-item-lbl">目标止盈</div></div>
-                <div><div class="final-item-val" style="color:#00c853">{sl:.2f}</div><div class="final-item-lbl">预警止损</div></div>
+                <div class="final-item"><div class="final-item-val">{pos}</div><div class="final-item-lbl">建议仓位</div></div>
+                <div class="final-item"><div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div><div class="final-item-lbl">目标止盈</div></div>
+                <div class="final-item"><div class="final-item-val" style="color:#00c853">{sl:.2f}</div><div class="final-item-lbl">预警止损</div></div>
             </div>
-            
-            <div class="final-sr-grid">
-                <div class="sr-box">
-                    <div class="sr-title">下方强支撑</div>
-                    <div class="sr-val" style="color:#00c853">{sup:.2f}</div>
-                    <div style="font-size:10px;color:#999">近20日极低值</div>
+
+            <div class="final-grid" style="margin-top:10px; background:rgba(230,240,255,0.5);">
+                <div class="final-item">
+                    <div class="final-item-val" style="font-size:16px;">{sup:.2f}</div>
+                    <div class="final-item-lbl">支撑位 (Support)</div>
+                    <div class="final-reason-box">近20日极值低点</div>
                 </div>
-                <div class="sr-box">
-                    <div class="sr-title">上方强压力</div>
-                    <div class="sr-val" style="color:#ff3b30">{res:.2f}</div>
-                    <div style="font-size:10px;color:#999">近20日极高值</div>
+                <div class="final-item">
+                    <div class="final-item-val" style="font-size:16px;">{res:.2f}</div>
+                    <div class="final-item-lbl">压力位 (Resistance)</div>
+                    <div class="final-reason-box">近20日极值高点</div>
                 </div>
             </div>
-            
+
             <div class="final-reasons">
                 <div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
                 {"".join([f"<div>• {r}</div>" for r in reasons])}
             </div>
             
-            <div class="final-disclaimer">
-                ⚠️ <b>风险提示与免责说明</b>：<br>
-                本模块提供的价格点位（支撑/压力）基于历史技术形态计算，不代表未来走势承诺。<br>
-                股市有风险，入市需谨慎。决策系统仅辅助判断，请结合个人风险承受能力操作。
+            <div class="disclaimer-box">
+                ⚠️ 风险提示：本结果基于历史数据统计，仅供辅助决策，不承诺任何收益。股市有风险，入市需谨慎。
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1336,7 +1316,7 @@ try:
                     st.session_state.paid_code = st.session_state.code
                     st.rerun()
                 else: st.error("积分不足！")
-        
+       
 except Exception as e:
     st.error(f"Error: {e}")
     st.error(traceback.format_exc())

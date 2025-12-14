@@ -26,7 +26,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V70 (Enhanced)",
+    page_title="阿尔法量研 Pro V71 (Fixed)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -62,7 +62,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (V70 增强版：优化了回测UI)
+# 🔥 CSS 样式 (V71 修复版：确保样式类名正确)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -761,7 +761,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V70</div>
+        <div class='brand-en'>AlphaQuant Pro V71</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1064,9 +1064,9 @@ try:
                     else: st.error("积分不足！")
 
     # 2. 🔥 高级历史回测仪表盘 (极简模式 & 专业模式 均展示)
-    # 这是您要求的重点优化部分，增加了包装和文字描述
     ret, win, mdd, buys, sells, eq = run_backtest(df)
     
+    # 👇 这里是修复点：必须加上 unsafe_allow_html=True
     st.markdown(f"""
     <div class="bt-dashboard">
         <div class="bt-header">

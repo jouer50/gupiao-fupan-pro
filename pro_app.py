@@ -11,7 +11,7 @@ from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
 
-# ✅ 0. 依赖库检查 (自动处理 Baostock)
+# ✅ 0. 依赖库检查
 try:
     import baostock as bs
     import yfinance as yf
@@ -23,7 +23,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V65.2 (免费稳定版)",
+    page_title="阿尔法量研 Pro V65.3",
     layout="wide",
     page_icon="📈",
     initial_sidebar_state="expanded"
@@ -96,7 +96,7 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (原样保留)
+# 2. 数据库与工具
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -210,11 +210,13 @@ def generate_mock_data(days=365):
     df['low'] = df[['open', 'close']].min(axis=1) * np.random.uniform(0.97, 1.0, days)
     df['volume'] = np.random.randint(1000000, 50000000, days)
     df['pct_change'] = df['close'].pct_change() * 100
+    df['MA5'] = df['close'].rolling(5).mean()
+    df['MA20'] = df['close'].rolling(20).mean()
+    df['MA60'] = df['close'].rolling(60).mean()
     return df
 
 @st.cache_data(ttl=3600)
 def get_name(code):
-    # 简易映射，避免调用额外接口变慢
     M = {'600519':'贵州茅台','000858':'五粮液','601318':'中国平安','300750':'宁德时代','002594':'比亚迪'}
     return M.get(code, code)
 
@@ -232,14 +234,11 @@ def get_data_and_resample(code, timeframe, adjust):
         if is_ashare:
             bs_code = process_ticker(code)
             
-            # 必须登录
-            bs.login()
+            bs.login() # 登录
             
             end_dt = datetime.now().strftime('%Y-%m-%d')
             start_dt = (datetime.now() - timedelta(days=700)).strftime('%Y-%m-%d')
-            
-            # adjustflag: 3=不复权, 1=后复权, 2=前复权
-            adj = "2" if adjust == "qfq" else "3"
+            adj = "2" if adjust == "qfq" else "3" # adjustflag
             
             rs = bs.query_history_k_data_plus(
                 bs_code,
@@ -294,12 +293,17 @@ def get_data_and_resample(code, timeframe, adjust):
         return df.dropna().reset_index(drop=True)
     except: return pd.DataFrame()
 
-# 🌟 核心指标计算
+# 🌟 核心指标计算 (修复了 MA20 KeyError)
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
     c = df['close']; h = df['high']; l = df['low']; v = df['volume']
+    
     df['MA_Short'] = c.rolling(ma_s).mean()
     df['MA_Long'] = c.rolling(ma_l).mean()
+    
+    # 🩹 核心修复：强制计算 MA20，防止 plot_chart 报错
+    df['MA20'] = c.rolling(20).mean()
+    
     df['MA60'] = c.rolling(60).mean() # 风控线
     
     # KDJ
@@ -327,7 +331,7 @@ def calc_full_indicators(df, ma_s, ma_l):
     df['RSI'] = 100 - (100/(1+rs))
     df['VolRatio'] = v / (v.rolling(5).mean() + 1e-9)
     
-    # ADX (模拟计算，保证不报错)
+    # ADX (模拟计算)
     df['ADX'] = 25.0 
     
     return df.fillna(method='bfill')
@@ -411,7 +415,10 @@ def run_smart_backtest(df, use_trend_filter=True):
 def plot_chart(df, flags, ma_s, ma_l):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3])
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['MA20'], line=dict(color='orange', width=1), name='生命线'), row=1, col=1)
+    
+    # 绘制生命线 (MA20)
+    if 'MA20' in df.columns:
+        fig.add_trace(go.Scatter(x=df['date'], y=df['MA20'], line=dict(color='orange', width=1), name='生命线'), row=1, col=1)
     
     if flags.get('chan'):
         pts = []
@@ -479,7 +486,7 @@ with st.sidebar:
                     if s: st.success(m); time.sleep(1); st.rerun()
                     else: st.error(m)
 
-        # 管理员后台 (完整保留)
+        # 管理员后台
         if is_admin:
             st.success("👑 管理员模式")
             with st.expander("💳 卡密生成", expanded=True):
@@ -514,9 +521,9 @@ if not st.session_state.get('logged_in'):
 # 主内容
 is_demo = False
 if st.session_state.code != st.session_state.paid_code:
-    # 简单的付费墙逻辑占位
     pass 
 
+# 获取数据 (优先 Baostock)
 df = get_data_and_resample(st.session_state.code, "", "qfq")
 if df.empty:
     st.warning("⚠️ 数据获取受限，切换至【离线演示模式】")
@@ -570,7 +577,6 @@ with c1:
     <div class="metric-card">
         <div class="metric-value" style="color:{val_color}">{ret:.1f}%</div>
         <div class="metric-label">{label}</div>
-        <div class="metric-sub">表现优异</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -580,7 +586,6 @@ with c2:
     <div class="metric-card">
         <div class="metric-value">{win_rate}%</div>
         <div class="metric-label">波段胜率</div>
-        <div class="metric-sub">高胜率模型</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -589,7 +594,6 @@ with c3:
     <div class="metric-card">
         <div class="metric-value">A+</div>
         <div class="metric-label">AI 综合评级</div>
-        <div class="metric-sub">建议关注</div>
     </div>
     """, unsafe_allow_html=True)
 

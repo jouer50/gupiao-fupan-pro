@@ -10,10 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
-import urllib.request
 import json
-import socket
-import base64
 
 # ✅ 0. 依赖库检查
 try:
@@ -26,7 +23,7 @@ except ImportError:
 # 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V77 (Fixed)",
+    page_title="阿尔法量研 Pro V78 (Admin+)",
     layout="wide",
     page_icon="🔥",
     initial_sidebar_state="expanded"
@@ -49,10 +46,8 @@ flags = {
 # 核心常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v77.csv" 
+DB_FILE = "users_v78.csv" 
 KEYS_FILE = "card_keys.csv"
-
-# 🔥 公众号验证码
 OFFICIAL_CODE = "8888" 
 
 # Optional deps
@@ -63,7 +58,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式
+# 🔥 CSS 样式 (含新增紧凑模式)
 ui_css = """
 <style>
     .stApp {background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;}
@@ -89,7 +84,6 @@ ui_css = """
         color: white; border: none; box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
     }
     .app-card { background-color: #ffffff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
-    .vip-badge { background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%); color: #d32f2f; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px; font-style: italic; }
     .ai-chat-box {
         background: #f0f7ff; border-radius: 12px; padding: 15px; margin-bottom: 20px;
         border-left: 5px solid #2962ff; box-shadow: 0 4px 12px rgba(41, 98, 255, 0.1);
@@ -111,7 +105,6 @@ ui_css = """
     .rating-score { font-size: 28px; font-weight: 900; color: #ff3b30; line-height: 1; margin-bottom: 5px; }
     .rating-label { font-size: 12px; color: #666; font-weight: 500; }
     .score-yellow { color: #ff9800 !important; }
-    
     .brand-title { font-size: 22px; font-weight: 900; color: #333; margin-bottom: 2px; }
     
     /* 回测看板样式 */
@@ -119,7 +112,6 @@ ui_css = """
     .bt-header { font-size: 18px; font-weight: 800; color: #1d1d1f; margin-bottom: 15px; border-left: 4px solid #2962ff; padding-left: 10px; }
     .bt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
     .bt-card { background: #f9f9f9; padding: 15px; border-radius: 10px; text-align: center; transition: all 0.3s; }
-    .bt-card:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.05); background: #fff; border: 1px solid #e0e0e0; }
     .bt-val { font-size: 24px; font-weight: 900; color: #333; }
     .bt-lbl { font-size: 12px; color: #666; margin-top: 5px; }
     .bt-pos { color: #d32f2f; }
@@ -128,60 +120,45 @@ ui_css = """
     .bt-tag { display: inline-block; padding: 2px 8px; font-size: 10px; border-radius: 4px; margin-top: 2px; }
     .tag-alpha { background: rgba(255, 59, 48, 0.1); color: #ff3b30; }
 
-    /* 🔥 升级版最终建议卡片样式 */
-    .final-card-container {
-        background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
-        border: 2px solid #2962ff;
-        border-radius: 16px;
-        padding: 24px 20px 15px 20px;
-        margin-top: 20px;
-        box-shadow: 0 10px 30px rgba(41, 98, 255, 0.15);
-        text-align: center;
+    /* 🔥 紧凑版智能决策卡片 (体积减半) */
+    .final-card-compact {
+        background: linear-gradient(135deg, #ffffff 0%, #f4f8ff 100%);
+        border: 1px solid #2962ff;
+        border-radius: 12px;
+        padding: 12px 15px;
+        margin-top: 15px;
+        box-shadow: 0 4px 15px rgba(41, 98, 255, 0.1);
         position: relative;
-        overflow: hidden;
     }
-    .final-card-container::before {
-        content: ""; position: absolute; top: -50px; left: -50px; width: 100px; height: 100px;
-        background: rgba(41, 98, 255, 0.1); border-radius: 50%; blur: 20px;
+    .final-badge-compact {
+        position: absolute; top: -10px; left: 15px;
+        background: #2962ff; color: white; padding: 2px 10px;
+        border-radius: 8px; font-size: 11px; font-weight: bold;
+        box-shadow: 0 2px 5px rgba(41, 98, 255, 0.2);
     }
-    .final-card-badge {
-        background: #2962ff; color: white; padding: 6px 20px;
-        border-radius: 0 0 12px 12px; font-weight: 800; font-size: 14px;
-        position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-        box-shadow: 0 4px 10px rgba(41, 98, 255, 0.3);
+    .compact-header {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 10px; padding-top: 5px;
     }
-    .final-action-main {
-        font-size: 42px; font-weight: 900; margin: 30px 0 20px 0;
+    .compact-action {
+        font-size: 22px; font-weight: 900; 
         background: -webkit-linear-gradient(45deg, #2962ff, #00d4ff);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        letter-spacing: -1px;
     }
-    .final-grid {
-        display: flex; justify-content: space-around; margin-top: 20px;
-        background: rgba(255,255,255,0.8); border-radius: 12px; padding: 15px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
-    }
-    .final-item-val { font-size: 20px; font-weight: 800; color: #333; }
-    .final-item-lbl { font-size: 12px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
-    
-    .final-grid-2 {
-        display: flex; justify-content: space-around; margin-top: 15px;
-        background: rgba(240, 247, 255, 0.5);
-        border-radius: 8px;
-        padding: 12px;
+    .compact-grid {
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+        background: rgba(255,255,255,0.6); border-radius: 8px; padding: 8px;
         border: 1px dashed #cce0ff;
     }
-
-    .final-reasons {
-        margin-top: 15px; padding-top: 10px; 
-        text-align: left; font-size: 13px; color: #555;
-        background: #fff; padding: 10px; border-radius: 8px;
-    }
+    .c-item { text-align: center; }
+    .c-val { font-size: 14px; font-weight: 800; color: #333; }
+    .c-lbl { font-size: 9px; color: #666; margin-top: 2px; transform: scale(0.9); }
     
-    .final-disclaimer {
-        margin-top: 15px; font-size: 11px; color: #aaa; text-align: center;
-        border-top: 1px solid #eee; padding-top: 8px; line-height: 1.4;
+    .compact-reasons {
+        margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee;
+        font-size: 11px; color: #555; line-height: 1.4; display: flex; flex-wrap: wrap; gap: 8px;
     }
+    .reason-tag { background: #f0f2f5; padding: 1px 6px; border-radius: 4px; }
 
     /* 锁定状态样式 */
     .locked-container { position: relative; overflow: hidden; }
@@ -202,7 +179,7 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具
+# 2. 数据库与工具 (含备份恢复/VIP吊销)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -244,6 +221,22 @@ def load_users():
     except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
+
+def restore_user_data(uploaded_file):
+    """恢复/覆盖用户数据库"""
+    try:
+        df_new = pd.read_csv(uploaded_file)
+        required_cols = ["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"]
+        if not all(col in df_new.columns for col in required_cols):
+            return False, "❌ 文件格式错误：缺少关键列，请先下载备份查看格式。"
+        # 强制类型转换
+        df_new["quota"] = df_new["quota"].fillna(0).astype(int)
+        df_new["watchlist"] = df_new["watchlist"].fillna("")
+        df_new["paper_json"] = df_new["paper_json"].fillna("{}")
+        df_new.to_csv(DB_FILE, index=False)
+        return True, f"✅ 成功恢复 {len(df_new)} 条用户数据！"
+    except Exception as e:
+        return False, f"❌ 恢复失败: {str(e)}"
 
 def save_user_holdings(username):
     if username == ADMIN_USER: return
@@ -303,6 +296,16 @@ def update_vip_days(target_user, days_to_add):
     save_users(df)
     return True
 
+def revoke_vip(target_user):
+    """吊销 VIP 权限"""
+    df = load_users()
+    idx = df[df["username"] == target_user].index
+    if len(idx) == 0: return False
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    df.loc[idx[0], "vip_expiry"] = yesterday
+    save_users(df)
+    return True
+
 def batch_generate_keys(points, count):
     df = load_keys()
     new_keys = []
@@ -336,28 +339,20 @@ def verify_login(u, p):
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
 
-# 🔥 注册函数 (普通/公众号双模式)
 def register_user(u, p, code_input, reg_type="normal"):
     if u == ADMIN_USER: return False, "保留账号"
-    
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
-    
-    # 根据注册类型设定积分和验证逻辑
     if reg_type == "wechat":
-        # 公众号注册：需要验证码，奖励20积分
         if code_input != OFFICIAL_CODE:
             return False, "❌ 验证码错误！请关注公众号回复【验证码】获取。"
         init_quota = 20
         welcome_msg = "🎉 微信注册成功，已获赠 20 积分！"
     else:
-        # 普通注册：无需验证码，奖励5积分
         init_quota = 5
         welcome_msg = "✅ 普通注册成功，已获赠 5 积分！"
-
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": init_quota, "vip_expiry": "", "paper_json": "{}"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
@@ -853,7 +848,7 @@ def plot_chart(df, name, flags, ma_s, ma_l):
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 5. 执行入口
+# 5. 执行入口 (UI层)
 # ==========================================
 init_db()
 
@@ -861,7 +856,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V77</div>
+        <div class='brand-en'>AlphaQuant Pro V78</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1001,17 +996,56 @@ with st.sidebar:
 
         if is_admin:
             st.success("👑 管理员模式")
+            
+            # 1. VIP 权限管理 (增强版)
             with st.expander("👑 VIP 权限管理", expanded=True):
                 df_u = load_users()
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
+                
                 if u_list:
                     vip_target = st.selectbox("选择用户", u_list, key="vip_sel")
-                    vip_days = st.number_input("增加天数", value=30, step=1)
-                    if st.button("更新 VIP 权限"):
-                        if update_vip_days(vip_target, vip_days):
-                            st.success(f"已更新 {vip_target} 的 VIP 权限！")
-                            time.sleep(1); st.rerun()
-                        else: st.error("更新失败")
+                    
+                    # 显示当前状态
+                    is_v, v_msg = check_vip_status(vip_target)
+                    st.caption(f"当前状态: {v_msg}")
+                    
+                    col_vip1, col_vip2 = st.columns(2)
+                    
+                    with col_vip1:
+                        add_days = st.number_input("增加天数", value=30, step=1, key="add_d")
+                        if st.button("➕ 赋予/续费 VIP"):
+                            if update_vip_days(vip_target, add_days):
+                                st.success(f"已为 {vip_target} 增加 {add_days} 天 VIP！")
+                                time.sleep(1); st.rerun()
+                                
+                    with col_vip2:
+                        st.write("") 
+                        st.write("") # 占位对齐
+                        if st.button("❌ 吊销 VIP 资格", type="primary"):
+                            if revoke_vip(vip_target):
+                                st.warning(f"已取消 {vip_target} 的 VIP 权限。")
+                                time.sleep(1); st.rerun()
+
+            # 2. 数据备份与恢复 (新增)
+            with st.expander("💾 数据备份与恢复"):
+                st.markdown("##### 1. 数据备份")
+                df_backup = load_users()
+                csv = df_backup.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="⬇️ 下载用户数据库 (CSV)",
+                    data=csv,
+                    file_name=f"users_backup_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                )
+                
+                st.markdown("##### 2. 数据恢复")
+                st.warning("⚠️ 警告：上传将完全覆盖现有用户数据！")
+                uploaded_csv = st.file_uploader("上传备份文件 (CSV)", type="csv")
+                if uploaded_csv is not None:
+                    if st.button("🔴 确认覆盖并恢复"):
+                        success, msg = restore_user_data(uploaded_csv)
+                        if success: st.success(msg); time.sleep(2); st.rerun()
+                        else: st.error(msg)
             
             with st.expander("💳 卡密生成"):
                 points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
@@ -1023,12 +1057,10 @@ with st.sidebar:
             with st.expander("用户管理"):
                 df_u = load_users()
                 st.dataframe(df_u[["username","quota", "vip_expiry", "paper_json"]], hide_index=True)
-                csv = df_u.to_csv(index=False).encode('utf-8')
-                st.download_button("备份数据 (含模拟持仓)", csv, "backup.csv", "text/csv")
                 
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
-                    target = st.selectbox("选择用户", u_list)
+                    target = st.selectbox("用户操作", u_list)
                     val = st.number_input("新积分", value=0, step=10)
                     c1, c2 = st.columns(2)
                     with c1:
@@ -1067,7 +1099,7 @@ with st.sidebar:
     else:
         st.info("请先登录系统")
 
-# 🔥🔥🔥 登录与注册逻辑 (重构版)
+# 🔥🔥🔥 登录与注册逻辑
 if not st.session_state.get('logged_in'):
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
@@ -1081,7 +1113,6 @@ if not st.session_state.get('logged_in'):
         
         tab1, tab2 = st.tabs(["🔑 登录系统", "📝 新用户注册"])
         
-        # --- 登录 Tab ---
         with tab1:
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
@@ -1094,7 +1125,6 @@ if not st.session_state.get('logged_in'):
                 else:
                     st.error("账号或密码错误")
         
-        # --- 注册 Tab (修改版) ---
         with tab2:
             reg_method = st.radio("选择注册方式", ["普通注册 (赠5积分)", "公众号注册 (赠20积分🔥)"], horizontal=True)
             
@@ -1121,7 +1151,7 @@ if not st.session_state.get('logged_in'):
                     suc, msg = register_user(nu.strip(), np1, nv_code.strip(), reg_type=reg_type_val)
                     if suc: 
                         st.success(msg)
-                        time.sleep(1) # 给一点时间让用户看成功提示
+                        time.sleep(1) 
                     else: 
                         st.error(msg)
     st.stop()
@@ -1282,50 +1312,52 @@ try:
         bt_fig.update_layout(height=350, margin=dict(l=10,r=10,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
         st.plotly_chart(bt_fig, use_container_width=True)
 
-    # 🔥🔥🔥 智能决策系统 (Final Card) - 修复版
+    # 🔥🔥🔥 智能决策系统 (Final Card) - 紧凑优化版
     if is_pro:
-        # 1. 预处理原因列表
-        reasons_html = "".join([f"<div style='margin-top:4px;'>• {r}</div>" for r in reasons])
+        # 1. 预处理原因列表 (使用 Flex 标签布局)
+        reasons_html = "".join([f"<span class='reason-tag'>• {r}</span>" for r in reasons])
         
-        # 2. 构建 HTML (❌去掉了所有缩进❌，防止被误识别为代码块)
+        # 2. 构建紧凑版 HTML
         final_html = f"""
-<div class="final-card-container">
-<div class="final-card-badge">🎯 智能决策系统 (Alpha Decision)</div>
-<div class="final-action-main">{act}</div>
-<div class="final-grid">
-<div>
-<div class="final-item-val">{pos}</div>
-<div class="final-item-lbl">建议仓位</div>
-</div>
-<div>
-<div class="final-item-val" style="color:#ff3b30">{tp:.2f}</div>
-<div class="final-item-lbl">目标止盈</div>
-</div>
-<div>
-<div class="final-item-val" style="color:#00c853">{sl:.2f}</div>
-<div class="final-item-lbl">预警止损</div>
-</div>
-</div>
-<div class="final-grid-2">
-<div>
-<div class="final-item-val" style="font-size:18px;">{sup:.2f}</div>
-<div class="final-item-lbl">下方支撑 (Support)</div>
-</div>
-<div>
-<div class="final-item-val" style="font-size:18px;">{res:.2f}</div>
-<div class="final-item-lbl">上方压力 (Resistance)</div>
-</div>
-</div>
-<div class="final-reasons">
-<div style="font-weight:bold; margin-bottom:5px; color:#333;">💡 决策因子分析：</div>
-{reasons_html}
-</div>
-<div class="final-disclaimer">
-⚠️ 免责声明：AI智能分析结果仅供量化研究参考，不构成任何投资建议。<br>
-股市有风险，投资需谨慎。据此操作，风险自担。
-</div>
-</div>
-"""
+        <div class="final-card-compact">
+            <div class="final-badge-compact">Alpha Decision</div>
+            
+            <div class="compact-header">
+                <div class="compact-action">{act}</div>
+                <div style="text-align:right;">
+                    <div style="font-size:10px; color:#888;">综合得分</div>
+                    <div style="font-size:16px; font-weight:900; color:#2962ff;">{sc}</div>
+                </div>
+            </div>
+            
+            <div class="compact-grid">
+                <div class="c-item">
+                    <div class="c-val">{pos}</div>
+                    <div class="c-lbl">仓位</div>
+                </div>
+                <div class="c-item">
+                    <div class="c-val" style="color:#ff3b30">{tp:.2f}</div>
+                    <div class="c-lbl">止盈</div>
+                </div>
+                <div class="c-item">
+                    <div class="c-val" style="color:#00c853">{sl:.2f}</div>
+                    <div class="c-lbl">止损</div>
+                </div>
+                <div class="c-item">
+                    <div class="c-val">{sup:.2f}</div>
+                    <div class="c-lbl">支撑</div>
+                </div>
+                <div class="c-item">
+                    <div class="c-val">{res:.2f}</div>
+                    <div class="c-lbl">压力</div>
+                </div>
+            </div>
+            
+            <div class="compact-reasons">
+                {reasons_html}
+            </div>
+        </div>
+        """
         # 3. 渲染
         st.markdown(final_html, unsafe_allow_html=True)
 

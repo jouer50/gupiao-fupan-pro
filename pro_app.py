@@ -10,25 +10,22 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
-import urllib.request
-import json
-import socket
 
 # ✅ 0. 依赖库检查
 try:
-    import yfinance as yf
     import tushare as ts
+    import yfinance as yf
 except ImportError:
-    st.error("🚨 严重错误：缺少库，请运行 pip install yfinance tushare")
+    st.error("🚨 严重错误：缺少 `tushare` 或 `yfinance` 库")
     st.stop()
 
 # ==========================================
-# 1. 核心配置 & Token
+# 1. 核心配置
 # ==========================================
 st.set_page_config(
-    page_title="阿尔法量研 Pro V64.2",
+    page_title="阿尔法量研 Pro V65 (完整版)",
     layout="wide",
-    page_icon="🐂",
+    page_icon="👑",
     initial_sidebar_state="expanded"
 )
 
@@ -51,10 +48,10 @@ flags = {
 # 核心常量定义
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v64.csv"
-KEYS_FILE = "card_keys.csv"
+DB_FILE = "users_v65.csv"
+KEYS_FILE = "card_keys_v65.csv"
 
-# 🔥 V64.2 商业化视觉增强 CSS
+# 🔥 V65.0 商业化 CSS (保留果冻黄+高级感)
 ui_css = """
 <style>
     /* 全局背景 */
@@ -78,6 +75,12 @@ ui_css = """
         transition: 0.3s; width: 100%;
     }
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(255, 165, 0, 0.4); }
+    div.stButton > button:active { transform: scale(0.96); }
+    
+    /* 次级按钮 */
+    div.stButton > button[kind="secondary"] {
+        background: #f0f0f0; color: #333; box-shadow: none; border: 1px solid #ccc;
+    }
 
     /* ================= 核心包装：回测结果卡片 ================= */
     .metric-card {
@@ -95,9 +98,9 @@ ui_css = """
         display: flex; align-items: center; justify-content: space-between;
         background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border-left: 5px solid #ccc;
     }
-    .status-green { border-left-color: #2ecc71; }
-    .status-red { border-left-color: #e74c3c; }
-    .status-yellow { border-left-color: #f1c40f; }
+    .status-green { border-left-color: #2ecc71; background: #e8f5e9; }
+    .status-red { border-left-color: #e74c3c; background: #ffebee; }
+    .status-yellow { border-left-color: #f1c40f; background: #fef9e7; }
     
     /* 侧边栏精选池 */
     .screener-item {
@@ -114,7 +117,7 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (保持稳定)
+# 2. 数据库与后台管理 (原样保留，一个都没少)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -124,53 +127,55 @@ def init_db():
         df_keys = pd.DataFrame(columns=["key", "points", "status", "created_at"])
         df_keys.to_csv(KEYS_FILE, index=False)
 
-def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
-    try:
-        if value is None: return default
-        if isinstance(value, (pd.Series, pd.DataFrame)): value = value.iloc[0]
-        if isinstance(value, str): value = float(value.replace(',', ''))
-        f_val = float(value)
-        return fmt.format(f_val) + suffix
-    except: return default
-
 def load_users():
     try: return pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int})
     except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
+
 def load_keys():
     try: return pd.read_csv(KEYS_FILE)
     except: return pd.DataFrame(columns=["key", "points", "status", "created_at"])
+
 def save_keys(df): df.to_csv(KEYS_FILE, index=False)
 
 def batch_generate_keys(points, count):
     df = load_keys()
     new_keys = []
     for _ in range(count):
-        key = f"VIP-{points}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
-        new_keys.append({"key": key, "points": points, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
-    df = pd.concat([df, pd.DataFrame(new_keys)], ignore_index=True); save_keys(df); return len(new_keys)
+        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        key = f"VIP-{points}-{suffix}"
+        new_row = {"key": key, "points": points, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        new_keys.append(new_row)
+    df = pd.concat([df, pd.DataFrame(new_keys)], ignore_index=True)
+    save_keys(df)
+    return len(new_keys)
 
 def generate_key(points):
     key = "VIP-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
     df = load_keys()
-    df = pd.concat([df, pd.DataFrame([{"key": key, "points": points, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")}])], ignore_index=True)
-    save_keys(df); return key
+    new_row = {"key": key, "points": points, "status": "unused", "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    save_keys(df)
+    return key
 
 def redeem_key(username, key_input):
     df_keys = load_keys()
     match = df_keys[(df_keys["key"] == key_input) & (df_keys["status"] == "unused")]
     if match.empty: return False, "❌ 无效卡密"
-    points = int(match.iloc[0]["points"])
+    points_to_add = int(match.iloc[0]["points"])
     df_keys.loc[match.index[0], "status"] = f"used_by_{username}"
     save_keys(df_keys)
-    df_u = load_users(); idx = df_u[df_u["username"] == username].index[0]
-    df_u.loc[idx, "quota"] += points; save_users(df_u)
-    return True, f"✅ 成功充值 {points} 积分"
+    df_users = load_users()
+    u_idx = df_users[df_users["username"] == username].index[0]
+    df_users.loc[u_idx, "quota"] += points_to_add
+    save_users(df_users)
+    return True, f"✅ 成功充值 {points_to_add} 积分"
 
 def verify_login(u, p):
     if u == ADMIN_USER and p == ADMIN_PASS: return True
-    df = load_users(); row = df[df["username"] == u]
+    df = load_users()
+    row = df[df["username"] == u]
     if row.empty: return False
     try: return bcrypt.checkpw(p.encode(), row.iloc[0]["password_hash"].encode())
     except: return False
@@ -179,15 +184,21 @@ def register_user(u, p):
     if u == ADMIN_USER: return False, "保留账号"
     df = load_users()
     if u in df["username"].values: return False, "用户已存在"
-    salt = bcrypt.gensalt(); hashed = bcrypt.hashpw(p.encode(), salt).decode()
-    df = pd.concat([df, pd.DataFrame([{"username": u, "password_hash": hashed, "watchlist": "", "quota": 0}])], ignore_index=True)
-    save_users(df); return True, "注册成功"
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(p.encode(), salt).decode()
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": 0}
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    save_users(df)
+    return True, "注册成功"
 
 def consume_quota(u):
     if u == ADMIN_USER: return True
-    df = load_users(); idx = df[df["username"] == u].index
+    df = load_users()
+    idx = df[df["username"] == u].index
     if len(idx) > 0 and df.loc[idx[0], "quota"] > 0:
-        df.loc[idx[0], "quota"] -= 1; save_users(df); return True
+        df.loc[idx[0], "quota"] -= 1
+        save_users(df)
+        return True
     return False
 
 def update_user_quota(target, new_q):
@@ -205,31 +216,40 @@ def delete_user(target):
     save_users(df)
 
 def update_watchlist(username, code, action="add"):
-    df = load_users(); idx = df[df["username"] == username].index[0]
-    wl = str(df.loc[idx, "watchlist"]) if str(df.loc[idx, "watchlist"]) != "nan" else ""
-    codes = [c.strip() for c in wl.split(",") if c.strip()]
-    if action == "add" and code not in codes: codes.append(code)
-    elif action == "remove" and code in codes: codes.remove(code)
-    df.loc[idx, "watchlist"] = ",".join(codes); save_users(df); return ",".join(codes)
+    df = load_users()
+    idx = df[df["username"] == username].index[0]
+    current_wl = str(df.loc[idx, "watchlist"])
+    if current_wl == "nan": current_wl = ""
+    codes = [c.strip() for c in current_wl.split(",") if c.strip()]
+    if action == "add":
+        if code not in codes: codes.append(code)
+    elif action == "remove":
+        if code in codes: codes.remove(code)
+    df.loc[idx, "watchlist"] = ",".join(codes)
+    save_users(df)
+    return ",".join(codes)
 
 def get_user_watchlist(username):
     df = load_users()
     if username == ADMIN_USER: return []
     row = df[df["username"] == username]
     if row.empty: return []
-    wl = str(row.iloc[0]["watchlist"])
-    return [c.strip() for c in wl.split(",") if c.strip()] if wl != "nan" else []
+    wl_str = str(row.iloc[0]["watchlist"])
+    if wl_str == "nan": return []
+    return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (混合数据源内核)
+# 3. 股票数据逻辑 (集成 Tushare)
 # ==========================================
 def process_ticker(code):
-    code = code.strip().upper()
-    # Tushare 逻辑
+    code = str(code).strip().upper()
     if code.isdigit() and len(code) == 6:
+        # A股 Tushare 格式
         return f"{code}.SH" if code.startswith('6') else f"{code}.SZ"
-    # 港股逻辑
-    if code.isdigit() and len(code) < 6: return f"{code.zfill(4)}.HK"
+    # 港股
+    if code.isdigit() and len(code) < 6:
+        return f"{code.zfill(4)}.HK"
+    # 美股
     return code
 
 def generate_mock_data(days=365):
@@ -252,7 +272,7 @@ def get_name(code):
     try: return yf.Ticker(code).info.get('shortName', code)
     except: return code
 
-# 🚀 核心修复：Tushare + Yahoo 混合获取逻辑
+# 🚀 核心：Tushare + Yahoo 混合获取逻辑
 @st.cache_data(ttl=1800)
 def get_data_and_resample(code, timeframe, adjust):
     code = str(code).strip().upper()
@@ -265,6 +285,7 @@ def get_data_and_resample(code, timeframe, adjust):
     try:
         # 🟢 A股通道：强制走 Tushare (稳定)
         if is_ashare:
+            if not TUSHARE_TOKEN: raise Exception("No Tushare Token")
             ts.set_token(TUSHARE_TOKEN)
             pro = ts.pro_api()
             
@@ -281,9 +302,6 @@ def get_data_and_resample(code, timeframe, adjust):
             df = df_ts.rename(columns={'trade_date': 'date', 'vol': 'volume'})
             df['date'] = pd.to_datetime(df['date'])
             df = df.sort_values('date').reset_index(drop=True)
-            
-            # Tushare 免费接口通常未复权，直接使用或简易处理
-            # 这里直接使用 close 即可
 
         # 🔵 美股/港股通道：走 Yahoo (yfinance)
         else:
@@ -319,19 +337,6 @@ def get_data_and_resample(code, timeframe, adjust):
         df['pct_change'] = df['close'].pct_change() * 100
         return df.dropna().reset_index(drop=True)
     except: return pd.DataFrame()
-
-@st.cache_data(ttl=3600)
-def get_fundamentals(code):
-    res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-", "target_price": "-", "rating": "-"}
-    try:
-        t = yf.Ticker(code); i = t.info
-        res['pe'] = safe_fmt(i.get('trailingPE'))
-        res['pb'] = safe_fmt(i.get('priceToBook'))
-        res['mv'] = f"{i.get('marketCap')/100000000:.2f}亿" if i.get('marketCap') else "-"
-        if 'targetMeanPrice' in i: res['target_price'] = safe_fmt(i.get('targetMeanPrice'))
-        if 'recommendationKey' in i: res['rating'] = i.get('recommendationKey', '').replace('buy','买入').replace('sell','卖出').replace('hold','持有')
-    except: pass
-    return res
 
 def calc_full_indicators(df, ma_s, ma_l):
     if df.empty: return df
@@ -380,8 +385,34 @@ def get_drawing_lines(df):
     fib = {'0.382': h-d*0.382, '0.618': h-d*0.618}
     return gann, fib
 
+def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
+    try:
+        if value is None: return default
+        if isinstance(value, (pd.Series, pd.DataFrame)):
+            if value.empty: return default
+            value = value.iloc[0]
+        if isinstance(value, str):
+            if value.strip() in ["", "N/A", "nan", "NaN"]: return default
+            value = float(value.replace(',', ''))
+        f_val = float(value)
+        return fmt.format(f_val) + suffix
+    except: return default
+
+@st.cache_data(ttl=3600)
+def get_fundamentals(code):
+    res = {"pe": "-", "pb": "-", "roe": "-", "mv": "-", "target_price": "-", "rating": "-"}
+    try:
+        t = yf.Ticker(code); i = t.info
+        res['pe'] = safe_fmt(i.get('trailingPE'))
+        res['pb'] = safe_fmt(i.get('priceToBook'))
+        res['mv'] = f"{i.get('marketCap')/100000000:.2f}亿" if i.get('marketCap') else "-"
+        if 'targetMeanPrice' in i: res['target_price'] = safe_fmt(i.get('targetMeanPrice'))
+        if 'recommendationKey' in i: res['rating'] = i.get('recommendationKey', '').replace('buy','买入').replace('sell','卖出').replace('hold','持有')
+    except: pass
+    return res
+
 # ==========================================
-# 4. 商业化核心逻辑 (V64.2 深度包装)
+# 4. 商业化功能 (V64 升级部分)
 # ==========================================
 
 # 🚦 大盘风控：更智能的判断
@@ -405,10 +436,10 @@ def get_daily_picks(user_watchlist):
     return results
 
 # 🛠️ 回测优化：截断 + Alpha包装
-def run_smart_backtest(df):
+def run_smart_backtest(df, use_trend_filter=True):
     if df is None or len(df) < 50: return 0, 0, 0, pd.DataFrame()
     
-    # 技巧1：只回测最近 250 天
+    # 技巧1：只回测最近 250 天 (避开历史大熊市)
     df_bt = df.tail(250).reset_index(drop=True)
     
     capital = 100000; position = 0; equity = [capital]; dates = [df_bt.iloc[0]['date']]
@@ -417,7 +448,7 @@ def run_smart_backtest(df):
         curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']
         
         # 技巧2：强制风控过滤 (Price > MA60 才允许开仓)
-        is_safe = curr['close'] > curr['MA60']
+        is_safe = (curr['close'] > curr['MA60']) if use_trend_filter else True
         
         # 信号
         buy = prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long']
@@ -447,135 +478,250 @@ def run_smart_backtest(df):
     return display_ret, display_label, pd.DataFrame({'date': dates, 'equity': equity})
 
 # ==========================================
-# 5. 主界面构建
+# 5. 主界面执行入口
 # ==========================================
 init_db()
 
 with st.sidebar:
     st.markdown("""
-    <div style='margin-bottom: 20px;'>
-        <h2 style='color:#333; margin:0;'>AlphaQuant <span style='color:#FFD700'>Pro</span></h2>
-        <div style='font-size:12px; color:#999;'>AI 驱动的智能量化决策系统</div>
+    <div style='text-align: left; margin-bottom: 20px;'>
+        <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
+        <div class='brand-en'>AlphaQuant Pro</div>
+        <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
     
-    new_c = st.text_input("🔍 输入代码 (如 600519 / NVDA)", st.session_state.code)
+    new_c = st.text_input("🔍 股票代码 (如 600519/NVDA)", st.session_state.code)
     if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
 
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
+        is_admin = (user == ADMIN_USER)
         
-        # 侧边栏精选池
-        st.markdown("### 🔥 今日 AI 精选")
-        picks = get_daily_picks(get_user_watchlist(user))
-        for p in picks:
-            if st.button(f"{p['tag']} | {p['code']}", key=f"p_{p['code']}"):
-                st.session_state.code = p['code']; st.rerun()
+        # 🌟 NEW: 每日精选池 (商业化功能)
+        if not is_admin:
+            st.markdown("### 🎯 每日精选策略")
+            user_wl = get_user_watchlist(user)
+            picks = get_daily_picks(user_wl)
+            for pick in picks:
+                if st.button(f"{pick['tag']} | {pick['code']}", key=f"pick_{pick['code']}"):
+                    st.session_state.code = pick['code']
+                    st.rerun()
+            st.divider()
+
+        if not is_admin:
+            with st.expander("⭐ 我的自选股", expanded=False):
+                current_wl = get_user_watchlist(user)
+                if not current_wl: st.caption("暂无自选，请在上方添加")
+                else:
+                    for c in current_wl:
+                        c1, c2 = st.columns([3, 1])
+                        if c1.button(f"{c}", key=f"wl_{c}"):
+                            st.session_state.code = c; st.rerun()
+                        if c2.button("✖️", key=f"del_{c}"):
+                            update_watchlist(user, c, "remove"); st.rerun()
+            if st.button("❤️ 加入自选"): update_watchlist(user, st.session_state.code, "add"); st.rerun()
+
+        if st.button("🔄 刷新缓存"): st.cache_data.clear(); st.rerun()
+
+        if not is_admin:
+            with st.expander("💎 充值中心", expanded=False):
+                st.info(f"当前积分: {load_users()[load_users()['username']==user]['quota'].iloc[0]}")
+                st.write("##### 1. 选择充值套餐")
+                pay_opt = st.radio("充值面额", [20, 50, 100], horizontal=True, format_func=lambda x: f"￥{x}")
+                st.write("##### 2. 扫码支付")
+                if os.path.exists("alipay.png"): st.image("alipay.png", caption="请使用支付宝扫码", width=200)
+                else: st.warning("请上传 alipay.png")
+                st.write("##### 3. 获取卡密")
+                if st.button("✅ 我已支付，自动发货"):
+                    new_key = generate_key(pay_opt)
+                    st.success("支付成功！您的卡密如下："); st.code(new_key, language="text")
+                st.write("##### 4. 兑换")
+                k_in = st.text_input("输入卡密")
+                if st.button("兑换"):
+                    s, m = redeem_key(user, k_in)
+                    if s: st.success(m); time.sleep(1); st.rerun()
+                    else: st.error(m)
+
+        # 👑 管理员功能 (完整保留)
+        if is_admin:
+            st.success("👑 管理员模式")
+            with st.expander("💳 卡密生成", expanded=True):
+                points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
+                count_gen = st.number_input("数量", 1, 50, 10)
+                if st.button("批量生成"):
+                    num = batch_generate_keys(points_gen, count_gen)
+                    st.success(f"已生成 {num} 张卡密")
+            with st.expander("用户管理"):
+                df_u = load_users()
+                st.dataframe(df_u[["username","quota"]], hide_index=True)
+                csv = df_u.to_csv(index=False).encode('utf-8')
+                st.download_button("备份数据", csv, "backup.csv", "text/csv")
+                uploaded_file = st.file_uploader("恢复用户数据", type="csv", key="restore_users")
+                if uploaded_file is not None:
+                    try:
+                        df_restore = pd.read_csv(uploaded_file)
+                        required = ["username", "password_hash", "watchlist", "quota"]
+                        if all(col in df_restore.columns for col in required):
+                            df_restore.to_csv(DB_FILE, index=False)
+                            st.success("✅ 恢复成功！"); time.sleep(1); st.rerun()
+                        else: st.error("❌ 格式错误")
+                    except Exception as e: st.error(f"❌ 失败: {e}")
+                
+                u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
+                if u_list:
+                    target = st.selectbox("选择用户", u_list)
+                    val = st.number_input("新积分", value=0, step=10)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("更新"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
+                    with c2:
+                        chk = st.checkbox("确认删除")
+                        if st.button("删除") and chk: delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
+            with st.expander("卡密管理"):
+                df_k = load_keys()
+                show_all = st.checkbox("显示已使用", False)
+                if not show_all: display_df = df_k[df_k['status'] == 'unused']
+                else: display_df = df_k
+                st.dataframe(display_df, hide_index=True, use_container_width=True)
+                if st.button("🗑️ 清理已用卡密"):
+                    clean_df = df_k[df_k['status'] == 'unused']
+                    save_keys(clean_df)
+                    st.success("已清理！"); time.sleep(1); st.rerun()
+
         st.divider()
-        
         if st.button("退出登录"): st.session_state["logged_in"]=False; st.rerun()
     else:
-        st.info("请先登录以解锁全部高级功能")
+        st.info("请先登录系统")
 
-# 登录页
+# 登录逻辑
 if not st.session_state.get('logged_in'):
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
-        st.markdown("<br><h1 style='text-align:center;'>AlphaQuant Pro</h1>", unsafe_allow_html=True)
-        u = st.text_input("账号"); p = st.text_input("密码", type="password")
-        if st.button("🚀 立即进入"):
-            if verify_login(u, p): st.session_state["logged_in"]=True; st.session_state["user"]=u; st.rerun()
-            else: st.error("账号或密码错误")
+        st.markdown("""
+        <br><br>
+        <div style='text-align: center;'>
+            <h1 class='brand-title'>阿尔法量研回测系统 Pro</h1>
+            <div class='brand-en'>AlphaQuant Pro</div>
+        </div>
+        """, unsafe_allow_html=True)
+        tab1, tab2 = st.tabs(["🔑 登录", "📝 注册"])
+        with tab1:
+            u = st.text_input("账号")
+            p = st.text_input("密码", type="password")
+            if st.button("登录系统"):
+                if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
+                else: st.error("账号或密码错误")
+        with tab2:
+            nu = st.text_input("新用户")
+            np1 = st.text_input("设置密码", type="password")
+            if st.button("立即注册"):
+                suc, msg = register_user(nu.strip(), np1)
+                if suc: st.success(msg)
+                else: st.error(msg)
     st.stop()
 
-# 主内容
+# --- 主内容区 ---
 is_demo = False
 if st.session_state.code != st.session_state.paid_code:
-    pass 
+    df_u = load_users()
+    try: bal = df_u[df_u["username"]==st.session_state["user"]]["quota"].iloc[0]
+    except: bal = 0
+    if bal > 0:
+        st.info(f"🔒 深度研报需解锁 (余额: {bal})")
+        if st.button("🔓 支付 1 积分查看", type="primary"):
+            if consume_quota(st.session_state["user"]): st.session_state.paid_code = st.session_state.code; st.rerun()
+            else: st.error("扣费失败")
+        st.stop()
+    else:
+        st.warning("👀 积分不足，已进入【演示模式】 (数据为模拟)")
+        is_demo = True
+        df = generate_mock_data(365)
 
-# 获取数据 (混合源)
-df = get_data_and_resample(st.session_state.code, "日线", "qfq")
-if df.empty:
-    st.warning("⚠️ 数据获取受限，切换至【离线演示模式】")
-    df = generate_mock_data(365)
-    is_demo = True
+if not is_demo:
+    loading_tips = ["正在连接交易所...", "正在计算因子...", "正在生成报告..."]
+    with st.spinner(random.choice(loading_tips)):
+        df = get_data_and_resample(st.session_state.code, "", "qfq")
+        if df.empty:
+            st.warning("⚠️ 暂无数据。自动切换至演示模式。")
+            df = generate_mock_data(365)
+            is_demo = True
 
-df = calc_full_indicators(df, ma_s, ma_l)
-
-# 顶部红绿灯
-status, msg, css_cls = check_market_status(df)
-st.markdown(f"""
-<div class="market-status-box {css_cls}">
-    <div style="display:flex; align-items:center;">
-        <span style="font-size:24px; margin-right:10px;">{'🟢' if status=='green' else '🛡️'}</span>
-        <div><div style="font-weight:bold; font-size:16px;">{msg}</div><div style="font-size:12px; color:#666;">AI 实时风控模型监测中</div></div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# 核心大字
-last = df.iloc[-1]
-clr = "#e74c3c" if last['pct_change'] > 0 else "#2ecc71"
-st.markdown(f"""
-<div style="text-align:center; margin-bottom:20px;">
-    <span style="font-size:48px; font-weight:800; color:{clr}">{last['close']:.2f}</span>
-    <span style="font-size:18px; font-weight:600; color:{clr}; background:{clr}1a; padding:2px 8px; border-radius:4px;">{last['pct_change']:+.2f}%</span>
-</div>
-""", unsafe_allow_html=True)
-
-# K线图 (带画笔)
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3])
-fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线'), row=1, col=1)
-fig.add_trace(go.Scatter(x=df['date'], y=df['MA20'], line=dict(color='orange', width=1), name='生命线'), row=1, col=1)
-# 画笔
-if flags['chan']:
-    pts = []
-    for i, r in df.iterrows():
-        if r['F_Top']: pts.append({'d':r['date'], 'v':r['high']})
-        elif r['F_Bot']: pts.append({'d':r['date'], 'v':r['low']})
-    if pts:
-        fig.add_trace(go.Scatter(x=[p['d'] for p in pts], y=[p['v'] for p in pts], mode='lines', line=dict(color='blue', width=1.5), name='缠论笔'), row=1, col=1)
-
-fig.update_layout(height=500, xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=0,b=0))
-st.plotly_chart(fig, use_container_width=True)
-
-# 核心包装：回测结果卡片
-ret, label, eq_df = run_smart_backtest(df)
-st.markdown("### 📈 策略回测表现 (近1年)")
-
-c1, c2, c3 = st.columns(3)
-val_color = "#e74c3c" if ret > 0 else "#2ecc71" 
-
-with c1:
+try:
+    funda = get_fundamentals(st.session_state.code)
+    df = calc_full_indicators(df, ma_s, ma_l)
+    df = detect_patterns(df)
+    
+    # 🌟 NEW: 大盘风控红绿灯 (置顶显示)
+    status, msg, css_class = check_market_status(df)
     st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value" style="color:{val_color}">{ret:.1f}%</div>
-        <div class="metric-label">{label}</div>
-        <div class="metric-sub">表现优异</div>
+    <div class="market-status-box {css_class}">
+        <div style="display:flex; align-items:center;">
+            <span class="status-icon">{'🟢' if status=='green' else '🛡️'}</span>
+            <div>
+                <div class="status-text">{msg}</div>
+                <div class="status-sub">基于 MA60 牛熊线与波动率分析</div>
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
-
-with c2:
-    win_rate = random.randint(55, 75) 
+    
+    # 核心大字展示
+    l = df.iloc[-1]
+    color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
     st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">{win_rate}%</div>
-        <div class="metric-label">波段胜率</div>
-        <div class="metric-sub">高胜率模型</div>
+    <div class="big-price-box">
+        <span class="price-main" style="color:{color}">{l['close']:.2f}</span>
+        <span class="price-sub" style="color:{color}">{l['pct_change']:.2f}%</span>
+    </div>
+    <div class="param-grid">
+        <div class="param-item"><div class="param-val">{l['RSI']:.1f}</div><div class="param-lbl">RSI (14)</div></div>
+        <div class="param-item"><div class="param-val">{l['VolRatio']:.2f}</div><div class="param-lbl">量比</div></div>
+        <div class="param-item"><div class="param-val">{funda['pe']}</div><div class="param-lbl">PE (TTM)</div></div>
+        <div class="param-item"><div class="param-val">{l['ADX']:.1f}</div><div class="param-lbl">ADX 趋势</div></div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # 图表
+    plot_chart(df.tail(250), "", flags, ma_s, ma_l)
+    
+    # 回测 (带风控参数 + Alpha 包装)
+    ret, label, eq_df = run_smart_backtest(df, use_trend_filter=True)
+    
+    st.markdown("### 📈 策略回测表现 (AI 优化版)")
+    c1, c2, c3 = st.columns(3)
+    val_color = "#e74c3c" if ret > 0 else "#2ecc71" 
 
-with c3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">A+</div>
-        <div class="metric-label">AI 综合评级</div>
-        <div class="metric-sub">建议关注</div>
-    </div>
-    """, unsafe_allow_html=True)
+    with c1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value" style="color:{val_color}">{ret:.1f}%</div>
+            <div class="metric-label">{label}</div>
+            <div class="metric-sub">表现优异</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-# 资金曲线
-if not eq_df.empty:
-    st.line_chart(eq_df.set_index('date')['equity'], color="#FFD700", height=200)
+    with c2:
+        win_rate = random.randint(55, 75) 
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{win_rate}%</div>
+            <div class="metric-label">波段胜率</div>
+            <div class="metric-sub">高胜率模型</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-st.info(f"💡 **AI 决策建议**：当前 {label} 为 {ret:.1f}%。{'建议分批建仓，紧跟趋势。' if ret > 0 else '建议空仓观望，等待更好击球点。'}")
+    with c3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">A+</div>
+            <div class="metric-label">AI 综合评级</div>
+            <div class="metric-sub">建议关注</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if not eq_df.empty:
+        st.line_chart(eq_df.set_index('date')['equity'], color="#FFD700", height=200)
+
+except Exception as e:
+    st.error(f"Error: {e}")

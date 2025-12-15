@@ -37,6 +37,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
 if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
+if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None # ✅ 新增：每日精选缓存
 
 # ✅ 模拟交易数据结构初始化
 if "paper_account" not in st.session_state: 
@@ -209,6 +210,32 @@ ui_css = """
     .bt-lbl { font-size: 11px; color: #666; margin-top: 4px; }
     .bt-pos { color: #d32f2f; }
     .bt-neg { color: #2e7d32; }
+    .bt-neu { color: #1976d2; }
+    
+    /* ✅ 新增：结论小徽章样式 */
+    .conc-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: bold;
+        margin-left: 5px;
+    }
+    .conc-bull { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+    .conc-bear { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+    .conc-neut { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
+    
+    /* ✅ 新增：跑赢大盘提示样式 */
+    .alpha-box {
+        background: linear-gradient(90deg, #fff3e0, #ffe0b2);
+        color: #e65100;
+        padding: 10px;
+        border-radius: 8px;
+        text-align: center;
+        font-weight: bold;
+        margin-bottom: 12px;
+        border: 1px solid #ffcc80;
+    }
 
 </style>
 """
@@ -755,20 +782,29 @@ def run_backtest(df):
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
-    chan_trend = "底分型构造中" if curr['F_Bot'] else "顶分型构造中" if curr['F_Top'] else "中继形态"
+    
+    # ✅ 3. 新增：简单的结论判断
+    chan_status = "底分型" if curr['F_Bot'] else "顶分型" if curr['F_Top'] else "中继"
+    chan_badge = "conc-bull" if curr['F_Bot'] else "conc-bear" if curr['F_Top'] else "conc-neut"
+    chan_label = "🟢 看多" if curr['F_Bot'] else "🔴 看空" if curr['F_Top'] else "⚪ 震荡"
+    
+    macd_state = "金叉" if curr['DIF']>curr['DEA'] else "死叉"
+    macd_badge = "conc-bull" if curr['DIF']>curr['DEA'] else "conc-bear"
+    macd_label = "🟢 强势" if curr['DIF']>curr['DEA'] else "🔴 弱势"
+
     gann, fib = get_drawing_lines(df)
     try:
         fib_near = min(fib.items(), key=lambda x: abs(x[1]-curr['close']))
         fib_txt = f"股价正逼近斐波那契 <b>{fib_near[0]}</b> 关键位 ({fib_near[1]:.2f})。"
     except: fib_txt = "数据不足，无法计算位置。"
-    macd_state = "金叉共振" if curr['DIF']>curr['DEA'] else "死叉调整"
+    
     vol_state = "放量" if curr['VolRatio']>1.2 else "缩量" if curr['VolRatio']<0.8 else "温和"
 
     html = f"""
     <div class="app-card">
-        <div class="deep-title">📐 缠论结构与形态学</div>
+        <div class="deep-title">📐 缠论结构与形态学 <span class="conc-badge {chan_badge}">{chan_label}</span></div>
         <div class="deep-text">
-            • <b>分型状态</b>：{chan_trend}。顶分型通常是短期压力的标志。<br>
+            • <b>分型状态</b>：{chan_status}。顶分型通常是短期压力的标志。<br>
             • <b>笔的延伸</b>：当前价格处于一笔走势的{ "延续阶段" if not (curr['F_Top'] or curr['F_Bot']) else "转折关口" }。
         </div>
     </div>
@@ -780,7 +816,7 @@ def generate_deep_report(df, name):
         </div>
     </div>
     <div class="app-card">
-        <div class="deep-title">📊 核心动能指标</div>
+        <div class="deep-title">📊 核心动能指标 <span class="conc-badge {macd_badge}">{macd_label}</span></div>
         <div class="deep-text">
             • <b>MACD</b>：当前 {macd_state}。DIF={safe_fmt(curr['DIF'])}, DEA={safe_fmt(curr['DEA'])}<br>
             • <b>BOLL</b>：股价运行于 { "中轨上方" if curr['close']>curr['MA_Long'] else "中轨下方" }。<br>
@@ -994,19 +1030,24 @@ with st.sidebar:
         if not is_admin:
             st.markdown("### 🎯 每日精选 (AI策略筛选)")
             user_wl = get_user_watchlist(user)
-            # ✅ 使用新逻辑：只选一支
-            with st.spinner("AI正在基于MACD/RSI/量能扫描盘面..."):
-                picks = get_daily_picks(user_wl)
             
-            if not picks:
-                st.caption("今日无高分符合策略标的")
-            for pick in picks:
-                st.success(f"🔥 综合得分: {pick['score']}")
-                st.caption(f"💡 推荐理由: {pick['reason']}")
-                if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}", type="primary"):
-                    st.session_state.code = pick['code']
-                    st.rerun()
-                st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
+            # ✅ 1. 修改：被动刷新，只有点击才加载
+            if st.button("🚀 扫描今日金股 (点击刷新)", key="refresh_picks"):
+                with st.spinner("AI正在基于MACD/RSI/量能扫描盘面..."):
+                    st.session_state.daily_picks_cache = get_daily_picks(user_wl)
+            
+            picks = st.session_state.daily_picks_cache
+            
+            if picks:
+                for pick in picks:
+                    st.success(f"🔥 综合得分: {pick['score']}")
+                    st.caption(f"💡 推荐理由: {pick['reason']}")
+                    if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}", type="primary"):
+                        st.session_state.code = pick['code']
+                        st.rerun()
+                    st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
+            else:
+                st.caption("点击上方按钮开始扫描")
             st.divider()
         
         # ✅✅✅✅✅✅✅✅✅ 模拟交易模块深度优化 (V79) ✅✅✅✅✅✅✅✅✅
@@ -1017,9 +1058,20 @@ with st.sidebar:
                 cash = paper.get("cash", 1000000.0)
                 holdings = paper.get("holdings", {})
                 
+                # ✅ 2. 修复：模拟交易无法获取价格的问题 (增加Fallback机制)
+                curr_price = 0
                 try:
+                    # 尝试1: 快速接口
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
-                except: curr_price = 0
+                except: pass
+                
+                if curr_price == 0:
+                    try:
+                        # 尝试2: 使用我们自己的数据加载函数 (取今日最新)
+                        _temp_df = get_data_and_resample(st.session_state.code, "", "日线", "", None)
+                        if not _temp_df.empty:
+                            curr_price = float(_temp_df.iloc[-1]['close'])
+                    except: pass
                 
                 # 计算资产
                 total_mkt_val = 0
@@ -1055,7 +1107,7 @@ with st.sidebar:
                 # --- Tab 1: 极速下单 (优化：快捷按钮) ---
                 with tab_trade:
                     if curr_price <= 0:
-                        st.error("无法获取价格")
+                        st.error("⚠️ 暂无实时价格，无法交易")
                     else:
                         tr_action = st.radio("方向", ["买入", "卖出"], horizontal=True, label_visibility="collapsed")
                         st.write(f"当前价格: **{curr_price:.2f}**")
@@ -1072,7 +1124,7 @@ with st.sidebar:
                             if c2.button("半仓"): st.session_state.trade_qty = max(1, max_buy_hands // 2) * 100
                             if c3.button("全仓"): st.session_state.trade_qty = max(1, max_buy_hands) * 100
                             
-                            trade_vol = st.number_input("数量 (股)", min_value=100, max_value=max(100, max_buy_hands*100), value=st.session_state.trade_qty, step=100, key="buy_input")
+                            trade_vol = st.number_input("数量 (股)", min_value=100, max_value=max(100, max_buy_hands*100) if max_buy_hands > 0 else 100, value=st.session_state.trade_qty, step=100, key="buy_input")
                             st.caption(f"最大可买: {max_buy_hands*100} 股")
                             
                             if st.button("🔴 买入 (Buy)", type="primary", use_container_width=True):
@@ -1099,7 +1151,7 @@ with st.sidebar:
                             if c2.button("半卖"): st.session_state.trade_qty = max(100, (curr_hold_qty // 200) * 100)
                             if c3.button("清仓"): st.session_state.trade_qty = max(100, curr_hold_qty)
                             
-                            trade_vol = st.number_input("数量 (股)", min_value=100, max_value=max(100, curr_hold_qty), value=st.session_state.trade_qty, step=100, key="sell_input")
+                            trade_vol = st.number_input("数量 (股)", min_value=100, max_value=max(100, curr_hold_qty) if curr_hold_qty>0 else 100, value=st.session_state.trade_qty, step=100, key="sell_input")
                             st.caption(f"持仓可用: {curr_hold_qty} 股")
                             
                             if st.button("🟢 卖出 (Sell)", type="primary", use_container_width=True):
@@ -1121,7 +1173,7 @@ with st.sidebar:
                     if not holdings: st.caption("空仓中...")
                     else:
                         for h_c, h_v in holdings.items():
-                            p_now = curr_price if h_c == st.session_state.code else h_v['cost']
+                            p_now = curr_price if h_c == st.session_state.code and curr_price > 0 else h_v['cost']
                             pnl_pct = (p_now - h_v['cost']) / h_v['cost'] * 100
                             tag_color = "#ffdddd" if pnl_pct > 0 else "#ddffdd"
                             txt_color = "red" if pnl_pct > 0 else "green"
@@ -1392,7 +1444,17 @@ try:
     try:
         daily_returns = eq['equity'].pct_change().dropna()
         sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() != 0 else 0
-    except: sharpe = 0
+        # ✅ 4. 新增：计算跑赢大盘的幅度
+        bench_ret = (eq['benchmark'].iloc[-1] - 100000) / 100000 * 100
+        excess_ret = ret - bench_ret
+    except: 
+        sharpe = 0; excess_ret = 0
+
+    # ✅ 4. 新增：跑赢大盘信心提示
+    if excess_ret > 0:
+        st.markdown(f"""<div class="alpha-box">🏆 策略表现优异：跑赢基准大盘 +{excess_ret:.1f}% ！</div>""", unsafe_allow_html=True)
+    else:
+        st.markdown(f"""<div class="alpha-box" style="background:#f5f5f5; color:#666; border-color:#ddd;">📉 策略表现一般，建议调整参数。</div>""", unsafe_allow_html=True)
 
     st.markdown(f"""
     <div class="bt-container">

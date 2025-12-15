@@ -29,23 +29,23 @@ st.set_page_config(
     page_title="阿尔法量研 Pro",
     layout="wide",
     page_icon="🔥",
-    initial_sidebar_state="expanded" 
+    initial_sidebar_state="expanded"
 )
 
 # 初始化 Session
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
-if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
+if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
-if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None 
-if "enable_realtime" not in st.session_state: st.session_state.enable_realtime = False 
-if "ts_token" not in st.session_state: st.session_state.ts_token = "" 
+if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None
+if "enable_realtime" not in st.session_state: st.session_state.enable_realtime = False
+if "ts_token" not in st.session_state: st.session_state.ts_token = ""
 
 # ✅ 模拟交易数据结构初始化
-if "paper_account" not in st.session_state: 
+if "paper_account" not in st.session_state:
     st.session_state.paper_account = {
         "cash": 1000000.0,
-        "holdings": {}, 
+        "holdings": {},
         "history": []
     }
 
@@ -53,16 +53,17 @@ if "paper_account" not in st.session_state:
 ma_s = 5
 ma_l = 20
 flags = {
-    'ma': True, 'boll': True, 'vol': True, 'macd': True, 
+    'ma': True, 'boll': True, 'vol': True, 'macd': True,
     'kdj': True, 'gann': False, 'fib': True, 'chan': True
 }
 
 # 核心常量
 ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
-DB_FILE = "users_v69.csv" 
+DB_FILE = "users_v69.csv"
 KEYS_FILE = "card_keys.csv"
-WECHAT_VALID_CODE = "666888" 
+# 🔥🔥🔥 修改处：已将验证码从 666888 修改为 8888 🔥🔥🔥
+WECHAT_VALID_CODE = "8888"  
 
 # Optional deps
 ts = None
@@ -309,7 +310,7 @@ def load_user_holdings(username):
                 if "cash" not in data:
                     st.session_state.paper_account = {
                         "cash": 1000000.0,
-                        "holdings": data,
+                        "holdings": {},
                         "history": []
                     }
                 else:

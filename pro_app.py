@@ -247,6 +247,7 @@ st.markdown(ui_css, unsafe_allow_html=True)
 # ==========================================
 # 2. 数据库与工具
 # ==========================================
+# 🚀 优化：增加 last_code 字段，用于记忆用户最后查看的股票
 def init_db():
     if not os.path.exists(DB_FILE):
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm", "last_code"])
@@ -284,12 +285,14 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
 
 def load_users():
     try: 
+        # 增加 last_code 读取支持
         df = pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str, "paper_json": str, "rt_perm": int, "last_code": str})
         return df.fillna("")
     except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm", "last_code"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
 
+# 🔥🔥🔥 新增：保存用户最后浏览代码
 def save_user_last_code(username, code):
     if username == ADMIN_USER: return
     df = load_users()
@@ -299,6 +302,7 @@ def save_user_last_code(username, code):
             df.loc[idx[0], "last_code"] = str(code)
             save_users(df)
 
+# 🔥🔥🔥 新增：获取用户最后浏览代码
 def get_user_last_code(username):
     if username == ADMIN_USER: return "600519"
     df = load_users()
@@ -434,6 +438,7 @@ def register_user(u, p, initial_quota=10):
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
     init_paper = json.dumps({"cash": 1000000.0, "holdings": {}, "history": []})
+    # 初始化时增加 last_code 默认值
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": init_paper, "rt_perm": 0, "last_code": "600519"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
@@ -967,7 +972,7 @@ def run_backtest(df, strategy_type="trend", period_months=12, initial_capital=10
             
         # 🟢 3. 趋势跟随型 (Trend) - 追涨杀跌
         else:
-            # 价格站上60日线 (牛熊线) 买入，跌破卖出
+            # 价格站上60日线 (牛熊线) 买入, 跌破卖出
             if curr['close'] > curr['MA60'] and position == 0:
                 buy_sig = True
             elif curr['close'] < curr['MA60'] and position > 0:
@@ -1879,7 +1884,7 @@ try:
             if len(buy_sigs) > 0:
                 buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
                 bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                          marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
+                                        marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
             
             bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户资产", hovermode="x unified")
             st.plotly_chart(bt_fig, use_container_width=True)

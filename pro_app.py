@@ -82,7 +82,7 @@ ui_css = """
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Helvetica Neue", sans-serif;
         touch-action: manipulation;
     }
-       
+        
     /* 核心内容区去边距 */
     .block-container {
         padding-top: 1rem !important;
@@ -187,7 +187,7 @@ ui_css = """
         background: rgba(255, 255, 255, 0.6); z-index: 10;
         backdrop-filter: blur(2px);
     }
-       
+        
     /* Expander 优化 */
     .streamlit-expanderHeader {
         background-color: #fff;
@@ -196,15 +196,15 @@ ui_css = """
         font-weight: 600;
         border: 1px solid #f0f0f0;
     }
-       
+        
     /* AI 对话框 */
     .ai-chat-box {
         background: #f2f8ff; border-radius: 12px; padding: 15px; margin-bottom: 15px;
         border-left: 4px solid #007AFF; 
     }
-       
+        
     [data-testid="metric-container"] { display: none; }
-       
+        
     /* 策略报告 */
     .bt-container { background: white; border-radius: 12px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 20px; }
     .bt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; } 
@@ -214,7 +214,7 @@ ui_css = """
     .bt-pos { color: #d32f2f; }
     .bt-neg { color: #2e7d32; }
     .bt-neu { color: #1976d2; }
-       
+        
     /* 结论小徽章样式 */
     .conc-badge {
         display: inline-block;
@@ -227,7 +227,7 @@ ui_css = """
     .conc-bull { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
     .conc-bear { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
     .conc-neut { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
-       
+        
     /* 跑赢大盘提示样式 */
     .alpha-box {
         background: linear-gradient(90deg, #fff3e0, #ffe0b2);
@@ -261,7 +261,7 @@ def init_db():
                 updated = True
         if updated:
             df.to_csv(DB_FILE, index=False)
-           
+            
     if not os.path.exists(KEYS_FILE):
         df_keys = pd.DataFrame(columns=["key", "points", "status", "created_at"])
         df_keys.to_csv(KEYS_FILE, index=False)
@@ -316,7 +316,7 @@ def load_user_holdings(username):
                     st.session_state.paper_account = data
             except:
                 st.session_state.paper_account = {"cash": 1000000.0, "holdings": {}, "history": []}
-       
+        
     if "cash" not in st.session_state.paper_account:
         st.session_state.paper_account["cash"] = 1000000.0
 
@@ -841,38 +841,111 @@ def get_daily_picks(user_watchlist):
     # 返回单只股票列表
     return [best_stock] if best_stock else []
 
-def run_backtest(df):
+# ✅✅✅ 🔥 改动核心：交互式策略回测逻辑 (支持三种小白模式) 🔥 ✅✅✅
+def run_backtest(df, strategy_type="trend"):
+    """
+    strategy_type: 
+      - "value": 稳健保本 (RSI < 30 买, RSI > 70 卖, 模拟低买高卖)
+      - "dca": 省心定投 (每20天固定买入, 模拟基金定投)
+      - "trend": 趋势跟随 (收盘价 > MA60 买, 跌破卖)
+    """
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
-    needed = ['MA_Short', 'MA_Long', 'close', 'date']
+    
+    needed = ['MA_Short', 'MA_Long', 'MA60', 'RSI', 'close', 'date']
     df_bt = df.dropna(subset=needed).reset_index(drop=True)
     if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
     
-    capital = 100000; position = 0
-    buy_signals = []; sell_signals = []; equity = [capital]; dates = [df_bt.iloc[0]['date']]
+    capital = 100000.0  # 初始本金
+    position = 0        # 持股数
     
-    trade_count = 0; wins = 0; entry_price = 0
+    buy_signals = []
+    sell_signals = []
+    equity = []         # 每日资产曲线
+    dates = []
     
-    for i in range(1, len(df_bt)):
-        curr = df_bt.iloc[i]; prev = df_bt.iloc[i-1]; price = curr['close']; date = curr['date']
-        buy_sig = prev['MA_Short'] <= prev['MA_Long'] and curr['MA_Short'] > curr['MA_Long']
-        sell_sig = prev['MA_Short'] >= prev['MA_Long'] and curr['MA_Short'] < curr['MA_Long']
+    trade_count = 0
+    wins = 0
+    entry_price = 0
+    
+    # 策略循环
+    for i in range(len(df_bt)):
+        curr = df_bt.iloc[i]
+        price = curr['close']
+        date = curr['date']
         
-        if buy_sig and position == 0:
-            position = capital / price; capital = 0; buy_signals.append(date)
-            entry_price = price
-        elif sell_sig and position > 0: 
-            capital = position * price; position = 0; sell_signals.append(date)
-            trade_count += 1
-            if price > entry_price: wins += 1
+        buy_sig = False
+        sell_sig = False
         
+        # 🟢 1. 稳健保本型 (Value) - 抄底逃顶
+        if strategy_type == "value":
+            # 简化逻辑：RSI < 30 (超卖/便宜) 买入, RSI > 70 (超买/贵了) 卖出
+            # 且只在空仓时买，持仓时卖
+            if curr['RSI'] < 30 and position == 0:
+                buy_sig = True
+            elif curr['RSI'] > 75 and position > 0:
+                sell_sig = True
+                
+        # 🟢 2. 省心定投型 (DCA) - 只买不卖
+        elif strategy_type == "dca":
+            # 每20个交易日投一次，模拟月定投
+            # 这里逻辑稍微不同：本金假设是流动的，为了对比，我们假设初始资金逐步入场
+            # 简单化：每20天，如果手里有钱，就买入固定金额 (例如 10000)
+            if i % 20 == 0 and capital >= 5000: # 每次投5000
+                buy_sig = True
+                # 定投不全仓，而是定额
+            sell_sig = False # 躺平不卖
+            
+        # 🟢 3. 趋势跟随型 (Trend) - 追涨杀跌
+        else:
+            # 价格站上60日线 (牛熊线) 买入，跌破卖出
+            if curr['close'] > curr['MA60'] and position == 0:
+                buy_sig = True
+            elif curr['close'] < curr['MA60'] and position > 0:
+                sell_sig = True
+
+        # 执行交易
+        if buy_sig:
+            if strategy_type == "dca":
+                invest_amt = 5000 # 定投每次5000
+                if capital >= invest_amt:
+                    shares = invest_amt / price
+                    position += shares
+                    capital -= invest_amt
+                    buy_signals.append(date)
+            else:
+                # 其他策略全仓买入
+                if capital > 0:
+                    position = capital / price
+                    capital = 0
+                    buy_signals.append(date)
+                    entry_price = price
+                    
+        elif sell_sig:
+            if position > 0:
+                capital = position * price
+                position = 0
+                sell_signals.append(date)
+                trade_count += 1
+                if price > entry_price: wins += 1
+
+        # 计算当日总资产
         current_val = capital + (position * price)
         equity.append(current_val)
         dates.append(date)
         
-    final = equity[-1]; ret = (final - 100000) / 100000 * 100
+    final = equity[-1]
+    
+    # 针对定投策略的收益率计算修正 (总资产 - 投入总成本) / 投入总成本
+    # 简化处理：分母统一用初始10万计算，或者这里只看最终净值增长
+    ret = (final - 100000) / 100000 * 100
+    
     win_rate = (wins / trade_count * 100) if trade_count > 0 else 0.0
-    eq_series = pd.Series(equity); cummax = eq_series.cummax()
-    drawdown = (eq_series - cummax) / cummax; max_dd = drawdown.min() * 100
+    
+    eq_series = pd.Series(equity)
+    cummax = eq_series.cummax()
+    drawdown = (eq_series - cummax) / cummax
+    max_dd = drawdown.min() * 100
+    
     first_price = df_bt.iloc[0]['close']
     bench_equity = [(p / first_price) * 100000 for p in df_bt['close']]
     
@@ -1622,61 +1695,66 @@ try:
     else:
         st.info("🔒 开启 [专业模式] 可查看具体的买卖点位、止盈止损价格及仓位建议。")
 
-    # ✅ 4. 策略回测报告 模块折叠 + 科普
-    with st.expander("⚖️ 策略回测报告 (历史验证) - 点击展开", expanded=False):
-        st.info("📖 **小白科普**：\n1. **策略总回报**：如果完全按此策略操作，历史上能赚多少钱。\n2. **夏普比率**：数值越高，说明“性价比”越高（承担同样的风险赚更多的钱）。\n3. **最大回撤**：历史上最倒霉的时候，账户资金最多回撤了多少百分比。")
+    # ✅✅✅ 4. 交互式策略回测报告 (修改重点) ✅✅✅
+    with st.expander("⚖️ 历史验证 (这只股票适合什么玩法?)", expanded=True): # 默认展开，让用户看到
         
-        # 将原有的回测展示逻辑移入 Expander 内部
-        ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
-        try:
-            daily_returns = eq['equity'].pct_change().dropna()
-            sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() != 0 else 0
-            bench_ret = (eq['benchmark'].iloc[-1] - 100000) / 100000 * 100
-            excess_ret = ret - bench_ret
-        except: 
-            sharpe = 0; excess_ret = 0
+        # 1. 交互式选择器
+        st.write("👇 **请选择一种策略，看看如果过去一年这么玩，能赚多少钱：**")
+        strategy_mode = st.radio(
+            "选择策略模式", 
+            ["📈 趋势跟随 (追涨杀跌)", "🐢 稳健保本 (低买高卖)", "☕ 省心定投 (月月存钱)"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+        
+        # 映射内部参数
+        s_map = {
+            "📈 趋势跟随 (追涨杀跌)": "trend",
+            "🐢 稳健保本 (低买高卖)": "value",
+            "☕ 省心定投 (月月存钱)": "dca"
+        }
+        
+        # 运行回测
+        st_key = s_map[strategy_mode]
+        ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df, st_key)
+        
+        # 2. 生成小白能看懂的结论
+        st.markdown("---")
+        
+        # 动态评语
+        comment = ""
+        if ret > 20: comment = "🔥 **太牛了！** 这只股票非常适合这种玩法，收益惊人！"
+        elif ret > 0: comment = "✅ **还不错！** 比存银行强，可以考虑尝试。"
+        elif ret > -10: comment = "😐 **一般般。** 没亏多少，但也赚不到大钱，建议换个策略试试。"
+        else: comment = "🛑 **千万别试！** 这种玩法在这只股票上是亏钱黑洞。"
+        
+        # 显示结果卡片
+        col1, col2 = st.columns([1, 1])
+        with col1:
+             st.metric("💰 模拟总收益", f"{ret:+.2f}%", help="如果一年前你按这个策略买，现在多了多少钱")
+        with col2:
+             st.metric("📉 历史最大回撤", f"{mdd:.2f}%", help="最倒霉的时候，账户资金缩水了多少")
+        
+        st.info(f"💡 **AI 结论**：{comment}")
 
-        # 跑赢大盘信心提示
-        if excess_ret > 0:
-            st.markdown(f"""<div class="alpha-box">🏆 策略表现优异：跑赢基准大盘 +{excess_ret:.1f}% ！</div>""", unsafe_allow_html=True)
-        else:
-            st.markdown(f"""<div class="alpha-box" style="background:#f5f5f5; color:#666; border-color:#ddd;">📉 策略表现一般，建议调整参数。</div>""", unsafe_allow_html=True)
-
-        st.markdown(f"""
-        <div class="bt-container">
-            <div class="bt-grid">
-                <div class="bt-card">
-                    <div class="bt-val bt-pos">+{ret:.1f}%</div>
-                    <div class="bt-lbl">策略总回报</div>
-                </div>
-                <div class="bt-card">
-                    <div class="bt-val bt-pos">{win:.1f}%</div>
-                    <div class="bt-lbl">实盘胜率</div>
-                </div>
-                <div class="bt-card">
-                    <div class="bt-val bt-neg">-{mdd:.1f}%</div>
-                    <div class="bt-lbl">最大回撤</div>
-                </div>
-                <div class="bt-card">
-                    <div class="bt-val bt-neu">{sharpe:.2f}</div>
-                    <div class="bt-lbl">夏普比率</div>
-                </div>
-            </div>
-            <div style="font-size:12px; color:#888; text-align:right;">* 回测区间包含 {len(eq)} 个交易日，对比基准为“买入持有”策略</div>
-        </div>
-        """, unsafe_allow_html=True)
-
+        # 3. 绘图
         if not eq.empty:
             bt_fig = make_subplots(rows=1, cols=1)
             bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
-                                        line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
-            bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy&Hold)', 
-                                        line=dict(color='#9e9e9e', width=1.5, dash='dash')))
+                                    line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
+            
+            # 定投模式下，基准也是慢慢涨的，不太好对比，这里简化
+            if st_key != "dca":
+                bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (死拿不动)', 
+                                    line=dict(color='#9e9e9e', width=1.5, dash='dash')))
+            
+            # 标记买卖点
             if len(buy_sigs) > 0:
                 buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
                 bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                            marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
-            bt_fig.update_layout(height=350, margin=dict(l=0,r=0,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
+                                            marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
+            
+            bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户资产", hovermode="x unified")
             st.plotly_chart(bt_fig, use_container_width=True)
 
     if not has_access:

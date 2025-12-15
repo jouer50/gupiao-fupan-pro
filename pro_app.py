@@ -841,21 +841,30 @@ def get_daily_picks(user_watchlist):
     # 返回单只股票列表
     return [best_stock] if best_stock else []
 
-# ✅✅✅ 🔥 改动核心：交互式策略回测逻辑 (支持三种小白模式) 🔥 ✅✅✅
-def run_backtest(df, strategy_type="trend"):
+# ✅✅✅ 🔥 改动核心：交互式策略回测逻辑 (支持三种小白模式 + 时间周期 + 金额冲击) 🔥 ✅✅✅
+# ✅ 1. 新增参数 `initial_capital` 和 `period_months`
+def run_backtest(df, strategy_type="trend", period_months=12, initial_capital=1000000.0):
     """
     strategy_type: 
       - "value": 稳健保本 (RSI < 30 买, RSI > 70 卖, 模拟低买高卖)
       - "dca": 省心定投 (每20天固定买入, 模拟基金定投)
       - "trend": 趋势跟随 (收盘价 > MA60 买, 跌破卖)
     """
-    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]}), 0.0
     
+    # ✅ 2. 增加时间切片逻辑
+    try:
+        cutoff_date = df.iloc[-1]['date'] - pd.DateOffset(months=period_months)
+        df_bt = df[df['date'] > cutoff_date].copy().reset_index(drop=True)
+    except:
+        df_bt = df.copy() # fallback
+
     needed = ['MA_Short', 'MA_Long', 'MA60', 'RSI', 'close', 'date']
-    df_bt = df.dropna(subset=needed).reset_index(drop=True)
-    if len(df_bt) < 20: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]})
+    df_bt = df_bt.dropna(subset=needed).reset_index(drop=True)
+    if len(df_bt) < 5: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]}), 0.0
     
-    capital = 100000.0  # 初始本金
+    # ✅ 3. 使用用户传入的本金
+    capital = initial_capital 
     position = 0        # 持股数
     
     buy_signals = []
@@ -889,8 +898,8 @@ def run_backtest(df, strategy_type="trend"):
         elif strategy_type == "dca":
             # 每20个交易日投一次，模拟月定投
             # 这里逻辑稍微不同：本金假设是流动的，为了对比，我们假设初始资金逐步入场
-            # 简单化：每20天，如果手里有钱，就买入固定金额 (例如 10000)
-            if i % 20 == 0 and capital >= 5000: # 每次投5000
+            # 简单化：每20天，如果手里有钱，就买入固定金额 (例如 总资金的 5%)
+            if i % 20 == 0 and capital >= (initial_capital * 0.05): # 每次投5%
                 buy_sig = True
                 # 定投不全仓，而是定额
             sell_sig = False # 躺平不卖
@@ -906,7 +915,7 @@ def run_backtest(df, strategy_type="trend"):
         # 执行交易
         if buy_sig:
             if strategy_type == "dca":
-                invest_amt = 5000 # 定投每次5000
+                invest_amt = initial_capital * 0.05 # 定投每次5%
                 if capital >= invest_amt:
                     shares = invest_amt / price
                     position += shares
@@ -936,9 +945,12 @@ def run_backtest(df, strategy_type="trend"):
     final = equity[-1]
     
     # 针对定投策略的收益率计算修正 (总资产 - 投入总成本) / 投入总成本
-    # 简化处理：分母统一用初始10万计算，或者这里只看最终净值增长
-    ret = (final - 100000) / 100000 * 100
+    # 简化处理：分母统一用初始资金计算
+    ret = (final - initial_capital) / initial_capital * 100
     
+    # ✅ 4. 计算绝对收益金额
+    total_profit_val = final - initial_capital
+
     win_rate = (wins / trade_count * 100) if trade_count > 0 else 0.0
     
     eq_series = pd.Series(equity)
@@ -947,14 +959,14 @@ def run_backtest(df, strategy_type="trend"):
     max_dd = drawdown.min() * 100
     
     first_price = df_bt.iloc[0]['close']
-    bench_equity = [(p / first_price) * 100000 for p in df_bt['close']]
+    bench_equity = [(p / first_price) * initial_capital for p in df_bt['close']]
     
     eq_df = pd.DataFrame({
         'date': dates, 
         'equity': equity,
         'benchmark': bench_equity[:len(dates)] 
     })
-    return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df
+    return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df, total_profit_val
 
 def generate_deep_report(df, name):
     curr = df.iloc[-1]
@@ -1698,8 +1710,23 @@ try:
     # ✅✅✅ 4. 交互式策略回测报告 (修改重点) ✅✅✅
     with st.expander("⚖️ 历史验证 (这只股票适合什么玩法?)", expanded=True): # 默认展开，让用户看到
         
+        # ✅ 4.1 用户输入区：周期选择与本金输入
+        c_p1, c_p2 = st.columns([2, 1])
+        with c_p1:
+            period_label = st.select_slider(
+                "📅 回测周期 (看看过去多久的表现)", 
+                options=["近1个月", "近3个月", "近半年", "近1年"], 
+                value="近1年"
+            )
+        with c_p2:
+            input_cap = st.number_input("💰 假设投入 (元)", value=1000000, step=100000)
+
+        # 映射周期到月份
+        p_map = {"近1年": 12, "近半年": 6, "近3个月": 3, "近1个月": 1}
+        selected_months = p_map[period_label]
+
         # 1. 交互式选择器
-        st.write("👇 **请选择一种策略，看看如果过去一年这么玩，能赚多少钱：**")
+        st.write("👇 **请选择一种策略，看看如果过去这么玩，能赚多少钱：**")
         strategy_mode = st.radio(
             "选择策略模式", 
             ["📈 趋势跟随 (追涨杀跌)", "🐢 稳健保本 (低买高卖)", "☕ 省心定投 (月月存钱)"],
@@ -1714,9 +1741,9 @@ try:
             "☕ 省心定投 (月月存钱)": "dca"
         }
         
-        # 运行回测
+        # 运行回测 (传入新参数)
         st_key = s_map[strategy_mode]
-        ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df, st_key)
+        ret, win, mdd, buy_sigs, sell_sigs, eq, profit_val = run_backtest(df, st_key, selected_months, input_cap)
         
         # 2. 生成小白能看懂的结论
         st.markdown("---")
@@ -1728,11 +1755,19 @@ try:
         elif ret > -10: comment = "😐 **一般般。** 没亏多少，但也赚不到大钱，建议换个策略试试。"
         else: comment = "🛑 **千万别试！** 这种玩法在这只股票上是亏钱黑洞。"
         
-        # 显示结果卡片
-        col1, col2 = st.columns([1, 1])
+        # 显示结果卡片 (增加金额显示的冲击力)
+        col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
-             st.metric("💰 模拟总收益", f"{ret:+.2f}%", help="如果一年前你按这个策略买，现在多了多少钱")
+             st.metric("💰 模拟总收益率", f"{ret:+.2f}%", help="收益百分比")
         with col2:
+             p_color = "red" if profit_val >= 0 else "green"
+             st.markdown(f"""
+             <div style="text-align:center;">
+                <div style="font-size:12px; color:#666;">💵 实际盈亏金额</div>
+                <div style="font-size:24px; font-weight:bold; color:{p_color};">{profit_val:+,.0f}</div>
+             </div>
+             """, unsafe_allow_html=True)
+        with col3:
              st.metric("📉 历史最大回撤", f"{mdd:.2f}%", help="最倒霉的时候，账户资金缩水了多少")
         
         st.info(f"💡 **AI 结论**：{comment}")

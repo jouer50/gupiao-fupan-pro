@@ -39,8 +39,7 @@ if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
 if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None
 if "enable_realtime" not in st.session_state: st.session_state.enable_realtime = False
-if "ts_token" not in st.session_state: st.session_state.ts_token = ""
-# 🔥 新增：控制视图模式的 Session State，解决切换卡顿问题
+if "ts_token" not in st.session_state: st.session_state.ts_token = "你的Tushare接口密钥" # 默认预留
 if "view_mode_idx" not in st.session_state: st.session_state.view_mode_idx = 0 
 
 # ✅ 模拟交易数据结构初始化
@@ -64,7 +63,6 @@ ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
 DB_FILE = "users_v69.csv"
 KEYS_FILE = "card_keys.csv"
-# 🔥🔥🔥 保持原样：验证码 🔥🔥🔥
 WECHAT_VALID_CODE = "8888"  
 
 # Optional deps
@@ -247,16 +245,14 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (升级版：支持记忆上次股票)
+# 2. 数据库与工具
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
-        # 🔥 新增 last_code 字段
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm", "last_code"])
         df.to_csv(DB_FILE, index=False)
     else:
         df = pd.read_csv(DB_FILE)
-        # 🔥 自动升级数据库结构
         cols_needed = ["vip_expiry", "paper_json", "rt_perm", "last_code"]
         updated = False
         for c in cols_needed:
@@ -294,18 +290,15 @@ def load_users():
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
 
-# 🔥 新增：保存用户最后浏览的股票
 def save_user_last_code(username, code):
     if username == ADMIN_USER: return
     df = load_users()
     idx = df[df["username"] == username].index
     if len(idx) > 0:
-        # 只有当代码不同才写入，减少IO
         if str(df.loc[idx[0], "last_code"]) != str(code):
             df.loc[idx[0], "last_code"] = str(code)
             save_users(df)
 
-# 🔥 新增：获取用户最后浏览的股票
 def get_user_last_code(username):
     if username == ADMIN_USER: return "600519"
     df = load_users()
@@ -441,7 +434,6 @@ def register_user(u, p, initial_quota=10):
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
     init_paper = json.dumps({"cash": 1000000.0, "holdings": {}, "history": []})
-    # 🔥 初始化时加入 last_code
     new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": init_paper, "rt_perm": 0, "last_code": "600519"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
@@ -497,7 +489,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (升级版：支持实时 Tick 拼接)
+# 3. 股票逻辑 (升级版：Pro接口 + 筹码 + Tick拼接)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -545,31 +537,54 @@ def get_name(code, token, proxy=None):
     except: pass
     return code
 
+# 🚀 优化：新增获取筹码分布函数 (From User Code)
+@st.cache_data(ttl=3600*12)
+def get_chip_data_pro(stock_code, token, days=60):
+    if not token or not ts: return pd.DataFrame()
+    try:
+        ts.set_token(token)
+        pro = ts.pro_api()
+        end = datetime.now().strftime('%Y%m%d')
+        start = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+        # Tushare Pro 筹码分布接口 cyq_chips
+        df = pro.cyq_chips(ts_code=_to_ts_code(stock_code), start_date=start, end_date=end)
+        return df
+    except:
+        return pd.DataFrame()
+
+# 🚀 优化：新增财务数据获取 (From User Code)
+@st.cache_data(ttl=3600*24)
+def get_finance_vip(stock_code, token):
+    if not token or not ts: return pd.DataFrame()
+    try:
+        ts.set_token(token)
+        pro = ts.pro_api()
+        start = (datetime.now() - timedelta(days=365*2)).strftime('%Y%m%d')
+        df = pro.income_vip(ts_code=_to_ts_code(stock_code), start_date=start)
+        return df
+    except:
+        return pd.DataFrame()
+
 # 🔴 新增：获取实时行情快照并拼接到 DataFrame
 def fetch_and_merge_realtime(raw_df, code, token):
     if not is_cn_stock(code) or not token or not ts:
         return raw_df
     try:
-        # 使用 rt_k 接口 (这里实现为 get_realtime_quotes 以兼容旧版/新版)
-        # 获取当前最新 Tick
         ts.set_token(token)
         df_rt = ts.get_realtime_quotes(code) # 返回 string 类型的 dataframe
         if df_rt is not None and not df_rt.empty:
             rt_row = df_rt.iloc[0]
-            # 转换格式
             now_price = float(rt_row['price'])
             now_open = float(rt_row['open'])
             now_high = float(rt_row['high'])
             now_low = float(rt_row['low'])
             now_vol = float(rt_row['volume'])
-            now_date_str = rt_row['date'] # "2025-05-XX"
+            now_date_str = rt_row['date'] 
             
-            # 如果当前价格为0（盘前或停牌），不处理
             if now_price == 0: return raw_df
 
             now_date = pd.to_datetime(now_date_str)
             
-            # 构建新行
             new_row = {
                 'date': now_date,
                 'open': now_open,
@@ -580,42 +595,46 @@ def fetch_and_merge_realtime(raw_df, code, token):
                 'pct_change': ((now_price - float(rt_row['pre_close'])) / float(rt_row['pre_close'])) * 100
             }
             
-            # 检查 DataFrame 最后一行日期
             if not raw_df.empty:
                 last_date = pd.to_datetime(raw_df.iloc[-1]['date'])
                 if now_date.date() == last_date.date():
-                    # 如果日期相同，更新最后一行 (覆盖)
+                    # 更新当日
                     raw_df.iloc[-1, raw_df.columns.get_loc('close')] = now_price
                     raw_df.iloc[-1, raw_df.columns.get_loc('high')] = max(raw_df.iloc[-1]['high'], now_high)
                     raw_df.iloc[-1, raw_df.columns.get_loc('low')] = min(raw_df.iloc[-1]['low'], now_low)
                     raw_df.iloc[-1, raw_df.columns.get_loc('volume')] = now_vol
                     raw_df.iloc[-1, raw_df.columns.get_loc('pct_change')] = new_row['pct_change']
                 elif now_date > last_date:
-                    # 如果是新的一天，追加
+                    # 追加新的一天
                     raw_df = pd.concat([raw_df, pd.DataFrame([new_row])], ignore_index=True)
             else:
                 raw_df = pd.DataFrame([new_row])
                 
-    except Exception as e:
-        # 实时拉取失败，静默回退到历史数据，不报错
+    except Exception:
         pass
     return raw_df
 
-# 🔴 修改：在数据获取函数中加入实时逻辑
+# 🔴 核心修改：全面接入 Pro 接口优化数据获取逻辑
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
-    # 使用 Session 中的 Token 覆盖参数 (如果存在)
     if st.session_state.get('ts_token'): token = st.session_state.ts_token
 
     code = process_ticker(code)
     fetch_days = 1500 
     raw_df = pd.DataFrame()
+    
+    # 🚀 优先使用 Pro 接口 (User Optimized Version)
     if is_cn_stock(code) and token and ts:
         try:
-            pro = ts.pro_api(token)
+            ts.set_token(token)
+            pro = ts.pro_api()
             e = pd.Timestamp.today().strftime('%Y%m%d')
             s = (pd.Timestamp.today() - pd.Timedelta(days=fetch_days)).strftime('%Y%m%d')
+            
+            # 使用 pro.daily 获取数据 (比原版更稳)
             df = pro.daily(ts_code=_to_ts_code(code), start_date=s, end_date=e)
+            
             if not df.empty:
+                # 优化复权处理
                 if adjust in ['qfq', 'hfq']:
                     adj_f = pro.adj_factor(ts_code=_to_ts_code(code), start_date=s, end_date=e)
                     if not adj_f.empty:
@@ -625,12 +644,23 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                         f = df['factor']
                         ratio = f/f.iloc[-1] if adjust=='qfq' else f/f.iloc[0]
                         for c in ['open','high','low','close']: df[c] *= ratio
+                
                 df = df.rename(columns={'trade_date':'date','vol':'volume','pct_chg':'pct_change'})
                 df['date'] = pd.to_datetime(df['date'])
-                for c in ['open','high','low','close','volume']: df[c] = pd.to_numeric(df[c], errors='coerce')
+                
+                # Pro 接口返回的数据是倒序的，必须 sort
                 raw_df = df.sort_values('date').reset_index(drop=True)
-        except Exception: 
+                
+                # 确保格式统一
+                req_cols = ['date','open','high','low','close','volume','pct_change']
+                for c in req_cols:
+                    if c in raw_df.columns:
+                        raw_df[c] = pd.to_numeric(raw_df[c], errors='coerce')
+        except Exception as e: 
+            # print(f"Pro API Error: {e}")
             raw_df = pd.DataFrame() 
+
+    # 保留 Fallback：BaoStock
     if raw_df.empty and is_cn_stock(code) and bs:
         try:
             bs.login()
@@ -646,6 +676,8 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                 raw_df = df.sort_values('date').reset_index(drop=True)
         except Exception:
             raw_df = pd.DataFrame()
+
+    # 保留 Fallback：YFinance
     if raw_df.empty:
         try:
             yf_df = yf.download(code, period="5y", interval="1d", progress=False, auto_adjust=False)
@@ -674,7 +706,7 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
         except Exception:
             pass
             
-    # 🔴 核心修改：如果开启了实时开关，拼接最新 Tick
+    # 🔴 保持：如果开启了实时开关，拼接最新 Tick
     if st.session_state.get("enable_realtime", False) and is_cn_stock(code):
         raw_df = fetch_and_merge_realtime(raw_df, code, token)
 
@@ -702,7 +734,8 @@ def get_fundamentals(code, token):
     except: pass
     if token and ts and is_cn_stock(code):
         try:
-            pro = ts.pro_api(token)
+            ts.set_token(token)
+            pro = ts.pro_api()
             df = pro.daily_basic(ts_code=_to_ts_code(code), fields='pe_ttm,pb,total_mv')
             if not df.empty:
                 r = df.iloc[-1]
@@ -1746,9 +1779,17 @@ try:
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
 
     # ✅ 5. 缠论/江恩/斐波那契 模块折叠 + 科普
-    with st.expander("🔍 深度技术分析 (缠论/江恩/斐波那契) - 点击展开", expanded=False):
-        st.info("📖 **小白科普**：\n1. **缠论分型**：判断价格是见顶（顶分型）还是见底（底分型）。\n2. **江恩线/斐波那契**：神奇的数字，用来预测股价会在哪里遇到阻力或支撑。\n3. **MACD/VOL**：主力资金是在买入还是卖出。")
+    with st.expander("🔍 深度技术分析 (缠论/江恩/斐波那契/筹码) - 点击展开", expanded=False):
+        st.info("📖 **小白科普**：\n1. **缠论分型**：判断价格是见顶（顶分型）还是见底（底分型）。\n2. **江恩线/斐波那契**：神奇的数字，用来预测股价会在哪里遇到阻力或支撑。\n3. **筹码分布**：如果 Tushare 积分足够 (5000+)，此处将显示主力筹码峰位置。")
         st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
+        
+        # 🚀 优化：尝试加载筹码分布图 (需要积分)
+        if st.session_state.ts_token and is_pro:
+            chip_df = get_chip_data_pro(st.session_state.code, st.session_state.ts_token)
+            if not chip_df.empty:
+                st.write("#### 📊 筹码分布 (CYQ Chips)")
+                st.dataframe(chip_df.head(), hide_index=True)
+            
     st.divider()
 
     if is_pro:
@@ -1838,7 +1879,7 @@ try:
             if len(buy_sigs) > 0:
                 buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
                 bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                            marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
+                                          marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
             
             bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户资产", hovermode="x unified")
             st.plotly_chart(bt_fig, use_container_width=True)

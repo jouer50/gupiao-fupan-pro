@@ -37,7 +37,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
 if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
-if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None # ✅ 新增：每日精选缓存
+if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None 
 
 # ✅ 模拟交易数据结构初始化
 if "paper_account" not in st.session_state: 
@@ -70,7 +70,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 - 移动端丝滑体验深度优化版 (已修复侧边栏按钮可见性)
+# 🔥 CSS 样式 - 移动端丝滑体验深度优化版
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -212,7 +212,7 @@ ui_css = """
     .bt-neg { color: #2e7d32; }
     .bt-neu { color: #1976d2; }
     
-    /* ✅ 新增：结论小徽章样式 */
+    /* 结论小徽章样式 */
     .conc-badge {
         display: inline-block;
         padding: 2px 6px;
@@ -225,7 +225,7 @@ ui_css = """
     .conc-bear { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
     .conc-neut { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
     
-    /* ✅ 新增：跑赢大盘提示样式 */
+    /* 跑赢大盘提示样式 */
     .alpha-box {
         background: linear-gradient(90deg, #fff3e0, #ffe0b2);
         color: #e65100;
@@ -974,6 +974,10 @@ with st.sidebar:
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
+
+    # ✅ 2. 刷新缓存按钮移到最上方
+    if st.session_state.get('logged_in'):
+        if st.button("🔄 刷新系统缓存", use_container_width=True): st.cache_data.clear(); st.rerun()
     
     if st.session_state.get('logged_in'):
         user = st.session_state["user"]
@@ -1031,7 +1035,7 @@ with st.sidebar:
             st.markdown("### 🎯 每日精选 (AI策略筛选)")
             user_wl = get_user_watchlist(user)
             
-            # ✅ 1. 修改：被动刷新，只有点击才加载
+            # 被动刷新，只有点击才加载
             if st.button("🚀 扫描今日金股 (点击刷新)", key="refresh_picks"):
                 with st.spinner("AI正在基于MACD/RSI/量能扫描盘面..."):
                     st.session_state.daily_picks_cache = get_daily_picks(user_wl)
@@ -1050,15 +1054,15 @@ with st.sidebar:
                 st.caption("点击上方按钮开始扫描")
             st.divider()
         
-        # ✅✅✅✅✅✅✅✅✅ 模拟交易模块深度优化 (V79) ✅✅✅✅✅✅✅✅✅
+        # ✅✅✅ 1. 模拟交易默认折叠 (expanded=False)
         if not is_admin:
-            with st.expander("🎮 模拟交易 (仿真账户)", expanded=True):
+            with st.expander("🎮 模拟交易 (仿真账户) - 点击展开", expanded=False):
                 # 1. 核心数据
                 paper = st.session_state.paper_account
                 cash = paper.get("cash", 1000000.0)
                 holdings = paper.get("holdings", {})
                 
-                # ✅ 2. 修复：模拟交易无法获取价格的问题 (增加Fallback机制)
+                # 模拟交易无法获取价格的问题 (增加Fallback机制)
                 curr_price = 0
                 try:
                     # 尝试1: 快速接口
@@ -1208,8 +1212,6 @@ with st.sidebar:
                             st.rerun()
             if st.button("❤️ 加入自选"): update_watchlist(user, st.session_state.code, "add"); st.rerun()
 
-        if st.button("🔄 刷新缓存"): st.cache_data.clear(); st.rerun()
-
         if is_admin:
             st.success("👑 管理员模式")
             with st.expander("👑 VIP 权限管理", expanded=True):
@@ -1223,7 +1225,7 @@ with st.sidebar:
                             st.success(f"已更新 {vip_target} 的 VIP 权限！")
                             time.sleep(1); st.rerun()
                         else: st.error("更新失败")
-          
+           
             with st.expander("💳 卡密库存管理 (Stock)", expanded=True):
                 points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
                 count_gen = st.number_input("数量", 1, 50, 10)
@@ -1271,24 +1273,34 @@ with st.sidebar:
         
         st.divider()
         
-        # ✅ 修改：默认折叠策略参数，避免占用移动端宝贵空间
+        # 默认折叠策略参数
         if is_pro:
             with st.expander("🎛️ 策略参数 (Pro)", expanded=False):
                 ma_s = st.slider("短期均线", 2, 20, 5)
                 ma_l = st.slider("长期均线", 10, 120, 20)
-            
-            st.markdown("### 🛠️ 指标开关")
+        
+        # ✅ 3. 指标开关默认折叠 + 科普备注
+        with st.expander("🛠️ 指标开关 & 新手科普 (点击设置)", expanded=False):
+            st.info("""
+            **小白指标科普：**
+            * **MA (均线)**: 看价格趋势，线上看多线下看空。
+            * **BOLL (布林带)**: 上轨压力，下轨支撑，开口变大说明要变盘。
+            * **MACD**: 资金动能指标，金叉买死叉卖。
+            * **KDJ/RSI**: 短线超买超卖，太高容易跌，太低容易涨。
+            * **缠论/江恩**: 进阶结构分析，预测时间和空间转折。
+            """)
+            st.markdown("---")
             c_flags = st.columns(2)
             with c_flags[0]:
-                flags['ma'] = st.checkbox("MA", True)
-                flags['boll'] = st.checkbox("BOLL", True)
-                flags['vol'] = st.checkbox("VOL", True)
-                flags['macd'] = st.checkbox("MACD", True)
+                flags['ma'] = st.checkbox("MA (趋势)", True)
+                flags['boll'] = st.checkbox("BOLL (通道)", True)
+                flags['vol'] = st.checkbox("VOL (成交量)", True)
+                flags['macd'] = st.checkbox("MACD (动能)", True)
             with c_flags[1]:
-                flags['kdj'] = st.checkbox("KDJ", True)
-                flags['gann'] = st.checkbox("江恩", False)
-                flags['fib'] = st.checkbox("斐波那契", True)
-                flags['chan'] = st.checkbox("缠论", True)
+                flags['kdj'] = st.checkbox("KDJ (短线)", True)
+                flags['gann'] = st.checkbox("江恩 (时空)", False)
+                flags['fib'] = st.checkbox("斐波那契 (黄金分割)", True)
+                flags['chan'] = st.checkbox("缠论 (结构)", True)
         
         st.divider()
         st.caption("免责声明：本系统仅供量化研究，不构成投资建议。")
@@ -1329,7 +1341,7 @@ if not st.session_state.get('logged_in'):
                 <span style='color:#d32f2f; font-weight:bold'>🎁 成功注册即送 20 积分！</span>
                 """, unsafe_allow_html=True)
                 
-                # ✅ 修复：移动端二维码显示问题，增加文件检测和宽度自适应
+                # 移动端二维码显示问题，增加文件检测和宽度自适应
                 if os.path.exists("qrcode.png"):
                     st.image("qrcode.png", width=200, use_container_width=False, caption="长按识别或截图扫码")
                 else:
@@ -1430,7 +1442,11 @@ try:
         st.markdown('<div class="locked-container"><div class="locked-blur">', unsafe_allow_html=True)
 
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
-    st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
+
+    # ✅ 5. 缠论/江恩/斐波那契 模块折叠 + 科普
+    with st.expander("🔍 深度技术分析 (缠论/江恩/斐波那契) - 点击展开", expanded=False):
+        st.info("📖 **小白科普**：\n1. **缠论分型**：判断价格是见顶（顶分型）还是见底（底分型）。\n2. **江恩线/斐波那契**：神奇的数字，用来预测股价会在哪里遇到阻力或支撑。\n3. **MACD/VOL**：主力资金是在买入还是卖出。")
+        st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
     st.divider()
 
     if is_pro:
@@ -1439,59 +1455,62 @@ try:
     else:
         st.info("🔒 开启 [专业模式] 可查看具体的买卖点位、止盈止损价格及仓位建议。")
 
-    st.markdown("""<div class="bt-header">⚖️ 策略回测报告 (Strategy Backtest)</div>""", unsafe_allow_html=True)
-    ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
-    try:
-        daily_returns = eq['equity'].pct_change().dropna()
-        sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() != 0 else 0
-        # ✅ 4. 新增：计算跑赢大盘的幅度
-        bench_ret = (eq['benchmark'].iloc[-1] - 100000) / 100000 * 100
-        excess_ret = ret - bench_ret
-    except: 
-        sharpe = 0; excess_ret = 0
+    # ✅ 4. 策略回测报告 模块折叠 + 科普
+    with st.expander("⚖️ 策略回测报告 (历史验证) - 点击展开", expanded=False):
+        st.info("📖 **小白科普**：\n1. **策略总回报**：如果完全按此策略操作，历史上能赚多少钱。\n2. **夏普比率**：数值越高，说明“性价比”越高（承担同样的风险赚更多的钱）。\n3. **最大回撤**：历史上最倒霉的时候，账户资金最多回撤了多少百分比。")
+        
+        # 将原有的回测展示逻辑移入 Expander 内部
+        ret, win, mdd, buy_sigs, sell_sigs, eq = run_backtest(df)
+        try:
+            daily_returns = eq['equity'].pct_change().dropna()
+            sharpe = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252) if daily_returns.std() != 0 else 0
+            bench_ret = (eq['benchmark'].iloc[-1] - 100000) / 100000 * 100
+            excess_ret = ret - bench_ret
+        except: 
+            sharpe = 0; excess_ret = 0
 
-    # ✅ 4. 新增：跑赢大盘信心提示
-    if excess_ret > 0:
-        st.markdown(f"""<div class="alpha-box">🏆 策略表现优异：跑赢基准大盘 +{excess_ret:.1f}% ！</div>""", unsafe_allow_html=True)
-    else:
-        st.markdown(f"""<div class="alpha-box" style="background:#f5f5f5; color:#666; border-color:#ddd;">📉 策略表现一般，建议调整参数。</div>""", unsafe_allow_html=True)
+        # 跑赢大盘信心提示
+        if excess_ret > 0:
+            st.markdown(f"""<div class="alpha-box">🏆 策略表现优异：跑赢基准大盘 +{excess_ret:.1f}% ！</div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""<div class="alpha-box" style="background:#f5f5f5; color:#666; border-color:#ddd;">📉 策略表现一般，建议调整参数。</div>""", unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div class="bt-container">
-        <div class="bt-grid">
-            <div class="bt-card">
-                <div class="bt-val bt-pos">+{ret:.1f}%</div>
-                <div class="bt-lbl">策略总回报</div>
+        st.markdown(f"""
+        <div class="bt-container">
+            <div class="bt-grid">
+                <div class="bt-card">
+                    <div class="bt-val bt-pos">+{ret:.1f}%</div>
+                    <div class="bt-lbl">策略总回报</div>
+                </div>
+                <div class="bt-card">
+                    <div class="bt-val bt-pos">{win:.1f}%</div>
+                    <div class="bt-lbl">实盘胜率</div>
+                </div>
+                <div class="bt-card">
+                    <div class="bt-val bt-neg">-{mdd:.1f}%</div>
+                    <div class="bt-lbl">最大回撤</div>
+                </div>
+                <div class="bt-card">
+                    <div class="bt-val bt-neu">{sharpe:.2f}</div>
+                    <div class="bt-lbl">夏普比率</div>
+                </div>
             </div>
-            <div class="bt-card">
-                <div class="bt-val bt-pos">{win:.1f}%</div>
-                <div class="bt-lbl">实盘胜率</div>
-            </div>
-            <div class="bt-card">
-                <div class="bt-val bt-neg">-{mdd:.1f}%</div>
-                <div class="bt-lbl">最大回撤</div>
-            </div>
-            <div class="bt-card">
-                <div class="bt-val bt-neu">{sharpe:.2f}</div>
-                <div class="bt-lbl">夏普比率</div>
-            </div>
+            <div style="font-size:12px; color:#888; text-align:right;">* 回测区间包含 {len(eq)} 个交易日，对比基准为“买入持有”策略</div>
         </div>
-        <div style="font-size:12px; color:#888; text-align:right;">* 回测区间包含 {len(eq)} 个交易日，对比基准为“买入持有”策略</div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    if not eq.empty:
-        bt_fig = make_subplots(rows=1, cols=1)
-        bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
-                                    line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
-        bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy&Hold)', 
-                                    line=dict(color='#9e9e9e', width=1.5, dash='dash')))
-        if len(buy_sigs) > 0:
-            buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
-            bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                        marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
-        bt_fig.update_layout(height=350, margin=dict(l=0,r=0,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
-        st.plotly_chart(bt_fig, use_container_width=True)
+        if not eq.empty:
+            bt_fig = make_subplots(rows=1, cols=1)
+            bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
+                                        line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
+            bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy&Hold)', 
+                                        line=dict(color='#9e9e9e', width=1.5, dash='dash')))
+            if len(buy_sigs) > 0:
+                buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
+                bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
+                                            marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
+            bt_fig.update_layout(height=350, margin=dict(l=0,r=0,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
+            st.plotly_chart(bt_fig, use_container_width=True)
 
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) 

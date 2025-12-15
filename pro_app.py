@@ -40,6 +40,8 @@ if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
 if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None
 if "enable_realtime" not in st.session_state: st.session_state.enable_realtime = False
 if "ts_token" not in st.session_state: st.session_state.ts_token = ""
+# 🔥 新增：控制视图模式的 Session State，解决切换卡顿问题
+if "view_mode_idx" not in st.session_state: st.session_state.view_mode_idx = 0 
 
 # ✅ 模拟交易数据结构初始化
 if "paper_account" not in st.session_state:
@@ -245,19 +247,23 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (升级版)
+# 2. 数据库与工具 (升级版：支持记忆上次股票)
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
-        df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm"])
+        # 🔥 新增 last_code 字段
+        df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm", "last_code"])
         df.to_csv(DB_FILE, index=False)
     else:
         df = pd.read_csv(DB_FILE)
-        cols_needed = ["vip_expiry", "paper_json", "rt_perm"]
+        # 🔥 自动升级数据库结构
+        cols_needed = ["vip_expiry", "paper_json", "rt_perm", "last_code"]
         updated = False
         for c in cols_needed:
             if c not in df.columns:
-                df[c] = "" if c != "rt_perm" else 0
+                if c == "rt_perm": df[c] = 0
+                elif c == "last_code": df[c] = "600519"
+                else: df[c] = ""
                 updated = True
         if updated:
             df.to_csv(DB_FILE, index=False)
@@ -282,11 +288,32 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
 
 def load_users():
     try: 
-        df = pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str, "paper_json": str, "rt_perm": int})
+        df = pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str, "paper_json": str, "rt_perm": int, "last_code": str})
         return df.fillna("")
-    except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm"])
+    except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm", "last_code"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
+
+# 🔥 新增：保存用户最后浏览的股票
+def save_user_last_code(username, code):
+    if username == ADMIN_USER: return
+    df = load_users()
+    idx = df[df["username"] == username].index
+    if len(idx) > 0:
+        # 只有当代码不同才写入，减少IO
+        if str(df.loc[idx[0], "last_code"]) != str(code):
+            df.loc[idx[0], "last_code"] = str(code)
+            save_users(df)
+
+# 🔥 新增：获取用户最后浏览的股票
+def get_user_last_code(username):
+    if username == ADMIN_USER: return "600519"
+    df = load_users()
+    row = df[df["username"] == username]
+    if not row.empty:
+        code = str(row.iloc[0].get("last_code", "600519"))
+        if code and code != "nan": return code
+    return "600519"
 
 def save_user_holdings(username):
     if username == ADMIN_USER: return
@@ -414,7 +441,8 @@ def register_user(u, p, initial_quota=10):
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
     init_paper = json.dumps({"cash": 1000000.0, "holdings": {}, "history": []})
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": init_paper, "rt_perm": 0}
+    # 🔥 初始化时加入 last_code
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": init_paper, "rt_perm": 0, "last_code": "600519"}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
     return True, f"注册成功，已获赠 {initial_quota} 积分！"
@@ -1158,7 +1186,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V79</div>
+        <div class='brand-en'>AlphaQuant Pro V80</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1190,7 +1218,13 @@ with st.sidebar:
                     else: st.error(m)
 
     new_c = st.text_input("🔍 股票代码", st.session_state.code)
-    if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
+    # 🔥🔥🔥 自动保存代码到数据库
+    if new_c != st.session_state.code: 
+        st.session_state.code = new_c
+        st.session_state.paid_code = ""
+        if st.session_state.get('logged_in'):
+            save_user_last_code(user, new_c) # 保存到DB
+        st.rerun()
     
     # 🔴 新增：实时数据开关 (仅授权用户可见)
     user_rt = check_rt_permission(user) if st.session_state.get('logged_in') else False
@@ -1221,6 +1255,7 @@ with st.sidebar:
                         if c1.button(f"{c}", key=f"wl_{c}"):
                             st.session_state.code = c
                             st.session_state.paid_code = ""
+                            save_user_last_code(user, c) # 保存
                             st.rerun()
                         if c2.button("✖️", key=f"del_{c}"):
                             update_watchlist(user, c, "remove")
@@ -1235,7 +1270,8 @@ with st.sidebar:
         else: st.info(f"👤 普通用户")
 
         st.markdown("### 👁️ 视觉模式")
-        view_mode = st.radio("Display Mode", ["极简模式", "专业模式"], index=0, horizontal=True, label_visibility="collapsed")
+        # 🔥🔥🔥 优化：使用 view_mode_idx 控制 Radio 状态，解决切换粘滞问题
+        view_mode = st.radio("Display Mode", ["极简模式", "专业模式"], index=st.session_state.view_mode_idx, key="view_mode_radio", horizontal=True, label_visibility="collapsed")
         
         is_unlocked = False
         if is_admin or is_vip or st.session_state.paid_code == st.session_state.code:
@@ -1246,12 +1282,16 @@ with st.sidebar:
             if st.button("🔓 立即解锁", key="sidebar_unlock", type="primary"):
                 if consume_quota(user):
                     st.session_state.paid_code = st.session_state.code
+                    st.session_state.view_mode_idx = 1 # 强制锁定为 Pro 模式
                     st.success("已解锁！")
                     st.rerun()
                 else:
                     st.error("积分不足，请充值")
             is_pro = False 
         else:
+            # 如果已经切到专业模式，同步更新 idx，防止下次刷新跳回
+            if view_mode == "专业模式": st.session_state.view_mode_idx = 1
+            else: st.session_state.view_mode_idx = 0
             is_pro = (view_mode == "专业模式")
         
         if not is_admin:
@@ -1271,6 +1311,7 @@ with st.sidebar:
                     st.caption(f"💡 {pick['reason']}")
                     if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}", type="primary"):
                         st.session_state.code = pick['code']
+                        save_user_last_code(user, pick['code']) # 保存
                         st.rerun()
                     st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
             else:
@@ -1423,7 +1464,9 @@ with st.sidebar:
                             </div>
                             """, unsafe_allow_html=True)
                             if st.button(f"查看 {h_c}", key=f"view_{h_c}"):
-                                st.session_state.code = h_c; st.rerun()
+                                st.session_state.code = h_c
+                                save_user_last_code(user, h_c) # 保存
+                                st.rerun()
 
         if is_admin:
             st.success("👑 管理员模式")
@@ -1477,7 +1520,7 @@ with st.sidebar:
                         st.error(f"导入失败: {e}")
 
                 df_u = load_users()
-                st.dataframe(df_u[["username","quota", "vip_expiry", "rt_perm", "paper_json"]], hide_index=True)
+                st.dataframe(df_u[["username","quota", "vip_expiry", "rt_perm", "paper_json", "last_code"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据 (含模拟持仓)", csv, "backup.csv", "text/csv")
                 
@@ -1557,7 +1600,14 @@ if not st.session_state.get('logged_in'):
             u = st.text_input("账号")
             p = st.text_input("密码", type="password")
             if st.button("登录系统"):
-                if verify_login(u.strip(), p): st.session_state["logged_in"] = True; st.session_state["user"] = u.strip(); st.session_state["paid_code"] = ""; st.rerun()
+                if verify_login(u.strip(), p): 
+                    st.session_state["logged_in"] = True
+                    st.session_state["user"] = u.strip()
+                    st.session_state["paid_code"] = ""
+                    # 🔥 登录时恢复上次浏览的代码
+                    last_c = get_user_last_code(u.strip())
+                    st.session_state.code = last_c
+                    st.rerun()
                 else: st.error("账号或密码错误")
         with tab2:
             reg_type = st.radio("选择注册方式", 
@@ -1656,7 +1706,7 @@ try:
                 <div style="font-size: 10px; color: #999;">/ 10.0</div>
             </div>
             <div style="flex: 1; border-right: 1px solid #eee;">
-                 <div style="font-size: 12px; color: #666;">💰 估值安全</div>
+                <div style="font-size: 12px; color: #666;">💰 估值安全</div>
                 <div style="font-size: 24px; font-weight: 800; color: {c_v};">{sv}</div>
                 <div style="font-size: 10px; color: #999;">/ 10.0</div>
             </div>
@@ -1713,10 +1763,11 @@ try:
         # ✅ 4.1 用户输入区：周期选择与本金输入
         c_p1, c_p2 = st.columns([2, 1])
         with c_p1:
+            # 🔥🔥🔥 修改：将默认值改为“近半年” (180天)
             period_label = st.select_slider(
                 "📅 回测周期 (看看过去多久的表现)", 
                 options=["近1个月", "近3个月", "近半年", "近1年"], 
-                value="近1年"
+                value="近半年"
             )
         with c_p2:
             input_cap = st.number_input("💰 假设投入 (元)", value=1000000, step=100000)
@@ -1805,9 +1856,11 @@ try:
         """, unsafe_allow_html=True)
         c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
         with c_lock2:
+            # 🔥🔥🔥 使用 key="main_unlock" 避免冲突
             if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", key="main_unlock", type="primary", use_container_width=True):
                 if consume_quota(user):
                     st.session_state.paid_code = st.session_state.code
+                    st.session_state.view_mode_idx = 1 # 强制开启 Pro 模式
                     st.rerun()
                 else: st.error("积分不足！")
         

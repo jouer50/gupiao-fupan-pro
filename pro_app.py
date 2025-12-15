@@ -1004,6 +1004,33 @@ with st.sidebar:
     new_c = st.text_input("🔍 股票代码", st.session_state.code)
     if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
 
+    # ========================================================
+    # ✅ 修改位置：加入自选 & 我的自选股 移动到这里 (搜索栏下方)
+    # ========================================================
+    if st.session_state.get('logged_in'):
+        # 1. 加入自选按钮
+        if not is_admin:
+             if st.button("❤️ 加入自选", use_container_width=True): 
+                 update_watchlist(user, st.session_state.code, "add")
+                 st.rerun()
+        
+        # 2. 我的自选股列表
+        if not is_admin:
+            with st.expander("⭐ 我的自选股", expanded=False):
+                current_wl = get_user_watchlist(user)
+                if not current_wl: st.caption("暂无自选，请在上方添加")
+                else:
+                    for c in current_wl:
+                        c1, c2 = st.columns([3, 1])
+                        if c1.button(f"{c}", key=f"wl_{c}"):
+                            st.session_state.code = c
+                            st.session_state.paid_code = ""
+                            st.rerun()
+                        if c2.button("✖️", key=f"del_{c}"):
+                            update_watchlist(user, c, "remove")
+                            st.rerun()
+    # ========================================================
+
     if st.session_state.get('logged_in'):
         is_vip, vip_msg = check_vip_status(user)
         load_user_holdings(user)
@@ -1196,22 +1223,6 @@ with st.sidebar:
                             if st.button(f"查看 {h_c}", key=f"view_{h_c}"):
                                 st.session_state.code = h_c; st.rerun()
 
-        if not is_admin:
-            with st.expander("⭐ 我的自选股", expanded=False):
-                current_wl = get_user_watchlist(user)
-                if not current_wl: st.caption("暂无自选，请在上方添加")
-                else:
-                    for c in current_wl:
-                        c1, c2 = st.columns([3, 1])
-                        if c1.button(f"{c}", key=f"wl_{c}"):
-                            st.session_state.code = c
-                            st.session_state.paid_code = ""
-                            st.rerun()
-                        if c2.button("✖️", key=f"del_{c}"):
-                            update_watchlist(user, c, "remove")
-                            st.rerun()
-            if st.button("❤️ 加入自选"): update_watchlist(user, st.session_state.code, "add"); st.rerun()
-
         if is_admin:
             st.success("👑 管理员模式")
             with st.expander("👑 VIP 权限管理", expanded=True):
@@ -1225,7 +1236,7 @@ with st.sidebar:
                             st.success(f"已更新 {vip_target} 的 VIP 权限！")
                             time.sleep(1); st.rerun()
                         else: st.error("更新失败")
-           
+            
             with st.expander("💳 卡密库存管理 (Stock)", expanded=True):
                 points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
                 count_gen = st.number_input("数量", 1, 50, 10)
@@ -1502,13 +1513,13 @@ try:
         if not eq.empty:
             bt_fig = make_subplots(rows=1, cols=1)
             bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
-                                        line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
+                                    line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
             bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy&Hold)', 
-                                        line=dict(color='#9e9e9e', width=1.5, dash='dash')))
+                                    line=dict(color='#9e9e9e', width=1.5, dash='dash')))
             if len(buy_sigs) > 0:
                 buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
                 bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                            marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
+                                        marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入信号'))
             bt_fig.update_layout(height=350, margin=dict(l=0,r=0,t=40,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户净值", hovermode="x unified")
             st.plotly_chart(bt_fig, use_container_width=True)
 

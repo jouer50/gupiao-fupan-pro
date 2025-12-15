@@ -38,6 +38,8 @@ if "code" not in st.session_state: st.session_state.code = "600519"
 if "paid_code" not in st.session_state: st.session_state.paid_code = "" 
 if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
 if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None 
+if "enable_realtime" not in st.session_state: st.session_state.enable_realtime = False # 🔴 新增：实时开关状态
+if "ts_token" not in st.session_state: st.session_state.ts_token = "" # 🔴 新增：Token缓存
 
 # ✅ 模拟交易数据结构初始化
 if "paper_account" not in st.session_state: 
@@ -79,7 +81,7 @@ ui_css = """
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Helvetica Neue", sans-serif;
         touch-action: manipulation;
     }
-    
+     
     /* 核心内容区去边距 */
     .block-container {
         padding-top: 1rem !important;
@@ -184,7 +186,7 @@ ui_css = """
         background: rgba(255, 255, 255, 0.6); z-index: 10;
         backdrop-filter: blur(2px);
     }
-    
+     
     /* Expander 优化 */
     .streamlit-expanderHeader {
         background-color: #fff;
@@ -193,15 +195,15 @@ ui_css = """
         font-weight: 600;
         border: 1px solid #f0f0f0;
     }
-    
+     
     /* AI 对话框 */
     .ai-chat-box {
         background: #f2f8ff; border-radius: 12px; padding: 15px; margin-bottom: 15px;
         border-left: 4px solid #007AFF; 
     }
-    
+     
     [data-testid="metric-container"] { display: none; }
-    
+     
     /* 策略报告 */
     .bt-container { background: white; border-radius: 12px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 20px; }
     .bt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; } 
@@ -211,7 +213,7 @@ ui_css = """
     .bt-pos { color: #d32f2f; }
     .bt-neg { color: #2e7d32; }
     .bt-neu { color: #1976d2; }
-    
+     
     /* 结论小徽章样式 */
     .conc-badge {
         display: inline-block;
@@ -224,7 +226,7 @@ ui_css = """
     .conc-bull { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
     .conc-bear { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
     .conc-neut { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
-    
+     
     /* 跑赢大盘提示样式 */
     .alpha-box {
         background: linear-gradient(90deg, #fff3e0, #ffe0b2);
@@ -242,23 +244,24 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (保持原样)
+# 2. 数据库与工具 (升级版)
 # ==========================================
 def init_db():
+    # 🔴 升级：增加 rt_perm 字段
     if not os.path.exists(DB_FILE):
-        df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
+        df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm"])
         df.to_csv(DB_FILE, index=False)
     else:
         df = pd.read_csv(DB_FILE)
-        cols_needed = ["vip_expiry", "paper_json"]
+        cols_needed = ["vip_expiry", "paper_json", "rt_perm"]
         updated = False
         for c in cols_needed:
             if c not in df.columns:
-                df[c] = ""
+                df[c] = "" if c != "rt_perm" else 0
                 updated = True
         if updated:
             df.to_csv(DB_FILE, index=False)
-            
+         
     if not os.path.exists(KEYS_FILE):
         df_keys = pd.DataFrame(columns=["key", "points", "status", "created_at"])
         df_keys.to_csv(KEYS_FILE, index=False)
@@ -279,9 +282,9 @@ def safe_fmt(value, fmt="{:.2f}", default="-", suffix=""):
 
 def load_users():
     try: 
-        df = pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str, "paper_json": str})
+        df = pd.read_csv(DB_FILE, dtype={"watchlist": str, "quota": int, "vip_expiry": str, "paper_json": str, "rt_perm": int})
         return df.fillna("")
-    except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json"])
+    except: return pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm"])
 
 def save_users(df): df.to_csv(DB_FILE, index=False)
 
@@ -313,7 +316,7 @@ def load_user_holdings(username):
                     st.session_state.paper_account = data
             except:
                 st.session_state.paper_account = {"cash": 1000000.0, "holdings": {}, "history": []}
-    
+     
     if "cash" not in st.session_state.paper_account:
         st.session_state.paper_account["cash"] = 1000000.0
 
@@ -336,6 +339,23 @@ def check_vip_status(username):
             return True, f"VIP 剩余 {days_left} 天"
         else: return False, "VIP 已过期"
     except: return False, "日期错误"
+
+def check_rt_permission(username):
+    if username == ADMIN_USER: return True
+    df = load_users()
+    row = df[df["username"] == username]
+    if not row.empty:
+        return bool(row.iloc[0].get("rt_perm", 0))
+    return False
+
+def update_rt_permission(username, allow: bool):
+    df = load_users()
+    idx = df[df["username"] == username].index
+    if len(idx) > 0:
+        df.loc[idx[0], "rt_perm"] = 1 if allow else 0
+        save_users(df)
+        return True
+    return False
 
 def update_vip_days(target_user, days_to_add):
     df = load_users()
@@ -394,7 +414,7 @@ def register_user(u, p, initial_quota=10):
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(p.encode(), salt).decode()
     init_paper = json.dumps({"cash": 1000000.0, "holdings": {}, "history": []})
-    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": init_paper}
+    new_row = {"username": u, "password_hash": hashed, "watchlist": "", "quota": initial_quota, "vip_expiry": "", "paper_json": init_paper, "rt_perm": 0}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_users(df)
     return True, f"注册成功，已获赠 {initial_quota} 积分！"
@@ -449,7 +469,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (保持原样)
+# 3. 股票逻辑 (升级版：支持实时 Tick 拼接)
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -497,7 +517,67 @@ def get_name(code, token, proxy=None):
     except: pass
     return code
 
+# 🔴 新增：获取实时行情快照并拼接到 DataFrame
+def fetch_and_merge_realtime(raw_df, code, token):
+    if not is_cn_stock(code) or not token or not ts:
+        return raw_df
+    try:
+        # 使用 rt_k 接口 (这里实现为 get_realtime_quotes 以兼容旧版/新版)
+        # 获取当前最新 Tick
+        ts.set_token(token)
+        df_rt = ts.get_realtime_quotes(code) # 返回 string 类型的 dataframe
+        if df_rt is not None and not df_rt.empty:
+            rt_row = df_rt.iloc[0]
+            # 转换格式
+            now_price = float(rt_row['price'])
+            now_open = float(rt_row['open'])
+            now_high = float(rt_row['high'])
+            now_low = float(rt_row['low'])
+            now_vol = float(rt_row['volume'])
+            now_date_str = rt_row['date'] # "2025-05-XX"
+            
+            # 如果当前价格为0（盘前或停牌），不处理
+            if now_price == 0: return raw_df
+
+            now_date = pd.to_datetime(now_date_str)
+            
+            # 构建新行
+            new_row = {
+                'date': now_date,
+                'open': now_open,
+                'high': now_high,
+                'low': now_low,
+                'close': now_price,
+                'volume': now_vol,
+                'pct_change': ((now_price - float(rt_row['pre_close'])) / float(rt_row['pre_close'])) * 100
+            }
+            
+            # 检查 DataFrame 最后一行日期
+            if not raw_df.empty:
+                last_date = pd.to_datetime(raw_df.iloc[-1]['date'])
+                if now_date.date() == last_date.date():
+                    # 如果日期相同，更新最后一行 (覆盖)
+                    raw_df.iloc[-1, raw_df.columns.get_loc('close')] = now_price
+                    raw_df.iloc[-1, raw_df.columns.get_loc('high')] = max(raw_df.iloc[-1]['high'], now_high)
+                    raw_df.iloc[-1, raw_df.columns.get_loc('low')] = min(raw_df.iloc[-1]['low'], now_low)
+                    raw_df.iloc[-1, raw_df.columns.get_loc('volume')] = now_vol
+                    raw_df.iloc[-1, raw_df.columns.get_loc('pct_change')] = new_row['pct_change']
+                elif now_date > last_date:
+                    # 如果是新的一天，追加
+                    raw_df = pd.concat([raw_df, pd.DataFrame([new_row])], ignore_index=True)
+            else:
+                raw_df = pd.DataFrame([new_row])
+                
+    except Exception as e:
+        # 实时拉取失败，静默回退到历史数据，不报错
+        pass
+    return raw_df
+
+# 🔴 修改：在数据获取函数中加入实时逻辑
 def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
+    # 使用 Session 中的 Token 覆盖参数 (如果存在)
+    if st.session_state.get('ts_token'): token = st.session_state.ts_token
+
     code = process_ticker(code)
     fetch_days = 1500 
     raw_df = pd.DataFrame()
@@ -565,6 +645,10 @@ def get_data_and_resample(code, token, timeframe, adjust, proxy=None):
                     raw_df['pct_change'] = raw_df['close'].pct_change() * 100
         except Exception:
             pass
+            
+    # 🔴 核心修改：如果开启了实时开关，拼接最新 Tick
+    if st.session_state.get("enable_realtime", False) and is_cn_stock(code):
+        raw_df = fetch_and_merge_realtime(raw_df, code, token)
 
     if raw_df.empty: return raw_df
     if timeframe == '日线': return raw_df
@@ -1003,6 +1087,14 @@ with st.sidebar:
 
     new_c = st.text_input("🔍 股票代码", st.session_state.code)
     if new_c != st.session_state.code: st.session_state.code = new_c; st.session_state.paid_code = ""; st.rerun()
+    
+    # 🔴 新增：实时数据开关 (仅授权用户可见)
+    user_rt = check_rt_permission(user) if st.session_state.get('logged_in') else False
+    if user_rt:
+        rt_status = st.toggle("🔴 开启实时行情 (RT Quote)", value=st.session_state.get("enable_realtime", False))
+        if rt_status != st.session_state.get("enable_realtime", False):
+            st.session_state.enable_realtime = rt_status
+            st.rerun()
 
     # ========================================================
     # ✅ 修改位置：加入自选 & 我的自选股 移动到这里 (搜索栏下方)
@@ -1099,7 +1191,7 @@ with st.sidebar:
                 if curr_price == 0:
                     try:
                         # 尝试2: 使用我们自己的数据加载函数 (取今日最新)
-                        _temp_df = get_data_and_resample(st.session_state.code, "", "日线", "", None)
+                        _temp_df = get_data_and_resample(st.session_state.code, st.session_state.ts_token, "日线", "", None)
                         if not _temp_df.empty:
                             curr_price = float(_temp_df.iloc[-1]['close'])
                     except: pass
@@ -1225,6 +1317,15 @@ with st.sidebar:
 
         if is_admin:
             st.success("👑 管理员模式")
+            
+            # 🔴 管理员配置 Token
+            with st.expander("🛠️ 管理员配置 (Tushare Token)", expanded=True):
+                t_token_in = st.text_input("Tushare Pro Token", value=st.session_state.ts_token, type="password")
+                if st.button("保存 Token"):
+                    st.session_state.ts_token = t_token_in
+                    st.success("Token 已缓存")
+                    st.rerun()
+
             with st.expander("👑 VIP 权限管理", expanded=True):
                 df_u = load_users()
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
@@ -1263,7 +1364,7 @@ with st.sidebar:
                         st.error(f"导入失败: {e}")
 
                 df_u = load_users()
-                st.dataframe(df_u[["username","quota", "vip_expiry", "paper_json"]], hide_index=True)
+                st.dataframe(df_u[["username","quota", "vip_expiry", "rt_perm", "paper_json"]], hide_index=True)
                 csv = df_u.to_csv(index=False).encode('utf-8')
                 st.download_button("备份数据 (含模拟持仓)", csv, "backup.csv", "text/csv")
                 
@@ -1271,10 +1372,18 @@ with st.sidebar:
                 if u_list:
                     target = st.selectbox("选择用户", u_list)
                     val = st.number_input("新积分", value=0, step=10)
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns(3)
                     with c1:
                         if st.button("更新积分"): update_user_quota(target, val); st.success("OK"); time.sleep(0.5); st.rerun()
                     with c2:
+                        # 🔴 实时权限开关
+                        is_rt_now = check_rt_permission(target)
+                        btn_label = "🚫 关闭实时" if is_rt_now else "✅ 开通实时"
+                        if st.button(btn_label):
+                            update_rt_permission(target, not is_rt_now)
+                            st.success(f"已更新 {target} 实时权限")
+                            time.sleep(0.5); st.rerun()
+                    with c3:
                         chk = st.checkbox("确认删除")
                         if st.button("删除") and chk: delete_user(target); st.success("Del"); time.sleep(0.5); st.rerun()
 
@@ -1376,21 +1485,21 @@ if not st.session_state.get('logged_in'):
     st.stop()
 
 # --- 主内容区 ---
-name = get_name(st.session_state.code, "", None) 
+name = get_name(st.session_state.code, st.session_state.ts_token, None) 
 # 移动端不需要 c1, c2 分列，直接展示
 st.title(f"📈 {name} ({st.session_state.code})")
 
 is_demo = False
 loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
 with st.spinner(random.choice(loading_tips)):
-    df = get_data_and_resample(st.session_state.code, "", timeframe, adjust, proxy=None)
+    df = get_data_and_resample(st.session_state.code, st.session_state.ts_token, timeframe, adjust, proxy=None)
     if df.empty:
         st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
         df = generate_mock_data(days)
         is_demo = True
 
 try:
-    funda = get_fundamentals(st.session_state.code, "")
+    funda = get_fundamentals(st.session_state.code, st.session_state.ts_token)
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     

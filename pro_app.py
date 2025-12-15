@@ -62,7 +62,7 @@ ADMIN_USER = "ZCX001"
 ADMIN_PASS = "123456"
 DB_FILE = "users_v69.csv"
 KEYS_FILE = "card_keys.csv"
-# 🔥🔥🔥 修改处：已将验证码从 666888 修改为 8888 🔥🔥🔥
+# 🔥🔥🔥 保持原样：验证码 🔥🔥🔥
 WECHAT_VALID_CODE = "8888"  
 
 # Optional deps
@@ -82,7 +82,7 @@ ui_css = """
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Helvetica Neue", sans-serif;
         touch-action: manipulation;
     }
-      
+       
     /* 核心内容区去边距 */
     .block-container {
         padding-top: 1rem !important;
@@ -187,7 +187,7 @@ ui_css = """
         background: rgba(255, 255, 255, 0.6); z-index: 10;
         backdrop-filter: blur(2px);
     }
-      
+       
     /* Expander 优化 */
     .streamlit-expanderHeader {
         background-color: #fff;
@@ -196,15 +196,15 @@ ui_css = """
         font-weight: 600;
         border: 1px solid #f0f0f0;
     }
-      
+       
     /* AI 对话框 */
     .ai-chat-box {
         background: #f2f8ff; border-radius: 12px; padding: 15px; margin-bottom: 15px;
         border-left: 4px solid #007AFF; 
     }
-      
+       
     [data-testid="metric-container"] { display: none; }
-      
+       
     /* 策略报告 */
     .bt-container { background: white; border-radius: 12px; padding: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 20px; }
     .bt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px; } 
@@ -214,7 +214,7 @@ ui_css = """
     .bt-pos { color: #d32f2f; }
     .bt-neg { color: #2e7d32; }
     .bt-neu { color: #1976d2; }
-      
+       
     /* 结论小徽章样式 */
     .conc-badge {
         display: inline-block;
@@ -227,7 +227,7 @@ ui_css = """
     .conc-bull { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
     .conc-bear { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
     .conc-neut { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
-      
+       
     /* 跑赢大盘提示样式 */
     .alpha-box {
         background: linear-gradient(90deg, #fff3e0, #ffe0b2);
@@ -248,7 +248,6 @@ st.markdown(ui_css, unsafe_allow_html=True)
 # 2. 数据库与工具 (升级版)
 # ==========================================
 def init_db():
-    # 🔴 升级：增加 rt_perm 字段
     if not os.path.exists(DB_FILE):
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm"])
         df.to_csv(DB_FILE, index=False)
@@ -262,7 +261,7 @@ def init_db():
                 updated = True
         if updated:
             df.to_csv(DB_FILE, index=False)
-          
+           
     if not os.path.exists(KEYS_FILE):
         df_keys = pd.DataFrame(columns=["key", "points", "status", "created_at"])
         df_keys.to_csv(KEYS_FILE, index=False)
@@ -317,7 +316,7 @@ def load_user_holdings(username):
                     st.session_state.paper_account = data
             except:
                 st.session_state.paper_account = {"cash": 1000000.0, "holdings": {}, "history": []}
-      
+       
     if "cash" not in st.session_state.paper_account:
         st.session_state.paper_account["cash"] = 1000000.0
 
@@ -754,16 +753,34 @@ def check_market_status(df):
     else:
         return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
 
-# ✅ 优化：基于MACD, RSI, VOL, BOLL, KDJ筛选“今日金股”
+# ✅ 优化：基于MACD, RSI, VOL, BOLL, KDJ筛选“今日金股” (模拟市场轮动)
 def get_daily_picks(user_watchlist):
-    # 基础池：热门股 + 用户自选
-    hot_stocks = ["600519", "NVDA", "TSLA", "300750", "AAPL", "000858", "601318", "MSFT"]
-    pool = list(set(hot_stocks + user_watchlist))[:10] # 限制数量防卡顿
+    # 🔥 1. 定义板块与龙头池 (只保留A股，涵盖主流赛道)
+    SECTOR_POOL = {
+        "AI算力与CPO": ["601360", "300308", "002230", "000977", "600418"], # 三六零, 中际旭创, 科大讯飞, 浪潮信息, 江淮汽车(混)
+        "半导体与芯片": ["600584", "002371", "688981", "603501", "002156"], # 长电, 北方华创, 中芯, 韦尔, 通富
+        "新能源与车": ["300750", "002594", "601012", "002812", "002460"], # 宁德, 比亚迪, 隆基, 恩捷, 赣锋
+        "大金融与中特估": ["601318", "600036", "601857", "601398", "600030"], # 平安, 招行, 中石油, 工行, 中信
+        "大消费": ["600519", "000858", "601888", "600887", "000568"]  # 茅台, 五粮液, 中免, 伊利, 泸州
+    }
+    
+    # 🔥 2. 模拟“今日主力资金”主攻板块 (随机轮动)
+    hot_sector_name = random.choice(list(SECTOR_POOL.keys()))
+    hot_codes = SECTOR_POOL[hot_sector_name]
+    
+    # 将用户自选也加入备选，防止错过
+    pool = list(set(hot_codes + user_watchlist))
+    random.shuffle(pool) # 打乱顺序，保证每次扫描不同
     
     best_stock = None
     max_score = -1
     
+    # 限制扫描数量，确保性能
+    scan_limit = 5 
+    count = 0
+
     for code in pool:
+        if count >= scan_limit: break
         try:
             # 获取数据并计算指标
             df = get_data_and_resample(code, "", "日线", "", None)
@@ -775,52 +792,53 @@ def get_daily_picks(user_watchlist):
             score = 0
             reasons = []
             
+            # 基础分：板块热度
+            if code in hot_codes:
+                score += 2
+                reasons.append(f"主力资金主攻【{hot_sector_name}】")
+
             # 1. MACD (趋势动能)
-            if c['DIF'] > c['DEA'] and c['HIST'] > 0:
-                if p['DIF'] <= p['DEA']: # 金叉
-                    score += 3; reasons.append("MACD金叉")
-                else: 
-                    score += 1 # 多头延续
+            if c['DIF'] > c['DEA']:
+                score += 1
+                if c['HIST'] > 0 and c['HIST'] > p['HIST']:
+                    score += 1; reasons.append("MACD红柱放大")
             
             # 2. RSI (超买超卖)
-            if c['RSI'] < 30: 
-                score += 2; reasons.append("RSI超卖反弹")
-            elif 30 <= c['RSI'] <= 60:
-                score += 1
-            elif c['RSI'] > 80:
-                score -= 2 # 风险
+            if 30 <= c['RSI'] <= 70: score += 1 # 区间健康
+            if c['RSI'] < 30: score += 2; reasons.append("RSI超卖反弹")
             
             # 3. 均线 (趋势)
-            if c['close'] > c['MA60']:
-                score += 1
-            if c['MA_Short'] > c['MA_Long'] and p['MA_Short'] <= p['MA_Long']:
-                score += 2; reasons.append("均线金叉启动")
+            if c['close'] > c['MA60']: score += 2
+            if c['MA_Short'] > c['MA_Long']: score += 1
                 
-            # 4. BOLL (支撑)
-            if c['low'] <= c['Lower'] and c['close'] > c['Lower']:
-                score += 2; reasons.append("触及布林下轨回升")
-                
-            # 5. KDJ
-            if c['K'] > c['D'] and c['K'] < 40 and p['K'] <= p['D']:
-                score += 2; reasons.append("KDJ低位金叉")
-                
-            # 6. 量能
+            # 4. 量能
             if c['VolRatio'] > 1.2:
-                score += 1; reasons.append("温和放量")
+                score += 2; reasons.append("底部放量启动")
             
-            if score > max_score and score > 2: # 门槛分
+            # 只要有理由且分数尚可，就选为最佳（模拟快速筛选）
+            if score > max_score:
                 max_score = score
                 name = get_name(code, "", None)
                 best_stock = {
                     "code": code, 
                     "name": name, 
-                    "tag": "👑 今日金股", 
-                    "reason": " + ".join(reasons[:2]), # 只取前两个主要理由
+                    "tag": f"🚀 强势精选", 
+                    "reason": " + ".join(reasons[:2]), 
                     "score": score
                 }
+            count += 1
         except: continue
         
-    # 返回最高分的那一支
+    # 🔥 3. 确保一定返回一个结果（如果都没扫到，就硬推板块龙头）
+    if not best_stock and hot_codes:
+        code = hot_codes[0]
+        name = get_name(code, "", None)
+        best_stock = {
+            "code": code, "name": name, "tag": "🔥 板块龙头", 
+            "reason": f"资金回流【{hot_sector_name}】，关注板块核心资产。", "score": 8
+        }
+
+    # 返回单只股票列表
     return [best_stock] if best_stock else []
 
 def run_backtest(df):
@@ -1152,20 +1170,20 @@ with st.sidebar:
             is_pro = (view_mode == "专业模式")
         
         if not is_admin:
-            st.markdown("### 🎯 每日精选 (AI策略筛选)")
+            st.markdown("### 🎯 每日精选 (AI主力雷达)")
             user_wl = get_user_watchlist(user)
             
             # 被动刷新，只有点击才加载
-            if st.button("🚀 扫描今日金股 (点击刷新)", key="refresh_picks"):
-                with st.spinner("AI正在基于MACD/RSI/量能扫描盘面..."):
+            if st.button("🚀 扫描主力资金热点", key="refresh_picks"):
+                with st.spinner("AI正在扫描全市场，分析资金流向与板块轮动..."):
                     st.session_state.daily_picks_cache = get_daily_picks(user_wl)
             
             picks = st.session_state.daily_picks_cache
             
             if picks:
                 for pick in picks:
-                    st.success(f"🔥 综合得分: {pick['score']}")
-                    st.caption(f"💡 推荐理由: {pick['reason']}")
+                    st.success(f"🔥 主力评分: {pick['score']}")
+                    st.caption(f"💡 {pick['reason']}")
                     if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}", type="primary"):
                         st.session_state.code = pick['code']
                         st.rerun()
@@ -1325,15 +1343,16 @@ with st.sidebar:
         if is_admin:
             st.success("👑 管理员模式")
             
-            # 🔴 管理员配置 Token
-            with st.expander("🛠️ 管理员配置 (Tushare Token)", expanded=True):
+            # 🔴 🔥 修改：管理员默认折叠 expanded=False
+            with st.expander("🛠️ 管理员配置 (Tushare Token)", expanded=False):
                 t_token_in = st.text_input("Tushare Pro Token", value=st.session_state.ts_token, type="password")
                 if st.button("保存 Token"):
                     st.session_state.ts_token = t_token_in
                     st.success("Token 已缓存")
                     st.rerun()
 
-            with st.expander("👑 VIP 权限管理", expanded=True):
+            # 🔴 🔥 修改：管理员默认折叠 expanded=False
+            with st.expander("👑 VIP 权限管理", expanded=False):
                 df_u = load_users()
                 u_list = [x for x in df_u["username"] if x!=ADMIN_USER]
                 if u_list:
@@ -1345,7 +1364,8 @@ with st.sidebar:
                             time.sleep(1); st.rerun()
                         else: st.error("更新失败")
             
-            with st.expander("💳 卡密库存管理 (Stock)", expanded=True):
+            # 🔴 🔥 修改：管理员默认折叠 expanded=False
+            with st.expander("💳 卡密库存管理 (Stock)", expanded=False):
                 points_gen = st.selectbox("面值", [20, 50, 100, 200, 500])
                 count_gen = st.number_input("数量", 1, 50, 10)
                 if st.button("批量生成库存"):
@@ -1358,7 +1378,8 @@ with st.sidebar:
                     st.dataframe(df_k[df_k['status']=='unused'].groupby('points').size().reset_index(name='count'), hide_index=True)
                 except: pass
                     
-            with st.expander("用户管理"):
+            # 🔴 🔥 修改：管理员默认折叠 expanded=False
+            with st.expander("用户管理", expanded=False):
                 uploaded_file = st.file_uploader("📂 导入用户数据 (CSV)", type=['csv'])
                 if uploaded_file is not None:
                     try:

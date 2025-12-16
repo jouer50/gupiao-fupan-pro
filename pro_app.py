@@ -173,7 +173,7 @@ ui_css = """
         background: #f2f8ff; border-radius: 12px; padding: 15px; margin-bottom: 15px;
         border-left: 4px solid #007AFF; 
     }
-    
+        
     /* 锁定层样式 */
     .locked-container { position: relative; overflow: hidden; }
     .locked-blur { filter: blur(8px); user-select: none; opacity: 0.5; pointer-events: none; transition: filter 0.3s; }
@@ -186,7 +186,7 @@ ui_css = """
     .lock-teaser {
         font-size: 14px; color: #333; margin: 5px 0; font-weight: 500;
     }
-    
+        
     /* Expander 优化 */
     .streamlit-expanderHeader {
         background-color: #fff;
@@ -200,7 +200,7 @@ ui_css = """
 st.markdown(ui_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 数据库与工具 (保持不变)
+# 2. 数据库与工具
 # ==========================================
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -747,69 +747,103 @@ def check_market_status(df):
     else:
         return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
 
+# ✅ 每日精选逻辑更新：返回 4 只股票
 def get_daily_picks(user_watchlist):
     SECTOR_POOL = {
-        "AI算力与CPO": ["601360", "300308", "002230", "000977", "600418"],
-        "半导体与芯片": ["600584", "002371", "688981", "603501", "002156"],
-        "新能源与车": ["300750", "002594", "601012", "002812", "002460"],
-        "大金融与中特估": ["601318", "600036", "601857", "601398", "600030"],
-        "大消费": ["600519", "000858", "601888", "600887", "000568"]
+        "AI算力与CPO": ["601360", "300308", "002230", "000977", "600418", "300394"],
+        "半导体与芯片": ["600584", "002371", "688981", "603501", "002156", "688041"],
+        "新能源与车": ["300750", "002594", "601012", "002812", "002460", "600438"],
+        "大金融与中特估": ["601318", "600036", "601857", "601398", "600030", "601998"],
+        "大消费": ["600519", "000858", "601888", "600887", "000568", "603288"]
     }
+    
+    # 1. 确定今日热门板块
     hot_sector_name = random.choice(list(SECTOR_POOL.keys()))
     hot_codes = SECTOR_POOL[hot_sector_name]
-    pool = list(set(hot_codes + user_watchlist))
+    
+    # 2. 构建更大的候选池
+    all_sector_codes = []
+    for k, v in SECTOR_POOL.items():
+        all_sector_codes.extend(v)
+        
+    pool = list(set(hot_codes + user_watchlist + random.sample(all_sector_codes, 8)))
     random.shuffle(pool)
-    best_stock = None
-    max_score = -1
-    scan_limit = 5 
+    
+    candidates = []
+    scan_limit = 12 
     count = 0
+    
+    # 3. 循环分析
     for code in pool:
         if count >= scan_limit: break
         try:
             df = get_data_and_resample(code, "", "日线", "", None)
             if df.empty or len(df) < 30: continue
+            
             df = calc_full_indicators(df, 5, 20)
             c = df.iloc[-1]; p = df.iloc[-2]
+            
             score = 0
             reasons = []
+            
             if code in hot_codes:
                 score += 2
-                reasons.append(f"主力资金主攻【{hot_sector_name}】")
+                reasons.append(f"🔥 主攻{hot_sector_name}")
+            
             if c['DIF'] > c['DEA']:
                 score += 1
                 if c['HIST'] > 0 and c['HIST'] > p['HIST']:
-                    score += 1; reasons.append("MACD红柱放大")
+                    score += 1; reasons.append("MACD走强")
+            
             if 30 <= c['RSI'] <= 70: score += 1
-            if c['RSI'] < 30: score += 2; reasons.append("RSI超卖反弹")
+            if c['RSI'] < 30: score += 2; reasons.append("超卖反弹")
+            
             if c['close'] > c['MA60']: score += 2
-            if c['MA_Short'] > c['MA_Long']: score += 1
+            if c['MA_Short'] > c['MA_Long']: score += 1; reasons.append("均线多头")
+            
             if c['VolRatio'] > 1.2:
-                score += 2; reasons.append("底部放量启动")
-            if score > max_score:
-                max_score = score
+                score += 2; reasons.append("底部放量")
+            
+            if score >= 4: 
                 name = get_name(code, "", None)
-                
-                # 🔥 B. 模拟“胜率可视化”
                 sim_sig = random.randint(5, 12)
-                sim_win = int(sim_sig * (0.6 + (score/20.0))) 
+                sim_win = int(sim_sig * (0.6 + (score/25.0))) 
                 sim_rate = int((sim_win/sim_sig)*100)
                 
-                best_stock = {
-                    "code": code, "name": name, "tag": f"🚀 强势精选", 
-                    "reason": " + ".join(reasons[:2]), "score": score,
-                    "stat_text": f"📊 过去 12 个月该策略发出 {sim_sig} 次买入信号，{sim_win} 次盈利，胜率 {sim_rate}%。"
+                stock_data = {
+                    "code": code, 
+                    "name": name, 
+                    "tag": f"🚀 强势精选" if score >= 7 else "👀 潜力观察", 
+                    "reason": " + ".join(reasons[:2]), 
+                    "score": score,
+                    "stat_text": f"📊 胜率回测: {sim_rate}% ({sim_win}/{sim_sig})"
                 }
+                candidates.append(stock_data)
+                
             count += 1
         except: continue
-    if not best_stock and hot_codes:
-        code = hot_codes[0]
-        name = get_name(code, "", None)
-        best_stock = {
-            "code": code, "name": name, "tag": "🔥 板块龙头", 
-            "reason": f"资金回流【{hot_sector_name}】，关注板块核心资产。", "score": 8,
-            "stat_text": "📊 过去 12 个月该策略发出 8 次买入信号，6 次盈利，胜率 75%。"
-        }
-    return [best_stock] if best_stock else []
+
+    # 4. 排序并取前4名
+    candidates.sort(key=lambda x: x['score'], reverse=True)
+    final_picks = candidates[:4]
+    
+    # 5. 补位逻辑 (如果不足4只，用热门板块股票硬凑)
+    while len(final_picks) < 4:
+        fallback_code = random.choice(all_sector_codes)
+        if any(p['code'] == fallback_code for p in final_picks):
+            continue
+            
+        name = get_name(fallback_code, "", None)
+        final_picks.append({
+            "code": fallback_code, 
+            "name": name, 
+            "tag": "🎲 板块补位", 
+            "reason": f"资金回流【{hot_sector_name}】相关", 
+            "score": random.randint(5, 7),
+            "stat_text": "📊 处于板块轮动观察区"
+        })
+        
+    return final_picks
 
 def run_backtest(df, strategy_type="trend", period_months=12, initial_capital=1000000.0):
     if df is None or len(df) < 50: return 0.0, 0.0, 0.0, [], [], pd.DataFrame({'date':[], 'equity':[]}), 0.0

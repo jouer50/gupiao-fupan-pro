@@ -1691,9 +1691,6 @@ try:
     """, unsafe_allow_html=True)
     
     # ✅ 优化：计算 5 维分数并展示雷达图 
-
-[Image of Radar Chart]
-
     sq, sv, st_, sm, ss = calculate_smart_score(df, funda)
     
     st.markdown(f"""
@@ -1828,7 +1825,7 @@ try:
             if len(buy_sigs) > 0:
                 buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
                 bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                                marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
+                                                    marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
             
             bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户资产", hovermode="x unified")
             st.plotly_chart(bt_fig, use_container_width=True)

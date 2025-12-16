@@ -11,9 +11,7 @@ from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
 import json
-import urllib.request
-import socket
-import base64
+import base64 # 用于处理二维码图片
 
 # ✅ 0. 依赖库检查
 try:
@@ -73,7 +71,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (保留基础结构以维持功能显示的完整性)
+# 🔥 CSS 样式 (保持您满意的这套原有样式，不做额外修改)
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -1076,27 +1074,40 @@ def generate_strategy_card(df, name):
     """
     return html
 
+# ✅ 改进：使用本地图片生成装X海报
 def generate_viral_poster(name, score, code):
-    # ✅ 改进 3：病毒裂变海报
+    img_src = "https://via.placeholder.com/100?text=QR+Code" # 默认占位
+    
+    # 读取同目录下的 qrcode.png 并转为 Base64
+    if os.path.exists("qrcode.png"):
+        try:
+            with open("qrcode.png", "rb") as f:
+                b64_data = base64.b64encode(f.read()).decode()
+            img_src = f"data:image/png;base64,{b64_data}"
+        except:
+            pass
+            
     return f"""
     <div class="poster-box">
         <div class="poster-title">阿尔法量研 Pro · 深度诊股</div>
-        <div style="font-size:14px; opacity:0.9;">{name} ({code})</div>
+        <div style="font-size:18px; font-weight:bold; margin-bottom:5px;">{name} <span style="font-size:14px; opacity:0.8;">({code})</span></div>
         <div style="margin: 20px 0;">
-            <div style="font-size:12px;">AI 综合评分</div>
+            <div style="font-size:12px; text-transform:uppercase; letter-spacing:1px;">AI Composite Score</div>
             <div class="poster-score">{score:.1f}</div>
-            <div style="font-size:12px; background:rgba(255,255,255,0.2); border-radius:10px; padding:2px 10px; display:inline-block;">🚀 击败了 92% 的股票</div>
+            <div style="font-size:12px; background:rgba(255,255,255,0.2); border-radius:10px; padding:4px 12px; display:inline-block; margin-top:5px;">🚀 击败了 92% 的股票</div>
         </div>
-        <div style="text-align:left; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px; font-size:12px; margin-bottom:15px;">
-            🤖 <b>AI 评语：</b><br>
-            主力资金介入明显，技术面出现金叉信号，短期爆发力极强。建议加入自选关注！
+        
+        <div style="text-align:left; background:rgba(0,0,0,0.25); padding:15px; border-radius:12px; font-size:13px; margin-bottom:20px; border:1px solid rgba(255,255,255,0.1);">
+            <div style="margin-bottom:5px;">🤖 <b>AlphaAI 评语：</b></div>
+            主力资金介入迹象明显，技术面出现金叉共振信号，短期爆发力评级为 A+。建议加入自选重点关注！
         </div>
+
         <div class="poster-footer">
-            <div>
-                <div>扫码查看完整报告</div>
-                <div style="font-size:9px;">AlphaQuant Pro</div>
+            <div style="text-align:left;">
+                <div style="font-weight:bold; font-size:12px;">长按图片保存分享</div>
+                <div style="font-size:9px; opacity:0.7;">数据来源：AlphaQuant Pro V82</div>
             </div>
-            <div style="background:white; color:#333; width:50px; height:50px; display:flex; align-items:center; justify-content:center; font-weight:bold; border-radius:4px;">QR</div>
+            <img src="{img_src}" style="width:70px; height:70px; border-radius:8px; border:3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
         </div>
     </div>
     """
@@ -1784,11 +1795,11 @@ try:
 
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
 
-    # ✅ 修改：后悔药计算器 - 逻辑改为一个月前 (满足用户短视需求)
+    # ✅ 改进：后悔药逻辑 - 修改为“1个月前”
     st.markdown("### 💊 既然来了，算算后悔药")
     if len(df) > 22: # 确保有足够数据 (22个交易日约等于一个月)
         price_now = df.iloc[-1]['close']
-        price_1m = df.iloc[-22]['close'] # 一个月前
+        price_1m = df.iloc[-22]['close'] # 一个月前 (近似)
         delta_1m = (price_now - price_1m) / price_1m
         money_now = 100000 * (1 + delta_1m)
         color_1m = "#ff3b30" if delta_1m > 0 else "#00c853"
@@ -1816,12 +1827,14 @@ try:
     else:
         st.info("🔒 开启 [专业模式] 可查看具体的买卖点位、止盈止损价格及仓位建议。")
     
-    # ✅ 病毒式海报区域
-    with st.expander("📸 生成朋友圈装X海报", expanded=False):
+    # ✅ 改进：病毒式海报区域 - 标题修改 + 本地二维码 + 样式增强
+    with st.expander("📸 生成朋友圈装X海报 (转发即送20积分)", expanded=False):
         final_score = (sq + sv + st_ + sm + ss) / 5.0 * 10
         poster_html = generate_viral_poster(name, final_score, st.session_state.code)
         st.markdown(poster_html, unsafe_allow_html=True)
-        st.caption("截图保存分享，展示你的专业眼光")
+        # 诱导转发的文案
+        st.success("📢 **福利活动**：长按上方图片保存，转发至朋友圈，截图发给下方公众号，**即刻获赠 20 积分！**")
+        st.caption("注：图片保存功能取决于浏览器兼容性，如无法保存请截图。")
 
     with st.expander("⚖️ 历史验证 (这只股票适合什么玩法?)", expanded=True): 
         c_p1, c_p2 = st.columns([2, 1])

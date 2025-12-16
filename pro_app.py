@@ -11,6 +11,9 @@ from plotly.subplots import make_subplots
 import traceback
 from datetime import datetime, timedelta
 import json
+import urllib.request
+import socket
+import base64
 
 # ✅ 0. 依赖库检查
 try:
@@ -108,18 +111,34 @@ ui_css = """
         width: 40px !important;
         height: 40px !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] svg {
+        fill: #333333 !important;
+        width: 20px !important;
+        height: 20px !important;
     }
 
     /* 按钮 - APP风格 */
     div.stButton > button {
+        background: white;
+        color: #333;
+        border: 1px solid #e0e0e0;
         border-radius: 12px;
         min-height: 44px;
         font-weight: 600;
+        width: 100%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03); 
     }
+    div.stButton > button:active { transform: scale(0.98); background: #f5f5f5; }
+
     div.stButton > button[kind="primary"] { 
         background: linear-gradient(135deg, #007AFF 0%, #0056b3 100%); 
         color: white; 
         border: none; 
+        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
     }
 
     /* 卡片容器 */
@@ -129,6 +148,7 @@ ui_css = """
         padding: 16px; 
         margin-bottom: 12px; 
         box-shadow: 0 2px 10px rgba(0,0,0,0.03); 
+        border: 1px solid rgba(0,0,0,0.02);
     }
 
     /* 状态栏 */
@@ -145,7 +165,7 @@ ui_css = """
 
     /* 价格大字 */
     .big-price-box { text-align: center; margin: 10px 0 20px 0; }
-    .price-main { font-size: 42px; font-weight: 800; line-height: 1; }
+    .price-main { font-size: 42px; font-weight: 800; line-height: 1; letter-spacing: -1px; font-family: "SF Pro Display", sans-serif; }
     .price-sub { font-size: 15px; font-weight: 600; margin-left: 6px; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,0.05); }
 
     /* AI 对话框 */
@@ -156,7 +176,7 @@ ui_css = """
     
     /* 锁定层样式 - 增强诱导性 */
     .locked-container { position: relative; overflow: hidden; }
-    .locked-blur { filter: blur(8px); user-select: none; opacity: 0.5; pointer-events: none; }
+    .locked-blur { filter: blur(8px); user-select: none; opacity: 0.5; pointer-events: none; transition: filter 0.3s; }
     .locked-overlay {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -166,6 +186,29 @@ ui_css = """
     .lock-teaser {
         font-size: 14px; color: #333; margin: 5px 0; font-weight: 500;
     }
+    
+    /* Expander 优化 */
+    .streamlit-expanderHeader {
+        background-color: #fff;
+        border-radius: 12px;
+        font-size: 15px;
+        font-weight: 600;
+        border: 1px solid #f0f0f0;
+    }
+    
+    /* 结论小徽章样式 */
+    .conc-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: bold;
+        margin-left: 5px;
+    }
+    .conc-bull { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+    .conc-bear { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+    .conc-neut { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
+
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
@@ -1551,8 +1594,18 @@ name = get_name(st.session_state.code, st.session_state.ts_token, None)
 st.title(f"📈 {name} ({st.session_state.code})")
 
 is_demo = False
-loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
-with st.spinner(random.choice(loading_tips)):
+
+# ✅ 修改：自定义交易格言加载提示
+loading_quotes = [
+    "“市场不欠我钱，但一定会拿我钱”",
+    "“错过的机会不是我的钱”",
+    "“保住本金才是第一位”",
+    "“我的钱不能被他们拿去化债”"
+]
+# 随机选择一句
+selected_quote = random.choice(loading_quotes)
+
+with st.spinner(f"⏳ {selected_quote} | 正在加载数据..."):
     df = get_data_and_resample(st.session_state.code, st.session_state.ts_token, timeframe, adjust, proxy=None)
     
     # ✅ 优化：增强数据检查逻辑，防止空指针报错
@@ -1734,7 +1787,7 @@ try:
             if len(buy_sigs) > 0:
                 buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
                 bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                              marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
+                                                marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
             
             bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户资产", hovermode="x unified")
             st.plotly_chart(bt_fig, use_container_width=True)

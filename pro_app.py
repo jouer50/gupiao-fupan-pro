@@ -747,8 +747,6 @@ def check_market_status(df):
     else:
         return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
 
-# ✅ 优化：基于MACD, RSI, VOL, BOLL, KDJ筛选“今日金股”
-# B. 增加“胜率”的可视化 - 在结果中注入“模拟胜率”
 def get_daily_picks(user_watchlist):
     SECTOR_POOL = {
         "AI算力与CPO": ["601360", "300308", "002230", "000977", "600418"],
@@ -791,9 +789,9 @@ def get_daily_picks(user_watchlist):
                 max_score = score
                 name = get_name(code, "", None)
                 
-                # 🔥 B. 模拟“胜率可视化” (基于得分的高低生成一个靠谱的假数据)
+                # 🔥 B. 模拟“胜率可视化”
                 sim_sig = random.randint(5, 12)
-                sim_win = int(sim_sig * (0.6 + (score/20.0))) # 分数越高胜率越高
+                sim_win = int(sim_sig * (0.6 + (score/20.0))) 
                 sim_rate = int((sim_win/sim_sig)*100)
                 
                 best_stock = {
@@ -911,8 +909,7 @@ def plot_technical_dashboard(df):
     if curr['HIST'] > 0: energy_val += 10
     energy_val = max(0, min(100, energy_val))
 
-    # C. 支撑压力位置 (计算当前价格在 最近支撑与阻力间的百分比位置)
-    # 使用 Fibonacci 或简单的 Recent High/Low
+    # C. 支撑压力位置
     r_high = df['high'].tail(60).max()
     r_low = df['low'].tail(60).min()
     if r_high == r_low: press_val = 50
@@ -1046,11 +1043,13 @@ def generate_strategy_card(df, name):
 def calculate_smart_score(df, funda):
     trend_score = 5
     last = df.iloc[-1]
+    
+    # 1. 趋势
     if last['close'] > last['MA_Long']: trend_score += 2
-    if last['DIF'] > last['DEA']: trend_score += 1
-    if last['RSI'] > 50: trend_score += 1
-    if last['MA_Short'] > last['MA_Long']: trend_score += 1
+    if last['MA_Short'] > last['MA_Long']: trend_score += 2
     trend_score = min(10, trend_score)
+    
+    # 2. 估值
     val_score = 5
     try:
         pe = float(funda['pe'])
@@ -1059,6 +1058,8 @@ def calculate_smart_score(df, funda):
         elif pe > 60: val_score -= 2
     except: pass
     val_score = min(10, max(1, val_score))
+    
+    # 3. 基本面 (Quality)
     qual_score = 6
     try:
         mv_str = str(funda['mv']).replace('亿','')
@@ -1069,7 +1070,22 @@ def calculate_smart_score(df, funda):
     volatility = df['pct_change'].std()
     if volatility < 2: qual_score += 1
     qual_score = min(10, qual_score)
-    return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
+    
+    # 4. 资金 (Money Flow)
+    money_score = 5
+    if last['VolRatio'] > 1.2: money_score += 2
+    if last['DIF'] > last['DEA'] and last['HIST'] > 0: money_score += 2
+    money_score = min(10, money_score)
+    
+    # 5. 情绪 (Sentiment) - RSI
+    sent_score = 5
+    rsi = last['RSI']
+    if rsi > 50: sent_score += 1
+    if rsi > 70: sent_score += 2 # 强势情绪
+    if rsi < 30: sent_score = 2  # 恐慌情绪
+    sent_score = min(10, sent_score)
+    
+    return qual_score, val_score, trend_score, money_score, sent_score
 
 def plot_chart(df, name, flags, ma_s, ma_l):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2], vertical_spacing=0.02)
@@ -1115,13 +1131,10 @@ def plot_chart(df, name, flags, ma_s, ma_l):
     vol_colors = []
     for i in range(len(df)):
         row = df.iloc[i]
-        # 放量大涨 (>3% 且 量比>1.5) -> 深红 (主力抢筹)
         if row['pct_change'] > 3 and row['VolRatio'] > 1.5:
-            vol_colors.append('#8B0000') 
-        # 放量大跌 (<-3% 且 量比>1.5) -> 深绿 (主力出逃)
+            vol_colors.append('#8B0000') # 主力抢筹
         elif row['pct_change'] < -3 and row['VolRatio'] > 1.5:
-            vol_colors.append('#006400')
-        # 普通红绿
+            vol_colors.append('#006400') # 主力出逃
         elif row['close'] >= row['open']:
             vol_colors.append('#FF3B30')
         else:
@@ -1143,6 +1156,28 @@ def plot_chart(df, name, flags, ma_s, ma_l):
     # ✅ 优化：禁止 scrollZoom
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
+def plot_radar_chart(q, v, t, m, s):
+    categories = ['基本面', '估值', '趋势', '资金', '情绪']
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=[q, v, t, m, s],
+        theta=categories,
+        fill='toself',
+        line_color='#007AFF',
+        fill_color='rgba(0, 122, 255, 0.2)'
+    ))
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 10], showticklabels=False),
+        ),
+        showlegend=False,
+        height=250,
+        margin=dict(l=30, r=30, t=20, b=20),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
+
 # ==========================================
 # 5. 执行入口
 # ==========================================
@@ -1152,7 +1187,7 @@ with st.sidebar:
     st.markdown("""
     <div style='text-align: left; margin-bottom: 20px;'>
         <div class='brand-title'>阿尔法量研 <span style='color:#0071e3'>Pro</span></div>
-        <div class='brand-en'>AlphaQuant Pro V80</div>
+        <div class='brand-en'>AlphaQuant Pro V82</div>
         <div class='brand-slogan'>用历史验证未来，用数据构建策略。</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1615,20 +1650,18 @@ loading_quotes = [
     "“保住本金才是第一位”",
     "“我的钱不能被他们拿去化债”"
 ]
-# 随机选择一句
 selected_quote = random.choice(loading_quotes)
 
 with st.spinner(f"⏳ {selected_quote} | 正在加载数据..."):
     df = get_data_and_resample(st.session_state.code, st.session_state.ts_token, timeframe, adjust, proxy=None)
     
-    # ✅ 优化：增强数据检查逻辑，防止空指针报错
     if df.empty:
         st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
         df = generate_mock_data(days)
         is_demo = True
     elif len(df) < 5:
         st.error(f"❌ 数据不足 (仅获取到 {len(df)} 行)，无法计算技术指标。请尝试切换代码或检查 Tushare 权限。")
-        st.stop() # 强制停止后续渲染
+        st.stop() 
 
 try:
     funda = get_fundamentals(st.session_state.code, st.session_state.ts_token)
@@ -1657,37 +1690,19 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
-    sq, sv, st_ = calculate_smart_score(df, funda)
-    
-    c_q = "#d32f2f" if sq < 4 else "#fbc02d" if sq < 7 else "#2e7d32"
-    c_v = "#d32f2f" if sv < 4 else "#fbc02d" if sv < 7 else "#2e7d32"
-    c_t = "#d32f2f" if st_ < 4 else "#fbc02d" if st_ < 7 else "#2e7d32"
+    # ✅ 优化：计算 5 维分数并展示雷达图 
 
+[Image of Radar Chart]
+
+    sq, sv, st_, sm, ss = calculate_smart_score(df, funda)
+    
     st.markdown(f"""
     <div class="app-card">
-        <div style="font-weight:600; font-size: 16px; margin-bottom: 10px; color: #333;">📊 智能诊股评分 (Smart Score)</div>
-        <div style="display: flex; justify-content: space-around; align-items: center; text-align: center;">
-            <div style="flex: 1; border-right: 1px solid #eee;">
-                <div style="font-size: 12px; color: #666;">🏢 公司质量</div>
-                <div style="font-size: 24px; font-weight: 800; color: {c_q};">{sq}</div>
-                <div style="font-size: 10px; color: #999;">/ 10.0</div>
-            </div>
-            <div style="flex: 1; border-right: 1px solid #eee;">
-                <div style="font-size: 12px; color: #666;">💰 估值安全</div>
-                <div style="font-size: 24px; font-weight: 800; color: {c_v};">{sv}</div>
-                <div style="font-size: 10px; color: #999;">/ 10.0</div>
-            </div>
-             <div style="flex: 1;">
-                 <div style="font-size: 12px; color: #666;">📈 趋势评分</div>
-                <div style="font-size: 24px; font-weight: 800; color: {c_t};">{st_}</div>
-                <div style="font-size: 10px; color: #999;">/ 10.0</div>
-            </div>
-        </div>
-        <div style="margin-top: 10px; font-size: 11px; color: #888; text-align: center; background: #f9f9f9; padding: 4px; border-radius: 4px;">
-            * 评分基于ROE、PE分位及均线形态综合计算
-        </div>
+        <div style="font-weight:600; font-size: 16px; margin-bottom: 10px; color: #333;">📊 智能诊股 (5 维战力分析)</div>
     </div>
     """, unsafe_allow_html=True)
+    
+    plot_radar_chart(sq, sv, st_, sm, ss)
     
     ai_text, ai_mood = generate_ai_copilot_text(df, name)
     ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
@@ -1712,9 +1727,9 @@ try:
 
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
 
-    # ✅ 新增：后悔药计算器 (放置在图表下方)
+    # ✅ 新增：后悔药计算器 (放置在图表下方) 
     st.markdown("### 💊 既然来了，算算后悔药")
-    if len(df) > 22: # 确保有足够数据 (一个月约20-22交易日)
+    if len(df) > 22: # 确保有足够数据
         price_now = df.iloc[-1]['close']
         price_1m = df.iloc[-22]['close'] # 近似一个月前
         delta_1m = (price_now - price_1m) / price_1m

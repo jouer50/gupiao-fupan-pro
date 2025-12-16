@@ -73,7 +73,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式
+# 🔥 CSS 样式 (保留基础结构以维持功能显示的完整性)
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -1077,17 +1077,7 @@ def generate_strategy_card(df, name):
     return html
 
 def generate_viral_poster(name, score, code):
-    # ✅ 改进：自动读取本地 qrcode.png 并转为 Base64
-    img_src = "https://via.placeholder.com/100?text=QR" # 默认占位
-    
-    if os.path.exists("qrcode.png"):
-        try:
-            with open("qrcode.png", "rb") as f:
-                b64_data = base64.b64encode(f.read()).decode()
-            img_src = f"data:image/png;base64,{b64_data}"
-        except:
-            pass
-            
+    # ✅ 改进 3：病毒裂变海报
     return f"""
     <div class="poster-box">
         <div class="poster-title">阿尔法量研 Pro · 深度诊股</div>
@@ -1106,7 +1096,7 @@ def generate_viral_poster(name, score, code):
                 <div>扫码查看完整报告</div>
                 <div style="font-size:9px;">AlphaQuant Pro</div>
             </div>
-            <img src="{img_src}" style="width:60px; height:60px; border-radius:4px; border:2px solid white;">
+            <div style="background:white; color:#333; width:50px; height:50px; display:flex; align-items:center; justify-content:center; font-weight:bold; border-radius:4px;">QR</div>
         </div>
     </div>
     """
@@ -1826,13 +1816,12 @@ try:
     else:
         st.info("🔒 开启 [专业模式] 可查看具体的买卖点位、止盈止损价格及仓位建议。")
     
-    # ✅ 病毒式海报区域 - 增加了福利文案 + 真实二维码读取
+    # ✅ 病毒式海报区域
     with st.expander("📸 生成朋友圈装X海报", expanded=False):
         final_score = (sq + sv + st_ + sm + ss) / 5.0 * 10
         poster_html = generate_viral_poster(name, final_score, st.session_state.code)
         st.markdown(poster_html, unsafe_allow_html=True)
-        # 诱导转发的文案
-        st.success("📢 **福利活动**：转发上方海报至朋友圈，截图联系客服（微信同二维码），**即刻获赠 20 积分！**")
+        st.caption("截图保存分享，展示你的专业眼光")
 
     with st.expander("⚖️ 历史验证 (这只股票适合什么玩法?)", expanded=True): 
         c_p1, c_p2 = st.columns([2, 1])

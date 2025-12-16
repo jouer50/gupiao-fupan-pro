@@ -71,7 +71,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 (保持您满意的这套原有样式，不做额外修改)
+# 🔥 CSS 样式 (保持原有样式)
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -204,6 +204,7 @@ ui_css = """
         box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         margin-top: 10px;
         border: 2px solid #fff;
+        position: relative;
     }
     .poster-score { font-size: 48px; font-weight: 900; color: #FFd700; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
     .poster-title { font-size: 20px; font-weight: bold; margin-bottom: 10px; }
@@ -1076,38 +1077,40 @@ def generate_strategy_card(df, name):
 
 # ✅ 改进：使用本地图片生成装X海报
 def generate_viral_poster(name, score, code):
-    img_src = "https://via.placeholder.com/100?text=QR+Code" # 默认占位
+    # 默认占位图，如果找不到本地文件
+    img_src = "https://via.placeholder.com/150?text=QR+Code"
     
-    # 读取同目录下的 qrcode.png 并转为 Base64
+    # 尝试读取本地 qrcode.png 并转为 Base64
     if os.path.exists("qrcode.png"):
         try:
             with open("qrcode.png", "rb") as f:
-                b64_data = base64.b64encode(f.read()).decode()
+                # 关键：移除可能存在的换行符，防止破坏 HTML
+                b64_data = base64.b64encode(f.read()).decode().replace("\n", "")
             img_src = f"data:image/png;base64,{b64_data}"
-        except:
+        except Exception:
             pass
-            
+
     return f"""
-    <div class="poster-box">
+    <div class="poster-box" style="position: relative;">
         <div class="poster-title">阿尔法量研 Pro · 深度诊股</div>
-        <div style="font-size:18px; font-weight:bold; margin-bottom:5px;">{name} <span style="font-size:14px; opacity:0.8;">({code})</span></div>
+        <div style="font-size:18px; font-weight:bold; margin-bottom:10px;">{name} <span style="font-size:14px; opacity:0.8;">({code})</span></div>
         <div style="margin: 20px 0;">
-            <div style="font-size:12px; text-transform:uppercase; letter-spacing:1px;">AI Composite Score</div>
+            <div style="font-size:12px; opacity:0.8; letter-spacing:1px;">AI 综合评分</div>
             <div class="poster-score">{score:.1f}</div>
             <div style="font-size:12px; background:rgba(255,255,255,0.2); border-radius:10px; padding:4px 12px; display:inline-block; margin-top:5px;">🚀 击败了 92% 的股票</div>
         </div>
         
         <div style="text-align:left; background:rgba(0,0,0,0.25); padding:15px; border-radius:12px; font-size:13px; margin-bottom:20px; border:1px solid rgba(255,255,255,0.1);">
-            <div style="margin-bottom:5px;">🤖 <b>AlphaAI 评语：</b></div>
+            <div style="margin-bottom:5px; font-weight:bold; color:#FFD700;">🤖 AI 核心逻辑：</div>
             主力资金介入迹象明显，技术面出现金叉共振信号，短期爆发力评级为 A+。建议加入自选重点关注！
         </div>
 
-        <div class="poster-footer">
+        <div class="poster-footer" style="display: flex; justify-content: space-between; align-items: flex-end;">
             <div style="text-align:left;">
-                <div style="font-weight:bold; font-size:12px;">长按图片保存分享</div>
-                <div style="font-size:9px; opacity:0.7;">数据来源：AlphaQuant Pro V82</div>
+                <div style="font-weight:bold; font-size:14px; margin-bottom:2px;">长按图片保存分享 ➔</div>
+                <div style="font-size:10px; opacity:0.7;">数据来源：AlphaQuant Pro V82</div>
             </div>
-            <img src="{img_src}" style="width:70px; height:70px; border-radius:8px; border:3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+            <img src="{img_src}" style="width:80px; height:80px; border-radius:8px; border:3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.2); pointer-events: auto; display: block;">
         </div>
     </div>
     """
@@ -1323,14 +1326,16 @@ with st.sidebar:
                 else:
                     for c in current_wl:
                         c1, c2 = st.columns([3, 1])
-                        if c1.button(f"{c}", key=f"wl_{c}"):
-                            st.session_state.code = c
-                            st.session_state.paid_code = ""
-                            save_user_last_code(user, c)
-                            st.rerun()
-                        if c2.button("✖️", key=f"del_{c}"):
-                            update_watchlist(user, c, "remove")
-                            st.rerun()
+                        with c1:
+                            if st.button(f"{c}", key=f"wl_{c}"):
+                                st.session_state.code = c
+                                st.session_state.paid_code = ""
+                                save_user_last_code(user, c)
+                                st.rerun()
+                        with c2:
+                            if st.button("✖️", key=f"del_{c}"):
+                                update_watchlist(user, c, "remove")
+                                st.rerun()
 
     if st.session_state.get('logged_in'):
         is_vip, vip_msg = check_vip_status(user)
@@ -1797,7 +1802,8 @@ try:
 
     # ✅ 改进：后悔药逻辑 - 修改为“1个月前”
     st.markdown("### 💊 既然来了，算算后悔药")
-    if len(df) > 22: # 确保有足够数据 (22个交易日约等于一个月)
+    # 确保有足够数据 (22个交易日约等于一个月)
+    if len(df) > 22:
         price_now = df.iloc[-1]['close']
         price_1m = df.iloc[-22]['close'] # 一个月前 (近似)
         delta_1m = (price_now - price_1m) / price_1m
@@ -1898,48 +1904,37 @@ try:
             bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
                                     line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
             
+            # 补全截断的代码部分: 绘制基准线
             if st_key != "dca":
-                bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (死拿不动)', 
-                                    line=dict(color='#9e9e9e', width=1.5, dash='dash')))
-            
-            if len(buy_sigs) > 0:
-                buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
-                bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                                    marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
-            
-            bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户资产", hovermode="x unified")
+                bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (Buy & Hold)',
+                                          line=dict(color='#9e9e9e', width=1, dash='dot')))
+
+            # 绘制买卖点
+            if buy_sigs:
+                buy_y = eq[eq['date'].isin(buy_sigs)]['equity']
+                bt_fig.add_trace(go.Scatter(x=buy_sigs, y=buy_y, mode='markers',
+                                          marker=dict(symbol='triangle-up', color='red', size=10),
+                                          name='买入信号'))
+            if sell_sigs:
+                sell_y = eq[eq['date'].isin(sell_sigs)]['equity']
+                bt_fig.add_trace(go.Scatter(x=sell_sigs, y=sell_y, mode='markers',
+                                          marker=dict(symbol='triangle-down', color='green', size=10),
+                                          name='卖出信号'))
+
+            bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=10,b=0),
+                               xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#f0f0f0'))
             st.plotly_chart(bt_fig, use_container_width=True)
 
     if not has_access:
-        st.markdown('</div>', unsafe_allow_html=True) 
-        try: bal = load_users()[load_users()["username"]==user]["quota"].iloc[0]
-        except: bal = 0
-        
-        # 🔥 C. 模糊的艺术 (钩子优化)
+        st.markdown('</div></div>', unsafe_allow_html=True)
         st.markdown(f"""
         <div class="locked-overlay">
-            <div class="lock-icon">🔒</div>
-            <div class="lock-title">深度策略已锁定</div>
-            
-            <div style="margin-top:15px; text-align:left; background:rgba(255,255,255,0.8); padding:10px; border-radius:8px;">
-                <div class="lock-teaser">📊 智能评分: <span style="color:#d32f2f; font-weight:bold;">{sq} (极具潜力)</span></div>
-                <div class="lock-teaser">🏦 机构动向: <span style="color:#d32f2f;">主力资金连续 3 日大额流入...</span></div>
-                <div class="lock-teaser">📈 关键点位: <span style="color:#007AFF;">支撑位 {df.iloc[-1]['close']*0.9:.2f} 有极强防守...</span></div>
-            </div>
-
-            <div style="font-size:12px; color:#666; margin-top:10px;">解锁查看完整买卖点位、机构资金流向及 AI 研报</div>
+            <div style="font-size:40px;">🔒</div>
+            <div class="lock-teaser">专业版内容仅对 VIP 开放</div>
+            <div style="font-size:12px; color:gray; margin-top:5px;">包含：筹码分布、阻力位测算、买卖点信号</div>
         </div>
         """, unsafe_allow_html=True)
-        
-        c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
-        with c_lock2:
-            if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", key="main_unlock", type="primary", use_container_width=True):
-                if consume_quota(user):
-                    st.session_state.paid_code = st.session_state.code
-                    st.session_state.view_mode_idx = 1 # 强制开启 Pro 模式
-                    st.rerun()
-                else: st.error("积分不足！")
-        
+
 except Exception as e:
-    st.error(f"Error: {e}")
-    st.error(traceback.format_exc())
+    st.error(f"系统运行出错: {e}")
+    st.markdown(f"```\n{traceback.format_exc()}\n```")

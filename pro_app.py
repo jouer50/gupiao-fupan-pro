@@ -19,7 +19,7 @@ import base64
 try:
     import yfinance as yf
 except ImportError:
-    st.error("🚨 严重错误：缺少 `yfinance` 库")
+    st.error("🚨 严重错误：缺少 `yfinance` 库，请 pip install yfinance")
     st.stop()
 
 # ==========================================
@@ -39,7 +39,7 @@ if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
 if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None
 if "enable_realtime" not in st.session_state: st.session_state.enable_realtime = False
-if "ts_token" not in st.session_state: st.session_state.ts_token = "你的Tushare接口密钥" # 默认预留
+if "ts_token" not in st.session_state: st.session_state.ts_token = "你的Tushare接口密钥" 
 if "view_mode_idx" not in st.session_state: st.session_state.view_mode_idx = 0 
 
 # ✅ 模拟交易数据结构初始化
@@ -92,7 +92,7 @@ ui_css = """
         max-width: 100% !important;
     }
 
-    /* 隐藏 Streamlit 默认头部干扰，但保留空间给按钮 */
+    /* 隐藏 Streamlit 默认头部干扰 */
     header[data-testid="stHeader"] { 
         background-color: transparent !important;
         height: 3rem !important;
@@ -100,7 +100,7 @@ ui_css = """
     footer { display: none !important; }
     [data-testid="stDecoration"] { display: none !important; }
 
-    /* ✅ 修复：侧边栏折叠按钮 (移动端左上角) */
+    /* ✅ 修复：侧边栏折叠按钮 */
     [data-testid="stSidebarCollapsedControl"] {
         position: fixed !important;
         top: 12px !important; 
@@ -108,9 +108,9 @@ ui_css = """
         background-color: #ffffff !important;
         border: 1px solid #e0e0e0 !important;
         border-radius: 50% !important;
-        color: #333333 !important; /* 强制深色图标 */
+        color: #333333 !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
-        z-index: 9999999 !important; /* 最高层级 */
+        z-index: 9999999 !important;
         width: 40px !important;
         height: 40px !important;
         display: flex !important;
@@ -175,9 +175,6 @@ ui_css = """
     .price-main { font-size: 42px; font-weight: 800; line-height: 1; letter-spacing: -1px; font-family: "SF Pro Display", sans-serif; }
     .price-sub { font-size: 15px; font-weight: 600; margin-left: 6px; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,0.05); }
 
-    /* 模拟交易小按钮组 */
-    .trade-btn-group { display: flex; gap: 4px; margin-bottom: 8px; }
-
     /* 锁定层样式 */
     .locked-container { position: relative; overflow: hidden; }
     .locked-blur { filter: blur(8px); user-select: none; opacity: 0.5; pointer-events: none; transition: filter 0.3s; }
@@ -211,9 +208,6 @@ ui_css = """
     .bt-card { background: #f9f9f9; padding: 12px; border-radius: 10px; text-align: center; }
     .bt-val { font-size: 20px; font-weight: 800; color: #333; }
     .bt-lbl { font-size: 11px; color: #666; margin-top: 4px; }
-    .bt-pos { color: #d32f2f; }
-    .bt-neg { color: #2e7d32; }
-    .bt-neu { color: #1976d2; }
         
     /* 结论小徽章样式 */
     .conc-badge {
@@ -227,18 +221,6 @@ ui_css = """
     .conc-bull { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
     .conc-bear { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
     .conc-neut { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
-        
-    /* 跑赢大盘提示样式 */
-    .alpha-box {
-        background: linear-gradient(90deg, #fff3e0, #ffe0b2);
-        color: #e65100;
-        padding: 10px;
-        border-radius: 8px;
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 12px;
-        border: 1px solid #ffcc80;
-    }
 
     /* --- 新增：卡片化仪表盘样式 --- */
     .dashboard-grid {
@@ -280,7 +262,6 @@ st.markdown(ui_css, unsafe_allow_html=True)
 # ==========================================
 # 2. 数据库与工具
 # ==========================================
-# 🚀 优化：增加 last_code 字段，用于记忆用户最后查看的股票
 def init_db():
     if not os.path.exists(DB_FILE):
         df = pd.DataFrame(columns=["username", "password_hash", "watchlist", "quota", "vip_expiry", "paper_json", "rt_perm", "last_code"])
@@ -1841,19 +1822,27 @@ st.title(f"📈 {name} ({st.session_state.code})")
 
 is_demo = False
 loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
-with st.spinner(random.choice(loading_tips)):
-    df = get_data_and_resample(st.session_state.code, st.session_state.ts_token, timeframe, adjust, proxy=None)
-    if df.empty:
-        st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
-        df = generate_mock_data(days)
-        is_demo = True
 
+# ==========================================
+# 🛑 修正后的主逻辑执行块
+# ==========================================
 try:
+    with st.spinner(random.choice(loading_tips)):
+        df = get_data_and_resample(st.session_state.code, st.session_state.ts_token, timeframe, adjust, proxy=None)
+        
+        # 如果获取不到数据，生成模拟数据并提示
+        if df.empty:
+            st.warning("⚠️ 暂无数据 (可能因网络原因或代码错误)。自动切换至演示模式。")
+            df = generate_mock_data(days)
+            is_demo = True
+
+    # 获取基本面数据
     funda = get_fundamentals(st.session_state.code, st.session_state.ts_token)
+    # 计算指标
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
-    # 1. 价格大字 (保留，稍微调整间距)
+    # 1. 显示价格大字
     l = df.iloc[-1]
     color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
     st.markdown(f"""
@@ -1863,10 +1852,10 @@ try:
     </div>
     """, unsafe_allow_html=True)
 
-    # 2. 🔥 新增：核心信号仪表盘 (Card Dashboard) - 取代了旧的状态条和评分栏
+    # 2. 显示核心信号仪表盘
     st.markdown(render_signal_dashboard(df, funda), unsafe_allow_html=True)
     
-    # 3. AI 投顾建议 (保留，放在卡片下方作为总结)
+    # 3. AI 投顾建议
     ai_text, ai_mood = generate_ai_copilot_text(df, name)
     ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
     
@@ -1880,6 +1869,7 @@ try:
     </div>
     """, unsafe_allow_html=True)
     
+    # 4. 权限锁定遮罩处理
     has_access = False
     if is_admin: has_access = True
     elif is_vip: has_access = True
@@ -1888,14 +1878,14 @@ try:
     if not has_access:
         st.markdown('<div class="locked-container"><div class="locked-blur">', unsafe_allow_html=True)
 
+    # 5. 绘制主图表 (K线)
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
 
-    # ✅ 5. 缠论/江恩/斐波那契 模块折叠 + 科普
+    # 6. 深度分析折叠区
     with st.expander("🔍 深度技术分析 (缠论/江恩/斐波那契/筹码) - 点击展开", expanded=False):
         st.info("📖 **小白科普**：\n1. **缠论分型**：判断价格是见顶（顶分型）还是见底（底分型）。\n2. **江恩线/斐波那契**：神奇的数字，用来预测股价会在哪里遇到阻力或支撑。\n3. **筹码分布**：如果 Tushare 积分足够 (5000+)，此处将显示主力筹码峰位置。")
         st.markdown(generate_deep_report(df, name), unsafe_allow_html=True)
         
-        # 🚀 优化：尝试加载筹码分布图 (需要积分)
         if st.session_state.ts_token and is_pro:
             chip_df = get_chip_data_pro(st.session_state.code, st.session_state.ts_token)
             if not chip_df.empty:
@@ -1904,19 +1894,17 @@ try:
             
     st.divider()
 
+    # 7. 策略卡片 (Pro模式可见)
     if is_pro:
         plan_html = generate_strategy_card(df, name)
         st.markdown(plan_html, unsafe_allow_html=True)
     else:
         st.info("🔒 开启 [专业模式] 可查看具体的买卖点位、止盈止损价格及仓位建议。")
 
-    # ✅✅✅ 4. 交互式策略回测报告 (修改重点) ✅✅✅
-    with st.expander("⚖️ 历史验证 (这只股票适合什么玩法?)", expanded=True): # 默认展开，让用户看到
-        
-        # ✅ 4.1 用户输入区：周期选择与本金输入
+    # 8. 交互式回测区
+    with st.expander("⚖️ 历史验证 (这只股票适合什么玩法?)", expanded=True):
         c_p1, c_p2 = st.columns([2, 1])
         with c_p1:
-            # 🔥🔥🔥 修改：将默认值改为“近半年” (180天)
             period_label = st.select_slider(
                 "📅 回测周期 (看看过去多久的表现)", 
                 options=["近1个月", "近3个月", "近半年", "近1年"], 
@@ -1925,11 +1913,9 @@ try:
         with c_p2:
             input_cap = st.number_input("💰 假设投入 (元)", value=1000000, step=100000)
 
-        # 映射周期到月份
         p_map = {"近1年": 12, "近半年": 6, "近3个月": 3, "近1个月": 1}
         selected_months = p_map[period_label]
 
-        # 1. 交互式选择器
         st.write("👇 **请选择一种策略，看看如果过去这么玩，能赚多少钱：**")
         strategy_mode = st.radio(
             "选择策略模式", 
@@ -1938,28 +1924,23 @@ try:
             label_visibility="collapsed"
         )
         
-        # 映射内部参数
         s_map = {
             "📈 趋势跟随 (追涨杀跌)": "trend",
             "🐢 稳健保本 (低买高卖)": "value",
             "☕ 省心定投 (月月存钱)": "dca"
         }
         
-        # 运行回测 (传入新参数)
         st_key = s_map[strategy_mode]
         ret, win, mdd, buy_sigs, sell_sigs, eq, profit_val = run_backtest(df, st_key, selected_months, input_cap)
         
-        # 2. 生成小白能看懂的结论
         st.markdown("---")
         
-        # 动态评语
         comment = ""
         if ret > 20: comment = "🔥 **太牛了！** 这只股票非常适合这种玩法，收益惊人！"
         elif ret > 0: comment = "✅ **还不错！** 比存银行强，可以考虑尝试。"
         elif ret > -10: comment = "😐 **一般般。** 没亏多少，但也赚不到大钱，建议换个策略试试。"
         else: comment = "🛑 **千万别试！** 这种玩法在这只股票上是亏钱黑洞。"
         
-        # 显示结果卡片 (增加金额显示的冲击力)
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
              st.metric("💰 模拟总收益率", f"{ret:+.2f}%", help="收益百分比")
@@ -1976,26 +1957,24 @@ try:
         
         st.info(f"💡 **AI 结论**：{comment}")
 
-        # 3. 绘图
         if not eq.empty:
             bt_fig = make_subplots(rows=1, cols=1)
             bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['equity'], name='策略净值 (Strategy)', 
                                     line=dict(color='#2962ff', width=2), fill='tozeroy', fillcolor='rgba(41, 98, 255, 0.1)'))
             
-            # 定投模式下，基准也是慢慢涨的，不太好对比，这里简化
             if st_key != "dca":
                 bt_fig.add_trace(go.Scatter(x=eq['date'], y=eq['benchmark'], name='基准 (死拿不动)', 
                                     line=dict(color='#9e9e9e', width=1.5, dash='dash')))
             
-            # 标记买卖点
             if len(buy_sigs) > 0:
                 buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
                 bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                        marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
+                                            marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
             
             bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户资产", hovermode="x unified")
             st.plotly_chart(bt_fig, use_container_width=True)
 
+    # 9. 锁定层结束标签与解锁按钮
     if not has_access:
         st.markdown('</div>', unsafe_allow_html=True) 
         try: bal = load_users()[load_users()["username"]==user]["quota"].iloc[0]
@@ -2009,7 +1988,6 @@ try:
         """, unsafe_allow_html=True)
         c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
         with c_lock2:
-            # 🔥🔥🔥 使用 key="main_unlock" 避免冲突
             if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", key="main_unlock", type="primary", use_container_width=True):
                 if consume_quota(user):
                     st.session_state.paid_code = st.session_state.code
@@ -2018,5 +1996,5 @@ try:
                 else: st.error("积分不足！")
         
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"⚠️ 系统运行错误: {e}")
     st.error(traceback.format_exc())

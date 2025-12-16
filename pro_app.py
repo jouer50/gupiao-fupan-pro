@@ -36,7 +36,7 @@ if "paid_code" not in st.session_state: st.session_state.paid_code = ""
 if "trade_qty" not in st.session_state: st.session_state.trade_qty = 100
 if "daily_picks_cache" not in st.session_state: st.session_state.daily_picks_cache = None
 if "enable_realtime" not in st.session_state: st.session_state.enable_realtime = False
-if "ts_token" not in st.session_state: st.session_state.ts_token = "你的Tushare接口密钥" # 默认预留
+if "ts_token" not in st.session_state: st.session_state.ts_token = "你的Tushare接口密钥" 
 if "view_mode_idx" not in st.session_state: st.session_state.view_mode_idx = 0 
 
 # ✅ 模拟交易数据结构初始化
@@ -47,12 +47,12 @@ if "paper_account" not in st.session_state:
         "history": []
     }
 
-# ✅ 全局变量
+# ✅ 全局变量 (优化：默认关闭复杂指标，只留核心)
 ma_s = 5
 ma_l = 20
 flags = {
-    'ma': True, 'boll': True, 'vol': True, 'macd': True,
-    'kdj': True, 'gann': False, 'fib': True, 'chan': True
+    'ma': True, 'boll': True, 'vol': True, 
+    'macd': False, 'kdj': False, 'gann': False, 'fib': False, 'chan': False
 }
 
 # 核心常量
@@ -70,7 +70,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 - 保持原样，仅做移动端基础优化
+# 🔥 CSS 样式 - 保持原样
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -940,7 +940,8 @@ def plot_technical_dashboard(df):
         }
     ), row=1, col=3)
 
-    fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
+    # ✅ 优化：高度调整为 220，更扁平
+    fig.update_layout(height=220, margin=dict(l=20, r=20, t=40, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
 def generate_ai_copilot_text(df, name):
@@ -1034,7 +1035,14 @@ def calculate_smart_score(df, funda):
 
 def plot_chart(df, name, flags, ma_s, ma_l):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2], vertical_spacing=0.02)
-    fig.update_layout(dragmode=False, margin=dict(l=0, r=0, t=10, b=10)) 
+    
+    # ✅ 优化：彻底锁死坐标轴，防止手机滚动时误触缩放
+    fig.update_layout(dragmode=False, margin=dict(l=0, r=0, t=10, b=10),
+                      xaxis=dict(fixedrange=True), yaxis=dict(fixedrange=True),
+                      xaxis2=dict(fixedrange=True), yaxis2=dict(fixedrange=True),
+                      xaxis3=dict(fixedrange=True), yaxis3=dict(fixedrange=True),
+                      xaxis4=dict(fixedrange=True), yaxis4=dict(fixedrange=True))
+                      
     fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='K线', increasing_line_color='#FF3B30', decreasing_line_color='#34C759'), 1, 1)
     if flags.get('ma'):
         fig.add_trace(go.Scatter(x=df['date'], y=df['MA_Short'], name=f'MA{ma_s}', line=dict(width=1.2, color='#333333')), 1, 1)
@@ -1074,8 +1082,11 @@ def plot_chart(df, name, flags, ma_s, ma_l):
         fig.add_trace(go.Scatter(x=df['date'], y=df['K'], line=dict(color='#0071e3', width=1), name='K'), 4, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['D'], line=dict(color='#ff9800', width=1), name='D'), 4, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['J'], line=dict(color='#af52de', width=1), name='J'), 4, 1)
+    
     fig.update_layout(height=600, xaxis_rangeslider_visible=False, paper_bgcolor='white', plot_bgcolor='white', font=dict(color='#1d1d1f'), xaxis=dict(showgrid=False, showline=True, linecolor='#e5e5e5'), yaxis=dict(showgrid=True, gridcolor='#f5f5f5'), legend=dict(orientation="h", y=-0.05))
-    st.plotly_chart(fig, use_container_width=True)
+    
+    # ✅ 优化：禁止 scrollZoom
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'scrollZoom': False})
 
 # ==========================================
 # 5. 执行入口
@@ -1195,9 +1206,18 @@ with st.sidebar:
             
             if picks:
                 for pick in picks:
-                    st.success(f"🔥 主力评分: {pick['score']}")
-                    st.caption(f"💡 {pick['reason']}")
-                    if st.button(f"{pick['tag']} | {pick['name']}", key=f"pick_{pick['code']}", type="primary"):
+                    # ✅ 优化：使用 HTML Badge 展示高分股
+                    score_color = "red" if pick['score'] >= 8 else "orange"
+                    st.markdown(f"""
+                    <div style="border:1px solid #eee; border-radius:8px; padding:10px; margin-bottom:8px; background:white;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-size:16px; font-weight:bold;">{pick['name']} <span style="font-size:12px; color:#999;">({pick['code']})</span></span>
+                            <span style="background:{score_color}; color:white; padding:2px 8px; border-radius:10px; font-size:12px; font-weight:bold;">{pick['score']}分</span>
+                        </div>
+                        <div style="font-size:12px; color:#666; margin-top:4px;">{pick['tag']} | {pick['reason']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button(f"🔎 查看详情", key=f"pick_{pick['code']}", type="primary", use_container_width=True):
                         st.session_state.code = pick['code']
                         save_user_last_code(user, pick['code'])
                         st.rerun()
@@ -1213,8 +1233,11 @@ with st.sidebar:
                 holdings = paper.get("holdings", {})
                 
                 curr_price = 0
+                is_realtime_data = False # 状态标识
+                
                 try:
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
+                    if curr_price > 0: is_realtime_data = True
                 except: pass
                 
                 if curr_price == 0:
@@ -1222,6 +1245,7 @@ with st.sidebar:
                         _temp_df = get_data_and_resample(st.session_state.code, st.session_state.ts_token, "日线", "", None)
                         if not _temp_df.empty:
                             curr_price = float(_temp_df.iloc[-1]['close'])
+                            is_realtime_data = False
                     except: pass
                 
                 total_mkt_val = 0
@@ -1257,8 +1281,11 @@ with st.sidebar:
                     if curr_price <= 0:
                         st.error("⚠️ 暂无实时价格，无法交易")
                     else:
+                        # ✅ 优化：显示是否为实时成交
+                        status_html = '<span style="color:red">🔴 实时撮合</span>' if is_realtime_data else '<span style="color:gray">⚪ 收盘价挂单</span>'
+                        st.markdown(f"当前价格: **{curr_price:.2f}** ({status_html})", unsafe_allow_html=True)
+                        
                         tr_action = st.radio("方向", ["买入", "卖出"], horizontal=True, label_visibility="collapsed")
-                        st.write(f"当前价格: **{curr_price:.2f}**")
                         
                         max_buy_hands = int(cash // (curr_price * 100))
                         curr_hold_qty = holdings.get(st.session_state.code, {}).get('qty', 0)
@@ -1426,27 +1453,21 @@ with st.sidebar:
                 ma_s = st.slider("短期均线", 2, 20, 5)
                 ma_l = st.slider("长期均线", 10, 120, 20)
         
-        with st.expander("🛠️ 指标开关 & 新手科普 (点击设置)", expanded=False):
+        with st.expander("🛠️ 指标开关 (默认仅开启核心指标)", expanded=False):
             st.info("""
-            **小白指标科普：**
-            * **MA (均线)**: 看价格趋势，线上看多线下看空。
-            * **BOLL (布林带)**: 上轨压力，下轨支撑，开口变大说明要变盘。
-            * **MACD**: 资金动能指标，金叉买死叉卖。
-            * **KDJ/RSI**: 短线超买超卖，太高容易跌，太低容易涨。
-            * **缠论/江恩**: 进阶结构分析，预测时间和空间转折。
+            **说明：** 为保持界面清爽，高级指标默认关闭。
             """)
-            st.markdown("---")
             c_flags = st.columns(2)
             with c_flags[0]:
                 flags['ma'] = st.checkbox("MA (趋势)", True)
                 flags['boll'] = st.checkbox("BOLL (通道)", True)
                 flags['vol'] = st.checkbox("VOL (成交量)", True)
-                flags['macd'] = st.checkbox("MACD (动能)", True)
+                flags['macd'] = st.checkbox("MACD (动能)", False)
             with c_flags[1]:
-                flags['kdj'] = st.checkbox("KDJ (短线)", True)
+                flags['kdj'] = st.checkbox("KDJ (短线)", False)
                 flags['gann'] = st.checkbox("江恩 (时空)", False)
-                flags['fib'] = st.checkbox("斐波那契 (黄金分割)", True)
-                flags['chan'] = st.checkbox("缠论 (结构)", True)
+                flags['fib'] = st.checkbox("斐波那契 (黄金分割)", False)
+                flags['chan'] = st.checkbox("缠论 (结构)", False)
         
         st.divider()
         st.caption("免责声明：本系统仅供量化研究，不构成投资建议。")
@@ -1523,10 +1544,15 @@ is_demo = False
 loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
 with st.spinner(random.choice(loading_tips)):
     df = get_data_and_resample(st.session_state.code, st.session_state.ts_token, timeframe, adjust, proxy=None)
+    
+    # ✅ 优化：增强数据检查逻辑，防止空指针报错
     if df.empty:
         st.warning("⚠️ 暂无数据 (可能因网络原因)。自动切换至演示模式。")
         df = generate_mock_data(days)
         is_demo = True
+    elif len(df) < 5:
+        st.error(f"❌ 数据不足 (仅获取到 {len(df)} 行)，无法计算技术指标。请尝试切换代码或检查 Tushare 权限。")
+        st.stop() # 强制停止后续渲染
 
 try:
     funda = get_fundamentals(st.session_state.code, st.session_state.ts_token)
@@ -1610,14 +1636,11 @@ try:
 
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
 
-    # ✅✅✅ 修改核心：将原先的 HTML 文本报告 替换为 纯 Plotly 仪表盘 ✅✅✅
     with st.expander("🔍 深度技术分析仪表盘 (趋势/资金/位置)", expanded=False):
         st.info("💡 **说明**：\n1. **多空风向**：基于均线和缠论结构，红色代表强势，绿色代表弱势。\n2. **主力动能**：基于 MACD 和成交量，分值越高资金介入越深。\n3. **高低位置**：当前价格在近期波动区间的位置，越高风险越大。")
         
-        # 调用新的 Dashboard 函数
         plot_technical_dashboard(df)
         
-        # 筹码分布保留（如果有数据）
         if st.session_state.ts_token and is_pro:
             chip_df = get_chip_data_pro(st.session_state.code, st.session_state.ts_token)
             if not chip_df.empty:

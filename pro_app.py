@@ -73,7 +73,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 - 包含模糊锁定层优化
+# 🔥 CSS 样式 - 仅保留必要的结构控制，去除花哨美化
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -174,7 +174,7 @@ ui_css = """
         border-left: 4px solid #007AFF; 
     }
     
-    /* 锁定层样式 - 增强诱导性 */
+    /* 锁定层样式 */
     .locked-container { position: relative; overflow: hidden; }
     .locked-blur { filter: blur(8px); user-select: none; opacity: 0.5; pointer-events: none; transition: filter 0.3s; }
     .locked-overlay {
@@ -195,20 +195,6 @@ ui_css = """
         font-weight: 600;
         border: 1px solid #f0f0f0;
     }
-    
-    /* 结论小徽章样式 */
-    .conc-badge {
-        display: inline-block;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: bold;
-        margin-left: 5px;
-    }
-    .conc-bull { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-    .conc-bear { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
-    .conc-neut { background-color: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
-
 </style>
 """
 st.markdown(ui_css, unsafe_allow_html=True)
@@ -1124,10 +1110,27 @@ def plot_chart(df, name, flags, ma_s, ma_l):
                     elif p['t'] == 'bot' and p['v'] < clean_pts[-1]['v']: clean_pts[-1] = p
             cx = [p['d'] for p in clean_pts]; cy = [p['v'] for p in clean_pts]
             fig.add_trace(go.Scatter(x=cx, y=cy, mode='lines', line=dict(color='#2962ff', width=2), name='缠论笔'), 1, 1)
-    colors = ['#FF3B30' if c<o else '#34C759' for c,o in zip(df['close'], df['open'])]
-    if flags.get('vol'): fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=colors, name='Vol'), 2, 1)
+    
+    # ✅ 优化：主力资金流向 (Vol 颜色逻辑)
+    vol_colors = []
+    for i in range(len(df)):
+        row = df.iloc[i]
+        # 放量大涨 (>3% 且 量比>1.5) -> 深红 (主力抢筹)
+        if row['pct_change'] > 3 and row['VolRatio'] > 1.5:
+            vol_colors.append('#8B0000') 
+        # 放量大跌 (<-3% 且 量比>1.5) -> 深绿 (主力出逃)
+        elif row['pct_change'] < -3 and row['VolRatio'] > 1.5:
+            vol_colors.append('#006400')
+        # 普通红绿
+        elif row['close'] >= row['open']:
+            vol_colors.append('#FF3B30')
+        else:
+            vol_colors.append('#34C759')
+
+    if flags.get('vol'): fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color=vol_colors, name='Vol'), 2, 1)
+    
     if flags.get('macd'):
-        fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=colors, name='MACD'), 3, 1)
+        fig.add_trace(go.Bar(x=df['date'], y=df['HIST'], marker_color=vol_colors, name='MACD'), 3, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], line=dict(color='#0071e3', width=1), name='DIF'), 3, 1)
         fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], line=dict(color='#ff9800', width=1), name='DEA'), 3, 1)
     if flags.get('kdj'):
@@ -1193,6 +1196,12 @@ with st.sidebar:
         if rt_status != st.session_state.get("enable_realtime", False):
             st.session_state.enable_realtime = rt_status
             st.rerun()
+        
+        # ✅ 新增：手动刷新按钮 (解决卡顿)
+        if st.session_state.enable_realtime:
+            st.caption(f"⏱️ 数据快照: {datetime.now().strftime('%H:%M:%S')}")
+            if st.button("🔄 立即刷新行情", use_container_width=True):
+                st.rerun()
 
     if st.session_state.get('logged_in'):
         if not is_admin:
@@ -1258,7 +1267,6 @@ with st.sidebar:
             
             if picks:
                 for pick in picks:
-                    # ✅ 优化：使用 HTML Badge 展示高分股
                     score_color = "red" if pick['score'] >= 8 else "orange"
                     st.markdown(f"""
                     <div style="border:1px solid #eee; border-radius:8px; padding:10px; margin-bottom:8px; background:white;">
@@ -1286,7 +1294,7 @@ with st.sidebar:
                 holdings = paper.get("holdings", {})
                 
                 curr_price = 0
-                is_realtime_data = False # 状态标识
+                is_realtime_data = False 
                 
                 try:
                     curr_price = float(yf.Ticker(process_ticker(st.session_state.code)).fast_info.last_price)
@@ -1334,7 +1342,6 @@ with st.sidebar:
                     if curr_price <= 0:
                         st.error("⚠️ 暂无实时价格，无法交易")
                     else:
-                        # ✅ 优化：显示是否为实时成交
                         status_html = '<span style="color:red">🔴 实时撮合</span>' if is_realtime_data else '<span style="color:gray">⚪ 收盘价挂单</span>'
                         st.markdown(f"当前价格: **{curr_price:.2f}** ({status_html})", unsafe_allow_html=True)
                         
@@ -1356,23 +1363,27 @@ with st.sidebar:
                             trade_vol = st.number_input("数量 (股)", min_value=100, max_value=max(100, max_buy_hands*100) if max_buy_hands > 0 else 100, value=st.session_state.trade_qty, step=100, key="buy_input")
                             st.caption(f"最大可买: {max_buy_hands*100} 股")
                             
+                            # ✅ 优化：交易前检查价格
                             if st.button("🔴 买入 (Buy)", type="primary", use_container_width=True):
-                                cost_amt = trade_vol * curr_price
-                                if cost_amt > cash: st.error("资金不足")
+                                if curr_price <= 0:
+                                    st.error("价格异常，无法交易")
                                 else:
-                                    st.session_state.paper_account['cash'] -= cost_amt
-                                    if st.session_state.code in holdings:
-                                        old = holdings[st.session_state.code]
-                                        new_qty = old['qty'] + trade_vol
-                                        new_cost = (old['cost'] * old['qty'] + cost_amt) / new_qty
-                                        holdings[st.session_state.code] = {'name': get_name(st.session_state.code,"",None), 'qty': new_qty, 'cost': new_cost}
+                                    cost_amt = trade_vol * curr_price
+                                    if cost_amt > cash: st.error("资金不足")
                                     else:
-                                        holdings[st.session_state.code] = {'name': get_name(st.session_state.code,"",None), 'qty': trade_vol, 'cost': curr_price}
-                                    
-                                    st.session_state.paper_account['history'].append({"time": datetime.now().strftime("%m-%d %H:%M"), "code": st.session_state.code, "action": "买入", "price": curr_price, "qty": trade_vol, "amt": -cost_amt})
-                                    save_user_holdings(user)
-                                    st.success("成交！")
-                                    time.sleep(0.5); st.rerun()
+                                        st.session_state.paper_account['cash'] -= cost_amt
+                                        if st.session_state.code in holdings:
+                                            old = holdings[st.session_state.code]
+                                            new_qty = old['qty'] + trade_vol
+                                            new_cost = (old['cost'] * old['qty'] + cost_amt) / new_qty
+                                            holdings[st.session_state.code] = {'name': get_name(st.session_state.code,"",None), 'qty': new_qty, 'cost': new_cost}
+                                        else:
+                                            holdings[st.session_state.code] = {'name': get_name(st.session_state.code,"",None), 'qty': trade_vol, 'cost': curr_price}
+                                        
+                                        st.session_state.paper_account['history'].append({"time": datetime.now().strftime("%m-%d %H:%M"), "code": st.session_state.code, "action": "买入", "price": curr_price, "qty": trade_vol, "amt": -cost_amt})
+                                        save_user_holdings(user)
+                                        st.success("成交！")
+                                        time.sleep(0.5); st.rerun()
                                     
                         else: # 卖出
                             c1, c2, c3 = st.columns(3)
@@ -1387,7 +1398,9 @@ with st.sidebar:
                             st.caption(f"持仓可用: {curr_hold_qty} 股")
                             
                             if st.button("🟢 卖出 (Sell)", type="primary", use_container_width=True):
-                                if curr_hold_qty == 0: st.error("无持仓")
+                                if curr_price <= 0:
+                                    st.error("价格异常，无法交易")
+                                elif curr_hold_qty == 0: st.error("无持仓")
                                 else:
                                     get_amt = trade_vol * curr_price
                                     st.session_state.paper_account['cash'] += get_amt
@@ -1699,6 +1712,19 @@ try:
 
     plot_chart(df.tail(days), name, flags, ma_s, ma_l)
 
+    # ✅ 新增：后悔药计算器 (放置在图表下方)
+    st.markdown("### 💊 既然来了，算算后悔药")
+    if len(df) > 22: # 确保有足够数据 (一个月约20-22交易日)
+        price_now = df.iloc[-1]['close']
+        price_1m = df.iloc[-22]['close'] # 近似一个月前
+        delta_1m = (price_now - price_1m) / price_1m
+        money_now = 100000 * (1 + delta_1m)
+        color_1m = "#ff3b30" if delta_1m > 0 else "#00c853"
+        msg = f"如果你 **1 个月前** 投入 10 万块，现在变成了 <span style='color:{color_1m}; font-size:22px; font-weight:bold;'>{money_now:,.0f} 元</span> ({delta_1m:+.2f}%)"
+        st.markdown(msg, unsafe_allow_html=True)
+    else:
+        st.caption("⚠️ 数据不足一个月，无法计算后悔药。")
+
     with st.expander("🔍 深度技术分析仪表盘 (趋势/资金/位置)", expanded=False):
         st.info("💡 **说明**：\n1. **多空风向**：基于均线和缠论结构，红色代表强势，绿色代表弱势。\n2. **主力动能**：基于 MACD 和成交量，分值越高资金介入越深。\n3. **高低位置**：当前价格在近期波动区间的位置，越高风险越大。")
         
@@ -1751,7 +1777,7 @@ try:
         
         st.markdown("---")
         
-        # 🔥 A. 强化“损失厌恶”逻辑 (核心修改)
+        # 🔥 A. 强化“损失厌恶”逻辑
         comment = ""
         if profit_val > 0:
             comment = f"🔥 **哎呀！如果半年前你用了这个策略，现在已经赚了 {profit_val:,.0f} 元！** 这只股票的波动特性非常适合这种玩法。"

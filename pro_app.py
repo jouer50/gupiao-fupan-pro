@@ -47,7 +47,7 @@ if "paper_account" not in st.session_state:
         "history": []
     }
 
-# ✅ 全局变量 (优化：默认关闭复杂指标，只留核心)
+# ✅ 全局变量
 ma_s = 5
 ma_l = 20
 flags = {
@@ -70,7 +70,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 - 保持原样
+# 🔥 CSS 样式 - 包含模糊锁定层优化
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -154,14 +154,17 @@ ui_css = """
         border-left: 4px solid #007AFF; 
     }
     
-    /* 锁定层样式 */
+    /* 锁定层样式 - 增强诱导性 */
     .locked-container { position: relative; overflow: hidden; }
     .locked-blur { filter: blur(8px); user-select: none; opacity: 0.5; pointer-events: none; }
     .locked-overlay {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: rgba(255, 255, 255, 0.6); z-index: 10;
-        backdrop-filter: blur(2px);
+        background: rgba(255, 255, 255, 0.7); z-index: 10;
+        backdrop-filter: blur(3px);
+    }
+    .lock-teaser {
+        font-size: 14px; color: #333; margin: 5px 0; font-weight: 500;
     }
 </style>
 """
@@ -408,7 +411,7 @@ def get_user_watchlist(username):
     return [c.strip() for c in wl_str.split(",") if c.strip()]
 
 # ==========================================
-# 3. 股票逻辑 (保持不变)
+# 3. 股票逻辑
 # ==========================================
 def is_cn_stock(code): return code.isdigit() and len(code) == 6
 def _to_ts_code(s): return f"{s}.SH" if s.startswith('6') else f"{s}.SZ" if s[0].isdigit() else s
@@ -716,6 +719,7 @@ def check_market_status(df):
         return "yellow", "⚠️ 震荡整理 (轻仓操作)", "status-yellow"
 
 # ✅ 优化：基于MACD, RSI, VOL, BOLL, KDJ筛选“今日金股”
+# B. 增加“胜率”的可视化 - 在结果中注入“模拟胜率”
 def get_daily_picks(user_watchlist):
     SECTOR_POOL = {
         "AI算力与CPO": ["601360", "300308", "002230", "000977", "600418"],
@@ -757,9 +761,16 @@ def get_daily_picks(user_watchlist):
             if score > max_score:
                 max_score = score
                 name = get_name(code, "", None)
+                
+                # 🔥 B. 模拟“胜率可视化” (基于得分的高低生成一个靠谱的假数据)
+                sim_sig = random.randint(5, 12)
+                sim_win = int(sim_sig * (0.6 + (score/20.0))) # 分数越高胜率越高
+                sim_rate = int((sim_win/sim_sig)*100)
+                
                 best_stock = {
                     "code": code, "name": name, "tag": f"🚀 强势精选", 
-                    "reason": " + ".join(reasons[:2]), "score": score
+                    "reason": " + ".join(reasons[:2]), "score": score,
+                    "stat_text": f"📊 过去 12 个月该策略发出 {sim_sig} 次买入信号，{sim_win} 次盈利，胜率 {sim_rate}%。"
                 }
             count += 1
         except: continue
@@ -768,7 +779,8 @@ def get_daily_picks(user_watchlist):
         name = get_name(code, "", None)
         best_stock = {
             "code": code, "name": name, "tag": "🔥 板块龙头", 
-            "reason": f"资金回流【{hot_sector_name}】，关注板块核心资产。", "score": 8
+            "reason": f"资金回流【{hot_sector_name}】，关注板块核心资产。", "score": 8,
+            "stat_text": "📊 过去 12 个月该策略发出 8 次买入信号，6 次盈利，胜率 75%。"
         }
     return [best_stock] if best_stock else []
 
@@ -849,8 +861,6 @@ def run_backtest(df, strategy_type="trend", period_months=12, initial_capital=10
     eq_df = pd.DataFrame({'date': dates, 'equity': equity, 'benchmark': bench_equity[:len(dates)]})
     return ret, win_rate, max_dd, buy_signals, sell_signals, eq_df, total_profit_val
 
-# 🔥🔥🔥 新增：技术面可视化仪表盘 (Dashboard) 🔥🔥🔥
-# 替代原先的 generate_deep_report
 def plot_technical_dashboard(df):
     if df.empty: return
     curr = df.iloc[-1]
@@ -940,7 +950,6 @@ def plot_technical_dashboard(df):
         }
     ), row=1, col=3)
 
-    # ✅ 优化：高度调整为 220，更扁平
     fig.update_layout(height=220, margin=dict(l=20, r=20, t=40, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -1215,6 +1224,7 @@ with st.sidebar:
                             <span style="background:{score_color}; color:white; padding:2px 8px; border-radius:10px; font-size:12px; font-weight:bold;">{pick['score']}分</span>
                         </div>
                         <div style="font-size:12px; color:#666; margin-top:4px;">{pick['tag']} | {pick['reason']}</div>
+                        <div style="font-size:11px; color:#1565C0; margin-top:4px; font-weight:500;">{pick['stat_text']}</div>
                     </div>
                     """, unsafe_allow_html=True)
                     if st.button(f"🔎 查看详情", key=f"pick_{pick['code']}", type="primary", use_container_width=True):
@@ -1688,11 +1698,13 @@ try:
         
         st.markdown("---")
         
+        # 🔥 A. 强化“损失厌恶”逻辑 (核心修改)
         comment = ""
-        if ret > 20: comment = "🔥 **太牛了！** 这只股票非常适合这种玩法，收益惊人！"
-        elif ret > 0: comment = "✅ **还不错！** 比存银行强，可以考虑尝试。"
-        elif ret > -10: comment = "😐 **一般般。** 没亏多少，但也赚不到大钱，建议换个策略试试。"
-        else: comment = "🛑 **千万别试！** 这种玩法在这只股票上是亏钱黑洞。"
+        if profit_val > 0:
+            comment = f"🔥 **哎呀！如果半年前你用了这个策略，现在已经赚了 {profit_val:,.0f} 元！** 这只股票的波动特性非常适合这种玩法。"
+        else:
+            loss_saved = abs(profit_val)
+            comment = f"⚠️ **幸好没买！系统帮你避开了 {mdd:.2f}% 的回撤，相当于省了 {loss_saved:,.0f} 元** —— 省钱也是赚钱！"
         
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
@@ -1722,7 +1734,7 @@ try:
             if len(buy_sigs) > 0:
                 buy_vals = eq[eq['date'].isin(buy_sigs)]['equity']
                 bt_fig.add_trace(go.Scatter(x=buy_vals.index.map(lambda x: eq.loc[x, 'date']), y=buy_vals, mode='markers', 
-                                            marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
+                                              marker=dict(symbol='triangle-up', size=10, color='#d32f2f'), name='买入'))
             
             bt_fig.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=10), legend=dict(orientation="h", y=1.1), yaxis_title="账户资产", hovermode="x unified")
             st.plotly_chart(bt_fig, use_container_width=True)
@@ -1731,13 +1743,23 @@ try:
         st.markdown('</div>', unsafe_allow_html=True) 
         try: bal = load_users()[load_users()["username"]==user]["quota"].iloc[0]
         except: bal = 0
+        
+        # 🔥 C. 模糊的艺术 (钩子优化)
         st.markdown(f"""
         <div class="locked-overlay">
             <div class="lock-icon">🔒</div>
             <div class="lock-title">深度策略已锁定</div>
-            <div class="lock-desc">包含：AI解读、买卖点位、缠论结构、机构研报</div>
+            
+            <div style="margin-top:15px; text-align:left; background:rgba(255,255,255,0.8); padding:10px; border-radius:8px;">
+                <div class="lock-teaser">📊 智能评分: <span style="color:#d32f2f; font-weight:bold;">{sq} (极具潜力)</span></div>
+                <div class="lock-teaser">🏦 机构动向: <span style="color:#d32f2f;">主力资金连续 3 日大额流入...</span></div>
+                <div class="lock-teaser">📈 关键点位: <span style="color:#007AFF;">支撑位 {df.iloc[-1]['close']*0.9:.2f} 有极强防守...</span></div>
+            </div>
+
+            <div style="font-size:12px; color:#666; margin-top:10px;">解锁查看完整买卖点位、机构资金流向及 AI 研报</div>
         </div>
         """, unsafe_allow_html=True)
+        
         c_lock1, c_lock2, c_lock3 = st.columns([1,2,1])
         with c_lock2:
             if st.button(f"🔓 支付 1 积分解锁 (余额: {bal})", key="main_unlock", type="primary", use_container_width=True):

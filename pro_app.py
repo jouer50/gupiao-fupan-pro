@@ -887,7 +887,7 @@ def plot_technical_dashboard(df):
         column_titles=["多空风向", "主力动能", "高低位置"]
     )
 
-    # Gauge 1: 趋势
+    # Gauge 1: 趋势 (红强绿弱)
     fig.add_trace(go.Indicator(
         mode = "gauge+number",
         value = trend_val,
@@ -904,7 +904,7 @@ def plot_technical_dashboard(df):
         }
     ), row=1, col=1)
 
-    # Gauge 2: 动能
+    # Gauge 2: 动能 (蓝色系)
     fig.add_trace(go.Indicator(
         mode = "gauge+number",
         value = energy_val,
@@ -919,7 +919,7 @@ def plot_technical_dashboard(df):
         }
     ), row=1, col=2)
 
-    # Gauge 3: 位置 (Bullet Chart 风格)
+    # Gauge 3: 位置 (红高绿低 - 低位安全，高位风险)
     fig.add_trace(go.Indicator(
         mode = "number+gauge",
         value = press_val,
@@ -933,9 +933,9 @@ def plot_technical_dashboard(df):
                 'value': press_val
             },
             'steps': [
-                {'range': [0, 20], 'color': "rgba(0,200,83,0.3)"}, # 底部安全区
+                {'range': [0, 20], 'color': "rgba(0,200,83,0.3)"}, # 底部安全区 (绿)
                 {'range': [20, 80], 'color': "rgba(200,200,200,0.3)"},
-                {'range': [80, 100], 'color': "rgba(255,59,48,0.3)"} # 顶部风险区
+                {'range': [80, 100], 'color': "rgba(255,59,48,0.3)"} # 顶部风险区 (红)
             ]
         }
     ), row=1, col=3)

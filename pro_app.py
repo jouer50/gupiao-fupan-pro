@@ -73,7 +73,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 - 仅保留必要的结构控制，去除花哨美化
+# 🔥 CSS 样式
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -1159,12 +1159,13 @@ def plot_chart(df, name, flags, ma_s, ma_l):
 def plot_radar_chart(q, v, t, m, s):
     categories = ['基本面', '估值', '趋势', '资金', '情绪']
     fig = go.Figure()
+    # ✅ 修复：使用 fillcolor 替代 fill_color，防止报错
     fig.add_trace(go.Scatterpolar(
         r=[q, v, t, m, s],
         theta=categories,
         fill='toself',
-        line_color='#007AFF',
-        fill_color='rgba(0, 122, 255, 0.2)'
+        line=dict(color='#007AFF'),
+        fillcolor='rgba(0, 122, 255, 0.2)'
     ))
     fig.update_layout(
         polar=dict(

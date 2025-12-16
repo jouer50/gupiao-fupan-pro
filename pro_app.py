@@ -250,6 +250,7 @@ ui_css = """
     /* 颜色定义 */
     .txt-red { color: #ff3b30 !important; }
     .txt-green { color: #00c853 !important; }
+    .txt-gray { color: #666666 !important; } /* ✅ 修复：新增灰色定义 */
     .bg-red { background-color: #ff3b30; }
     .bg-green { background-color: #00c853; }
     .bg-blue { background-color: #007AFF; }
@@ -1184,7 +1185,7 @@ def calculate_smart_score(df, funda):
     qual_score = min(10, qual_score)
     return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
 
-# 🔥 新增：渲染信号仪表盘函数
+# 🔥 修复版：渲染信号仪表盘函数
 def render_signal_dashboard(df, funda):
     curr = df.iloc[-1]
     prev = df.iloc[-2]
@@ -1192,13 +1193,13 @@ def render_signal_dashboard(df, funda):
     # 1. 趋势信号 (基于均线)
     if curr['close'] > curr['MA60']:
         trend_txt = "🚀 多头主升"
-        trend_desc = "股价位于牛熊线上方，趋势看涨"
+        trend_desc = "股价位于牛熊线上方"
         trend_color = "txt-red"
         trend_score = 85
         trend_bar_color = "bg-red"
     else:
         trend_txt = "🛑 空头压制"
-        trend_desc = "股价跌破牛熊线，建议防守"
+        trend_desc = "股价跌破牛熊线"
         trend_color = "txt-green"
         trend_score = 30
         trend_bar_color = "bg-green"
@@ -1206,54 +1207,53 @@ def render_signal_dashboard(df, funda):
     # 2. 资金动能 (基于 MACD)
     if curr['DIF'] > curr['DEA']:
         macd_txt = "🔥 金叉共振"
-        macd_desc = "主力资金做多意愿增强"
+        macd_desc = "资金做多意愿增强"
         macd_color = "txt-red"
     else:
         macd_txt = "❄️ 死叉调整"
-        macd_desc = "短期动能减弱，注意风险"
+        macd_desc = "动能减弱，注意风险"
         macd_color = "txt-green"
         
-    # 3. 情绪水位 (基于 RSI)
+    # 3. 市场情绪 (基于 RSI)
     rsi_val = curr['RSI']
     if rsi_val > 75:
         rsi_txt = "⚠️ 情绪过热"
-        rsi_desc = "随时可能回调，勿追高"
-        rsi_color = "txt-green" # 风险提示用绿/警示色
+        rsi_desc = "勿追高"
+        rsi_color = "#00c853" # 使用 hex，因为下方用了 style="color:..."
     elif rsi_val < 25:
         rsi_txt = "💎 黄金坑"
-        rsi_desc = "超卖区域，存在反弹机会"
-        rsi_color = "txt-red"
+        rsi_desc = "超卖机会"
+        rsi_color = "#ff3b30"
     else:
         rsi_txt = "⚖️ 情绪平稳"
-        rsi_desc = "多空平衡，静待方向"
-        rsi_color = "#333"
+        rsi_desc = "多空平衡"
+        rsi_color = "#333333"
 
-    # 4. 筹码/估值 (基于 PE 或 量能)
-    # 如果有基本面数据用基本面，没有用量能
+    # 4. 价值/量能 (修复了这里的 Bug)
     try:
         pe_val = float(funda['pe'])
         if pe_val < 20: 
             val_txt = "💰 估值低估"
-            val_desc = f"PE仅 {pe_val}，具性价比"
+            val_desc = f"PE {pe_val}，具性价比"
             val_color = "txt-red"
         elif pe_val > 60:
             val_txt = "🌊 估值泡沫"
-            val_desc = f"PE高达 {pe_val}，透支未来"
+            val_desc = f"PE {pe_val}，透支未来"
             val_color = "txt-green"
         else:
             val_txt = "😐 估值合理"
             val_desc = "价格与价值匹配"
-            val_color = "#333"
+            val_color = "txt-gray" # ✅ 修复：使用类名，而不是 #666
     except:
         # Fallback 到量能
         if curr['VolRatio'] > 1.5:
             val_txt = "📢 巨量异动"
-            val_desc = "成交量放大，主力进场"
+            val_desc = "成交放大，主力进场"
             val_color = "txt-red"
         else:
             val_txt = "🔇 缩量整理"
             val_desc = "市场交投清淡"
-            val_color = "#666"
+            val_color = "txt-gray" # ✅ 修复：使用类名，而不是 #666
 
     # 渲染 HTML Grid
     html = f"""
@@ -1283,7 +1283,7 @@ def render_signal_dashboard(df, funda):
             <div>
                 <div class="card-label">市场情绪 (RSI)</div>
                 <div class="card-value" style="color:{rsi_color}">{rsi_txt}</div>
-                <div class="card-desc">当前数值: {rsi_val:.1f} ({rsi_desc})</div>
+                <div class="card-desc">当前: {rsi_val:.1f} ({rsi_desc})</div>
             </div>
             <div class="progress-bg"><div class="progress-fill bg-blue" style="width: {rsi_val}%"></div></div>
         </div>
@@ -1824,7 +1824,7 @@ is_demo = False
 loading_tips = ["正在加载因子库…", "正在构建回测引擎…", "正在初始化模型框架…", "正在同步行情数据…"]
 
 # ==========================================
-# 🛑 修正后的主逻辑执行块
+# 🛑 主逻辑执行块
 # ==========================================
 try:
     with st.spinner(random.choice(loading_tips)):

@@ -73,7 +73,7 @@ except: pass
 try: import baostock as bs
 except: pass
 
-# 🔥 CSS 样式 - 移动端丝滑体验深度优化版
+# 🔥 CSS 样式 - 移动端丝滑体验深度优化版 (+ 卡片化仪表盘支持)
 ui_css = """
 <style>
     /* 全局重置与移动端适配 */
@@ -239,6 +239,39 @@ ui_css = """
         margin-bottom: 12px;
         border: 1px solid #ffcc80;
     }
+
+    /* --- 新增：卡片化仪表盘样式 --- */
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr); /* 两列布局 */
+        gap: 12px;
+        margin-bottom: 15px;
+    }
+    .signal-card {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 12px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        border: 1px solid rgba(0,0,0,0.03);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    .card-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+    .card-value { font-size: 16px; font-weight: 800; color: #333; display: flex; align-items: center; gap: 5px; }
+    .card-desc { font-size: 11px; color: #666; margin-top: 4px; line-height: 1.3; }
+    
+    /* 进度条样式 */
+    .progress-bg { width: 100%; height: 6px; background: #f0f0f0; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+    
+    /* 颜色定义 */
+    .txt-red { color: #ff3b30 !important; }
+    .txt-green { color: #00c853 !important; }
+    .bg-red { background-color: #ff3b30; }
+    .bg-green { background-color: #00c853; }
+    .bg-blue { background-color: #007AFF; }
+    .bg-orange { background-color: #ff9800; }
 
 </style>
 """
@@ -1170,6 +1203,122 @@ def calculate_smart_score(df, funda):
     qual_score = min(10, qual_score)
     return round(qual_score, 1), round(val_score, 1), round(trend_score, 1)
 
+# 🔥 新增：渲染信号仪表盘函数
+def render_signal_dashboard(df, funda):
+    curr = df.iloc[-1]
+    prev = df.iloc[-2]
+    
+    # 1. 趋势信号 (基于均线)
+    if curr['close'] > curr['MA60']:
+        trend_txt = "🚀 多头主升"
+        trend_desc = "股价位于牛熊线上方，趋势看涨"
+        trend_color = "txt-red"
+        trend_score = 85
+        trend_bar_color = "bg-red"
+    else:
+        trend_txt = "🛑 空头压制"
+        trend_desc = "股价跌破牛熊线，建议防守"
+        trend_color = "txt-green"
+        trend_score = 30
+        trend_bar_color = "bg-green"
+
+    # 2. 资金动能 (基于 MACD)
+    if curr['DIF'] > curr['DEA']:
+        macd_txt = "🔥 金叉共振"
+        macd_desc = "主力资金做多意愿增强"
+        macd_color = "txt-red"
+    else:
+        macd_txt = "❄️ 死叉调整"
+        macd_desc = "短期动能减弱，注意风险"
+        macd_color = "txt-green"
+        
+    # 3. 情绪水位 (基于 RSI)
+    rsi_val = curr['RSI']
+    if rsi_val > 75:
+        rsi_txt = "⚠️ 情绪过热"
+        rsi_desc = "随时可能回调，勿追高"
+        rsi_color = "txt-green" # 风险提示用绿/警示色
+    elif rsi_val < 25:
+        rsi_txt = "💎 黄金坑"
+        rsi_desc = "超卖区域，存在反弹机会"
+        rsi_color = "txt-red"
+    else:
+        rsi_txt = "⚖️ 情绪平稳"
+        rsi_desc = "多空平衡，静待方向"
+        rsi_color = "#333"
+
+    # 4. 筹码/估值 (基于 PE 或 量能)
+    # 如果有基本面数据用基本面，没有用量能
+    try:
+        pe_val = float(funda['pe'])
+        if pe_val < 20: 
+            val_txt = "💰 估值低估"
+            val_desc = f"PE仅 {pe_val}，具性价比"
+            val_color = "txt-red"
+        elif pe_val > 60:
+            val_txt = "🌊 估值泡沫"
+            val_desc = f"PE高达 {pe_val}，透支未来"
+            val_color = "txt-green"
+        else:
+            val_txt = "😐 估值合理"
+            val_desc = "价格与价值匹配"
+            val_color = "#333"
+    except:
+        # Fallback 到量能
+        if curr['VolRatio'] > 1.5:
+            val_txt = "📢 巨量异动"
+            val_desc = "成交量放大，主力进场"
+            val_color = "txt-red"
+        else:
+            val_txt = "🔇 缩量整理"
+            val_desc = "市场交投清淡"
+            val_color = "#666"
+
+    # 渲染 HTML Grid
+    html = f"""
+    <div class="dashboard-grid">
+        <div class="signal-card">
+            <div>
+                <div class="card-label">主趋势 (Trend)</div>
+                <div class="card-value {trend_color}">{trend_txt}</div>
+                <div class="card-desc">{trend_desc}</div>
+            </div>
+            <div class="progress-bg"><div class="progress-fill {trend_bar_color}" style="width: {trend_score}%"></div></div>
+        </div>
+
+        <div class="signal-card">
+            <div>
+                <div class="card-label">资金动能 (MACD)</div>
+                <div class="card-value {macd_color}">{macd_txt}</div>
+                <div class="card-desc">{macd_desc}</div>
+            </div>
+            <div style="margin-top:8px; display:flex; gap:2px;">
+                <div style="flex:1; height:4px; background:{'#eee' if curr['HIST']<0 else '#ff3b30'}; border-radius:2px;"></div>
+                <div style="flex:1; height:4px; background:{'#eee' if curr['HIST']>0 else '#00c853'}; border-radius:2px;"></div>
+            </div>
+        </div>
+
+        <div class="signal-card">
+            <div>
+                <div class="card-label">市场情绪 (RSI)</div>
+                <div class="card-value" style="color:{rsi_color}">{rsi_txt}</div>
+                <div class="card-desc">当前数值: {rsi_val:.1f} ({rsi_desc})</div>
+            </div>
+            <div class="progress-bg"><div class="progress-fill bg-blue" style="width: {rsi_val}%"></div></div>
+        </div>
+
+        <div class="signal-card">
+            <div>
+                <div class="card-label">价值/量能</div>
+                <div class="card-value {val_color}">{val_txt}</div>
+                <div class="card-desc">{val_desc}</div>
+            </div>
+             <div style="margin-top:8px; font-size:10px; color:#999; text-align:right;">AlphaQuant Pro</div>
+        </div>
+    </div>
+    """
+    return html
+
 def plot_chart(df, name, flags, ma_s, ma_l):
     fig = make_subplots(rows=4, cols=1, shared_xaxes=True, row_heights=[0.55,0.1,0.15,0.2], vertical_spacing=0.02)
     fig.update_layout(dragmode=False, margin=dict(l=0, r=0, t=10, b=10)) # 去除图表边距
@@ -1704,62 +1853,20 @@ try:
     df = calc_full_indicators(df, ma_s, ma_l)
     df = detect_patterns(df)
     
-    status, msg, css_class = check_market_status(df)
-    st.markdown(f"""
-    <div class="market-status-box {css_class}">
-        <div style="display:flex; align-items:center;">
-            <span class="status-icon">{'🟢' if status=='green' else '🔴' if status=='red' else '🟡'}</span>
-            <div>
-                <div class="status-text">{msg}</div>
-                <div class="status-sub">基于 MA60 牛熊线与波动率分析</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    # 1. 价格大字 (保留，稍微调整间距)
     l = df.iloc[-1]
     color = "#ff3b30" if l['pct_change'] > 0 else "#00c853"
     st.markdown(f"""
-    <div class="big-price-box">
+    <div class="big-price-box" style="margin-bottom: 15px;">
         <span class="price-main" style="color:{color}">{l['close']:.2f}</span>
         <span class="price-sub" style="color:{color}">{l['pct_change']:.2f}%</span>
     </div>
     """, unsafe_allow_html=True)
-    
-    # ✅ 优化位置：使用 app-card 和 Flex 布局重写评分模块
-    sq, sv, st_ = calculate_smart_score(df, funda)
-    
-    # 简单的颜色计算逻辑
-    c_q = "#d32f2f" if sq < 4 else "#fbc02d" if sq < 7 else "#2e7d32"
-    c_v = "#d32f2f" if sv < 4 else "#fbc02d" if sv < 7 else "#2e7d32"
-    c_t = "#d32f2f" if st_ < 4 else "#fbc02d" if st_ < 7 else "#2e7d32"
 
-    st.markdown(f"""
-    <div class="app-card">
-        <div style="font-weight:600; font-size: 16px; margin-bottom: 10px; color: #333;">📊 智能诊股评分 (Smart Score)</div>
-        <div style="display: flex; justify-content: space-around; align-items: center; text-align: center;">
-            <div style="flex: 1; border-right: 1px solid #eee;">
-                <div style="font-size: 12px; color: #666;">🏢 公司质量</div>
-                <div style="font-size: 24px; font-weight: 800; color: {c_q};">{sq}</div>
-                <div style="font-size: 10px; color: #999;">/ 10.0</div>
-            </div>
-            <div style="flex: 1; border-right: 1px solid #eee;">
-                <div style="font-size: 12px; color: #666;">💰 估值安全</div>
-                <div style="font-size: 24px; font-weight: 800; color: {c_v};">{sv}</div>
-                <div style="font-size: 10px; color: #999;">/ 10.0</div>
-            </div>
-             <div style="flex: 1;">
-                 <div style="font-size: 12px; color: #666;">📈 趋势评分</div>
-                <div style="font-size: 24px; font-weight: 800; color: {c_t};">{st_}</div>
-                <div style="font-size: 10px; color: #999;">/ 10.0</div>
-            </div>
-        </div>
-        <div style="margin-top: 10px; font-size: 11px; color: #888; text-align: center; background: #f9f9f9; padding: 4px; border-radius: 4px;">
-            * 评分基于ROE、PE分位及均线形态综合计算
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # 2. 🔥 新增：核心信号仪表盘 (Card Dashboard) - 取代了旧的状态条和评分栏
+    st.markdown(render_signal_dashboard(df, funda), unsafe_allow_html=True)
     
+    # 3. AI 投顾建议 (保留，放在卡片下方作为总结)
     ai_text, ai_mood = generate_ai_copilot_text(df, name)
     ai_icon = "🤖" if ai_mood == "neutral" else "😊" if ai_mood == "happy" else "😰"
     

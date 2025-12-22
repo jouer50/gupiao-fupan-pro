@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+plotly
+tushare
+baostock
+bcrypt
+openpyxl
+lxml
+yfinance
